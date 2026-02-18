@@ -24,6 +24,7 @@ from typing import Any, Callable
 
 from models.musicgen_loader import MusicGenModelLoader
 from utils.audio_io import read_audio, write_audio
+from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError, PipelineExecutionError
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,7 @@ class MusicGenPipeline:
         """Initialise the pipeline with no model loaded and no configuration set.
 
         Post-condition: ``self.is_loaded`` is ``False``; calling :meth:`run`
-        before :meth:`load_model` must raise :class:`RuntimeError`.
+        before :meth:`load_model` must raise :class:`~utils.errors.PipelineExecutionError`.
         """
         pass
 
@@ -183,10 +184,11 @@ class MusicGenPipeline:
 
         Raises
         ------
-        RuntimeError
+        :class:`~utils.errors.PipelineExecutionError`
             If :meth:`configure` has not been called prior to this method.
-        OSError
-            If a checkpoint cannot be read from disk or the download fails.
+        :class:`~utils.errors.ModelLoadError`
+            If a checkpoint cannot be read from disk, the download fails,
+            or the model identifier is not recognised.
 
         Post-condition
         --------------
@@ -220,12 +222,15 @@ class MusicGenPipeline:
 
         Raises
         ------
-        RuntimeError
-            If :meth:`load_model` has not been called successfully.
-        ValueError
-            If *input_data* is an empty string.
-        FileNotFoundError
-            If ``config.melody_path`` is set but does not exist on disk.
+        :class:`~utils.errors.PipelineExecutionError`
+            If :meth:`load_model` has not been called successfully, or if
+            token generation produces invalid output.
+        :class:`~utils.errors.InvalidInputError`
+            If *input_data* is an empty string, or if ``config.melody_path``
+            is set but does not exist on disk or has an unsupported format.
+        :class:`~utils.errors.AudioProcessingError`
+            If reading the melody conditioning file or writing the generated
+            audio to disk fails.
         """
         pass
 

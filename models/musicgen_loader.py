@@ -13,6 +13,8 @@ import logging
 import hashlib
 from typing import Any
 
+from utils.errors import ModelLoadError
+
 
 DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
     pathlib.Path.home() / ".cache" / "stemforge" / "musicgen"
@@ -50,6 +52,13 @@ class MusicGenModelLoader:
         -------
         Any
             Composite object exposing ``lm`` and ``codec`` attributes.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If *model_name* is not a recognised HuggingFace model ID, any
+            checkpoint file is corrupt, or insufficient memory is available
+            to load both the transformer and codec weights.
         """
         pass
 
@@ -58,7 +67,14 @@ class MusicGenModelLoader:
         pass
 
     def download(self, model_name: str) -> pathlib.Path:
-        """Download all model files for *model_name* and return the cache root."""
+        """Download all model files for *model_name* and return the cache root.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If the HuggingFace Hub returns an error, the network is
+            unavailable, or a downloaded file fails its checksum check.
+        """
         pass
 
     def _verify_checksum(self, file_path: pathlib.Path, expected: str) -> bool:

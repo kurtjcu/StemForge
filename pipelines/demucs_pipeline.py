@@ -23,6 +23,7 @@ from typing import Any, Callable
 
 from models.demucs_loader import DemucsModelLoader
 from utils.audio_io import read_audio, write_audio
+from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError, PipelineExecutionError
 from pipelines.resample import Resampler
 
 
@@ -136,7 +137,7 @@ class DemucsPipeline:
         """Initialise the pipeline with no model loaded and no configuration set.
 
         Post-condition: ``self.is_loaded`` is ``False``; calling :meth:`run`
-        before :meth:`load_model` must raise :class:`RuntimeError`.
+        before :meth:`load_model` must raise :class:`~utils.errors.PipelineExecutionError`.
         """
         pass
 
@@ -172,10 +173,11 @@ class DemucsPipeline:
 
         Raises
         ------
-        RuntimeError
+        :class:`~utils.errors.PipelineExecutionError`
             If :meth:`configure` has not been called prior to this method.
-        OSError
-            If the checkpoint cannot be read from disk or the download fails.
+        :class:`~utils.errors.ModelLoadError`
+            If the checkpoint cannot be read from disk or the download fails,
+            or if the model identifier is not recognised.
 
         Post-condition
         --------------
@@ -207,12 +209,14 @@ class DemucsPipeline:
 
         Raises
         ------
-        RuntimeError
-            If :meth:`load_model` has not been called successfully.
-        FileNotFoundError
-            If *input_data* does not exist on disk.
-        ValueError
-            If *input_data* has an unsupported file extension.
+        :class:`~utils.errors.PipelineExecutionError`
+            If :meth:`load_model` has not been called successfully, or if
+            inference produces invalid (NaN/infinite) values.
+        :class:`~utils.errors.InvalidInputError`
+            If *input_data* does not exist on disk or has an unsupported
+            file extension.
+        :class:`~utils.errors.AudioProcessingError`
+            If reading the input file or writing a stem output file fails.
         """
         pass
 

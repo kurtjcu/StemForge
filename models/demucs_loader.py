@@ -13,6 +13,8 @@ import logging
 import hashlib
 from typing import Any
 
+from utils.errors import ModelLoadError
+
 
 DEFAULT_MODEL_CACHE_DIR: pathlib.Path = pathlib.Path.home() / ".cache" / "stemforge" / "demucs"
 
@@ -45,6 +47,12 @@ class DemucsModelLoader:
         -------
         Any
             Loaded model ready for inference (type determined at runtime).
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If *model_name* is not a recognised variant, the checkpoint file
+            is corrupt or missing, or insufficient memory is available.
         """
         pass
 
@@ -53,7 +61,14 @@ class DemucsModelLoader:
         pass
 
     def download(self, model_name: str) -> pathlib.Path:
-        """Download the checkpoint for *model_name* and return its local path."""
+        """Download the checkpoint for *model_name* and return its local path.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If the download fails due to a network error or the remote
+            resource returns an unexpected response.
+        """
         pass
 
     def _verify_checksum(self, file_path: pathlib.Path, expected: str) -> bool:

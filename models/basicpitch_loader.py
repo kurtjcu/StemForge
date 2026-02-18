@@ -13,6 +13,8 @@ import logging
 import hashlib
 from typing import Any
 
+from utils.errors import ModelLoadError
+
 
 DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
     pathlib.Path.home() / ".cache" / "stemforge" / "basicpitch"
@@ -51,6 +53,12 @@ class BasicPitchModelLoader:
         -------
         Any
             Loaded model session ready for frame-level inference.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If the model files are corrupt, cannot be deserialised, or
+            insufficient memory is available to initialise the session.
         """
         pass
 
@@ -59,7 +67,14 @@ class BasicPitchModelLoader:
         pass
 
     def download(self) -> pathlib.Path:
-        """Download the model files and return the root cache directory path."""
+        """Download the model files and return the root cache directory path.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If the download fails due to a network error or the server
+            returns an unexpected response.
+        """
         pass
 
     def _verify_checksum(self, file_path: pathlib.Path, expected: str) -> bool:

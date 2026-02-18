@@ -36,6 +36,8 @@ import pathlib
 import logging
 from typing import Any
 
+from utils.errors import AudioProcessingError, InvalidInputError, PipelineExecutionError
+
 
 # Waveform type alias: a numeric array-like of shape (channels, samples)
 # or (samples,) for mono.  Concrete type is runtime-dependent.
@@ -142,7 +144,7 @@ class ResamplePipeline:
         """Initialise the pipeline with no filter loaded and no configuration set.
 
         Post-condition: ``self.is_loaded`` is ``False``; calling :meth:`run`
-        before :meth:`load_model` must raise :class:`RuntimeError`.
+        before :meth:`load_model` must raise :class:`~utils.errors.PipelineExecutionError`.
         """
         pass
 
@@ -176,9 +178,9 @@ class ResamplePipeline:
 
         Raises
         ------
-        RuntimeError
+        :class:`~utils.errors.PipelineExecutionError`
             If :meth:`configure` has not been called prior to this method.
-        ValueError
+        :class:`~utils.errors.InvalidInputError`
             If either ``original_rate`` or ``target_rate`` is not a positive
             integer.
 
@@ -211,12 +213,13 @@ class ResamplePipeline:
 
         Raises
         ------
-        RuntimeError
+        :class:`~utils.errors.PipelineExecutionError`
             If :meth:`load_model` has not been called successfully.
-        FileNotFoundError
-            If *input_data* does not exist on disk.
-        ValueError
-            If *input_data* has an unsupported file extension.
+        :class:`~utils.errors.InvalidInputError`
+            If *input_data* does not exist on disk or has an unsupported
+            file extension.
+        :class:`~utils.errors.AudioProcessingError`
+            If reading the source audio or writing the resampled output fails.
         """
         pass
 

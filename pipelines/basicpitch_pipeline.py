@@ -25,6 +25,7 @@ from typing import Any, Callable, TypeAlias
 from models.basicpitch_loader import BasicPitchModelLoader
 from utils.audio_io import read_audio
 from utils.midi_io import notes_to_midi, write_midi
+from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError, PipelineExecutionError
 from pipelines.resample import Resampler
 
 
@@ -147,7 +148,7 @@ class BasicPitchPipeline:
         """Initialise the pipeline with no model loaded and no configuration set.
 
         Post-condition: ``self.is_loaded`` is ``False``; calling :meth:`run`
-        before :meth:`load_model` must raise :class:`RuntimeError`.
+        before :meth:`load_model` must raise :class:`~utils.errors.PipelineExecutionError`.
         """
         pass
 
@@ -184,7 +185,7 @@ class BasicPitchPipeline:
 
         Raises
         ------
-        OSError
+        :class:`~utils.errors.ModelLoadError`
             If the checkpoint cannot be read from disk or the download fails.
 
         Post-condition
@@ -218,12 +219,13 @@ class BasicPitchPipeline:
 
         Raises
         ------
-        RuntimeError
+        :class:`~utils.errors.PipelineExecutionError`
             If :meth:`load_model` has not been called successfully.
-        FileNotFoundError
-            If *input_data* does not exist on disk.
-        ValueError
-            If *input_data* has an unsupported file extension.
+        :class:`~utils.errors.InvalidInputError`
+            If *input_data* does not exist on disk or has an unsupported
+            file extension.
+        :class:`~utils.errors.AudioProcessingError`
+            If reading or resampling the input audio fails.
         """
         pass
 
