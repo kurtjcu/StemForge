@@ -60,6 +60,8 @@ dependencies = [
     "mido>=1.3.2",
     # Web-based GUI
     "gradio>=4.0.0",
+    # TOML config-file parsing (tomllib is stdlib in 3.11+; backport for 3.10)
+    "tomli>=2.0.0; python_version < '3.11'",
 ]
 
 # ---------------------------------------------------------------------------
@@ -92,6 +94,7 @@ stemforge = "gui.app:main"
 # ---------------------------------------------------------------------------
 [tool.hatch.build.targets.wheel]
 packages = ["gui", "pipelines", "models", "utils"]
+include = ["config.py"]
 
 # ---------------------------------------------------------------------------
 # Ruff – linter and formatter
@@ -116,7 +119,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["gui", "pipelines", "models", "utils"]
+known-first-party = ["config", "gui", "pipelines", "models", "utils"]
 
 # ---------------------------------------------------------------------------
 # Mypy – static type checking
