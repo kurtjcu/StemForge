@@ -1,0 +1,145 @@
+# =============================================================================
+# StemForge .gitignore
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+pip-wheel-metadata/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+
+# -----------------------------------------------------------------------------
+# Build & type-checking caches
+# -----------------------------------------------------------------------------
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.pyre/
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# -----------------------------------------------------------------------------
+# Gradio
+# -----------------------------------------------------------------------------
+.gradio/
+gradio_cached_examples/
+flagged/
+
+# -----------------------------------------------------------------------------
+# Model weights & checkpoints
+# Never commit multi-gigabyte model files.
+# Use the loader modules to download them on demand instead.
+# -----------------------------------------------------------------------------
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.pb          # TensorFlow SavedModel protobuf
+*.tflite
+*.mlmodel     # Core ML
+
+# -----------------------------------------------------------------------------
+# Audio artefacts
+# Generated stems, resampled files, and MusicGen outputs should not be
+# committed.  Add an explicit negative rule below if you need small test
+# fixtures tracked (e.g. !tests/fixtures/sample.wav).
+# -----------------------------------------------------------------------------
+*.wav
+*.flac
+*.mp3
+*.ogg
+*.aiff
+*.aif
+*.m4a
+*.opus
+
+# MIDI output
+*.mid
+*.midi
+
+# -----------------------------------------------------------------------------
+# Logs
+# -----------------------------------------------------------------------------
+logs/
+*.log
+*.log.*
+
+# -----------------------------------------------------------------------------
+# OS / editor noise
+# -----------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encdata
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+
+# JetBrains IDEs (PyCharm, etc.)
+.idea/
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Vim / Emacs swap files
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+# -----------------------------------------------------------------------------
+# Jupyter
+# -----------------------------------------------------------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# -----------------------------------------------------------------------------
+# Secrets & local config
+# -----------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+secrets.toml
+config.local.toml
