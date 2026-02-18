@@ -11,6 +11,8 @@ import pathlib
 import logging
 import threading
 
+from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig, DemucsResult
+
 
 DEMUCS_MODELS: tuple[str, ...] = ("htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q")
 

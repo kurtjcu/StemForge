@@ -12,6 +12,8 @@ import pathlib
 import logging
 import threading
 
+from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
+
 
 MUSICGEN_MODELS: tuple[str, ...] = (
     "facebook/musicgen-small",

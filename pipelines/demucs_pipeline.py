@@ -21,6 +21,10 @@ import pathlib
 import logging
 from typing import Callable
 
+from models.demucs_loader import DemucsModelLoader
+from utils.audio_io import read_audio, write_audio
+from pipelines.resample import Resampler
+
 
 # ---------------------------------------------------------------------------
 # Configuration

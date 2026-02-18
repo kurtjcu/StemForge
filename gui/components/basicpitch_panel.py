@@ -11,6 +11,8 @@ import pathlib
 import logging
 import threading
 
+from pipelines.basicpitch_pipeline import BasicPitchPipeline, BasicPitchConfig, BasicPitchResult
+
 
 class BasicPitchPanel:
     """UI panel for configuring and running the BasicPitch MIDI extraction pipeline.

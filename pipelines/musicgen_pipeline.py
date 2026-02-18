@@ -22,6 +22,9 @@ import pathlib
 import logging
 from typing import Callable
 
+from models.musicgen_loader import MusicGenModelLoader
+from utils.audio_io import read_audio, write_audio
+
 
 # ---------------------------------------------------------------------------
 # Configuration

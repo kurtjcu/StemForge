@@ -10,6 +10,9 @@ import os
 import pathlib
 import logging
 
+from utils.audio_io import write_audio
+from utils.midi_io import write_midi
+
 
 EXPORT_FORMATS: tuple[str, ...] = ("wav", "flac", "mp3", "ogg")
 

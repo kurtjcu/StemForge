@@ -194,9 +194,6 @@ def on_run_export(fmt: str, output_dir: str) -> str:
 # UI construction
 # ---------------------------------------------------------------------------
 
-_ACCEPTED_AUDIO = [f".{ext.lstrip('.')}" for ext in SUPPORTED_EXTENSIONS]
-
-
 def build_ui() -> gr.Blocks:
     """Construct and return the top-level Gradio Blocks application.
 

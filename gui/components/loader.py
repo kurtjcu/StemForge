@@ -11,6 +11,8 @@ import os
 import pathlib
 import logging
 
+from utils.audio_io import read_audio
+
 
 SUPPORTED_EXTENSIONS: tuple[str, ...] = (".wav", ".flac", ".mp3", ".ogg", ".aiff")
 
