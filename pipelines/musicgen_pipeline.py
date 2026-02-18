@@ -20,7 +20,7 @@ Typical usage
 
 import pathlib
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from models.musicgen_loader import MusicGenModelLoader
 from utils.audio_io import read_audio, write_audio
@@ -56,6 +56,13 @@ class MusicGenConfig:
         Created automatically if it does not exist.
     """
 
+    model_name: str
+    duration_seconds: float
+    melody_path: pathlib.Path | None
+    top_k: int
+    temperature: float
+    output_dir: pathlib.Path | None
+
     def __init__(
         self,
         model_name: str,
@@ -85,6 +92,10 @@ class MusicGenResult:
         Actual duration of the generated clip in seconds.  May differ
         slightly from the requested duration due to token-boundary rounding.
     """
+
+    audio_path: pathlib.Path
+    sample_rate: int
+    duration_seconds: float
 
     def __init__(
         self,
@@ -125,6 +136,12 @@ class MusicGenPipeline:
     * Because generation is memory-intensive, it is strongly recommended
       to call :meth:`clear` between sessions to free GPU/CPU RAM.
     """
+
+    is_loaded: bool
+    _config: MusicGenConfig | None
+    _model: Any
+    _loader: MusicGenModelLoader | None
+    _progress_callback: Callable[[float], None] | None
 
     def __init__(self) -> None:
         """Initialise the pipeline with no model loaded and no configuration set.
@@ -252,7 +269,7 @@ class MusicGenPipeline:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _encode_melody(self, melody_path: pathlib.Path) -> object:
+    def _encode_melody(self, melody_path: pathlib.Path) -> Any:
         """Load the melody conditioning file and encode it with the EnCodec codec.
 
         Parameters
@@ -262,7 +279,7 @@ class MusicGenPipeline:
 
         Returns
         -------
-        object
+        Any
             Encoded melody representation accepted by the language model's
             conditioning mechanism.
         """
@@ -271,8 +288,8 @@ class MusicGenPipeline:
     def _generate_tokens(
         self,
         prompt: str,
-        melody_encoding: object | None,
-    ) -> object:
+        melody_encoding: Any | None,
+    ) -> Any:
         """Run autoregressive token generation conditioned on *prompt*.
 
         Parameters
@@ -285,13 +302,13 @@ class MusicGenPipeline:
 
         Returns
         -------
-        object
+        Any
             Raw EnCodec token sequence of shape
             ``(batch, codebooks, time_steps)``.
         """
         pass
 
-    def _decode_tokens(self, tokens: object) -> object:
+    def _decode_tokens(self, tokens: Any) -> Any:
         """Decode the EnCodec token sequence back to a raw audio waveform.
 
         Parameters
@@ -301,13 +318,13 @@ class MusicGenPipeline:
 
         Returns
         -------
-        object
+        Any
             Decoded waveform array of shape ``(channels, samples)`` at
             the codec's native sample rate.
         """
         pass
 
-    def _write_audio(self, waveform: object, output_path: pathlib.Path) -> None:
+    def _write_audio(self, waveform: Any, output_path: pathlib.Path) -> None:
         """Write the decoded *waveform* to an audio file at *output_path*.
 
         Parameters

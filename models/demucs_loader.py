@@ -11,6 +11,7 @@ import os
 import pathlib
 import logging
 import hashlib
+from typing import Any
 
 
 DEFAULT_MODEL_CACHE_DIR: pathlib.Path = pathlib.Path.home() / ".cache" / "stemforge" / "demucs"
@@ -26,10 +27,13 @@ class DemucsModelLoader:
         to ``~/.cache/stemforge/demucs``.
     """
 
+    cache_dir: pathlib.Path
+    _registry: dict[str, Any]
+
     def __init__(self, cache_dir: pathlib.Path = DEFAULT_MODEL_CACHE_DIR) -> None:
         pass
 
-    def load(self, model_name: str) -> object:
+    def load(self, model_name: str) -> Any:
         """Return the model for *model_name*, loading it from cache or downloading it.
 
         Parameters
@@ -39,7 +43,7 @@ class DemucsModelLoader:
 
         Returns
         -------
-        object
+        Any
             Loaded model ready for inference (type determined at runtime).
         """
         pass

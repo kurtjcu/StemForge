@@ -10,6 +10,7 @@ import os
 import pathlib
 import logging
 import threading
+from typing import Callable
 
 from pipelines.basicpitch_pipeline import BasicPitchPipeline, BasicPitchConfig, BasicPitchResult
 
@@ -20,6 +21,12 @@ class BasicPitchPanel:
     Provides stem selector, confidence threshold sliders, a run button,
     a basic piano-roll preview area, and MIDI export controls.
     """
+
+    _pipeline: BasicPitchPipeline | None
+    _thread: threading.Thread | None
+    _stem_paths: dict[str, pathlib.Path]
+    _selected_stem: pathlib.Path | None
+    _result_listeners: list[Callable[[pathlib.Path], None]]
 
     def __init__(self) -> None:
         pass
@@ -64,6 +71,6 @@ class BasicPitchPanel:
         """Render a lightweight piano-roll preview from the MIDI file."""
         pass
 
-    def add_result_listener(self, callback: object) -> None:
+    def add_result_listener(self, callback: Callable[[pathlib.Path], None]) -> None:
         """Register *callback* to receive the MIDI path on success."""
         pass

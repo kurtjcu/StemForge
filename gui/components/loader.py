@@ -10,6 +10,7 @@ invoked.
 import os
 import pathlib
 import logging
+from typing import Callable
 
 from utils.audio_io import read_audio
 
@@ -23,6 +24,9 @@ class LoaderPanel:
     Emits a notification to registered listeners whenever a new valid
     file path is chosen.
     """
+
+    _path: pathlib.Path | None
+    _listeners: list[Callable[[pathlib.Path], None]]
 
     def __init__(self) -> None:
         pass
@@ -47,6 +51,6 @@ class LoaderPanel:
         """Invoke all registered path-change callbacks."""
         pass
 
-    def add_listener(self, callback: object) -> None:
+    def add_listener(self, callback: Callable[[pathlib.Path], None]) -> None:
         """Register *callback* to be called when the selected path changes."""
         pass

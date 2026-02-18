@@ -11,6 +11,7 @@ import os
 import pathlib
 import logging
 import hashlib
+from typing import Any
 
 
 DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
@@ -32,6 +33,10 @@ class BasicPitchModelLoader:
         Preferred model serialisation format (``'savedmodel'`` or ``'onnx'``).
     """
 
+    cache_dir: pathlib.Path
+    preferred_format: str
+    _model: Any
+
     def __init__(
         self,
         cache_dir: pathlib.Path = DEFAULT_MODEL_CACHE_DIR,
@@ -39,12 +44,12 @@ class BasicPitchModelLoader:
     ) -> None:
         pass
 
-    def load(self) -> object:
+    def load(self) -> Any:
         """Return the BasicPitch model, loading or downloading it as needed.
 
         Returns
         -------
-        object
+        Any
             Loaded model session ready for frame-level inference.
         """
         pass

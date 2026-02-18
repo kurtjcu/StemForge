@@ -34,6 +34,12 @@ Typical usage (low-level helpers)
 
 import pathlib
 import logging
+from typing import Any
+
+
+# Waveform type alias: a numeric array-like of shape (channels, samples)
+# or (samples,) for mono.  Concrete type is runtime-dependent.
+Waveform = Any
 
 
 # ---------------------------------------------------------------------------
@@ -56,6 +62,11 @@ class ResampleConfig:
         String appended to the input filename stem before the extension
         (e.g. ``'_22050'`` produces ``vocals_22050.wav``).
     """
+
+    original_rate: int
+    target_rate: int
+    output_dir: pathlib.Path | None
+    output_suffix: str
 
     def __init__(
         self,
@@ -85,6 +96,11 @@ class ResampleResult:
     duration_seconds:
         Duration of the resampled audio in seconds.
     """
+
+    output_path: pathlib.Path
+    original_rate: int
+    target_rate: int
+    duration_seconds: float
 
     def __init__(
         self,
@@ -117,6 +133,10 @@ class ResamplePipeline:
     4. ``result = pipeline.run(path)`` — resample one audio file.
     5. ``pipeline.clear()``            — reset filter state and free memory.
     """
+
+    is_loaded: bool
+    _config: ResampleConfig | None
+    _resampler: "Resampler | None"
 
     def __init__(self) -> None:
         """Initialise the pipeline with no filter loaded and no configuration set.
@@ -247,10 +267,10 @@ class ResamplePipeline:
 # ---------------------------------------------------------------------------
 
 def resample(
-    waveform: object,
+    waveform: Waveform,
     original_rate: int,
     target_rate: int,
-) -> object:
+) -> Waveform:
     """Resample *waveform* from *original_rate* to *target_rate* Hz.
 
     A stateless convenience wrapper over :class:`Resampler`.  Prefer
@@ -269,7 +289,7 @@ def resample(
 
     Returns
     -------
-    object
+    Waveform
         Resampled waveform with the same channel layout as the input and
         length approximately ``samples * target_rate / original_rate``.
     """
@@ -320,10 +340,14 @@ class Resampler:
         Desired output sample rate in Hz.
     """
 
+    original_rate: int
+    target_rate: int
+    _state: Any   # internal filter delay-line state; type is runtime-dependent
+
     def __init__(self, original_rate: int, target_rate: int) -> None:
         pass
 
-    def __call__(self, waveform: object) -> object:
+    def __call__(self, waveform: Waveform) -> Waveform:
         """Apply the cached resampling filter to *waveform*.
 
         Parameters
@@ -333,7 +357,7 @@ class Resampler:
 
         Returns
         -------
-        object
+        Waveform
             Resampled waveform with the same channel layout as the input.
         """
         pass

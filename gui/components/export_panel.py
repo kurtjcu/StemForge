@@ -9,6 +9,7 @@ files, select export formats, and trigger the final write operation.
 import os
 import pathlib
 import logging
+from typing import Callable
 
 from utils.audio_io import write_audio
 from utils.midi_io import write_midi
@@ -24,6 +25,11 @@ class ExportPanel:
     audio), format and bit-depth selectors, a destination folder picker,
     and an Export button.
     """
+
+    _artefacts: dict[str, pathlib.Path]
+    _selected_artefacts: list[pathlib.Path]
+    _output_directory: pathlib.Path | None
+    _export_format: str
 
     def __init__(self) -> None:
         pass

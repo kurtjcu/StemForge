@@ -11,6 +11,7 @@ import os
 import pathlib
 import logging
 import hashlib
+from typing import Any
 
 
 DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
@@ -28,10 +29,13 @@ class MusicGenModelLoader:
         to ``~/.cache/stemforge/musicgen``.
     """
 
+    cache_dir: pathlib.Path
+    _registry: dict[str, Any]
+
     def __init__(self, cache_dir: pathlib.Path = DEFAULT_MODEL_CACHE_DIR) -> None:
         pass
 
-    def load(self, model_name: str) -> object:
+    def load(self, model_name: str) -> Any:
         """Return the MusicGen model for *model_name*.
 
         Both the transformer and EnCodec weights are loaded and returned as
@@ -44,7 +48,7 @@ class MusicGenModelLoader:
 
         Returns
         -------
-        object
+        Any
             Composite object exposing ``lm`` and ``codec`` attributes.
         """
         pass

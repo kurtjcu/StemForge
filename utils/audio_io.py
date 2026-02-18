@@ -12,13 +12,20 @@ import pathlib
 import logging
 import struct
 import wave
+from typing import Any
+
+
+# A waveform is a numeric array-like of shape (channels, samples) or (samples,).
+# The concrete type depends on the runtime tensor library (numpy, torch, etc.),
+# so Any is used here and throughout.
+Waveform = Any
 
 
 def read_audio(
     path: pathlib.Path,
     mono: bool = False,
     target_rate: int | None = None,
-) -> tuple[object, int]:
+) -> tuple[Waveform, int]:
     """Read an audio file and return ``(waveform, sample_rate)``.
 
     Parameters
@@ -32,7 +39,7 @@ def read_audio(
 
     Returns
     -------
-    tuple[object, int]
+    tuple[Waveform, int]
         A ``(waveform, sample_rate)`` pair where *waveform* is a numeric
         array of shape ``(channels, samples)`` and *sample_rate* is in Hz.
     """
@@ -40,7 +47,7 @@ def read_audio(
 
 
 def write_audio(
-    waveform: object,
+    waveform: Waveform,
     sample_rate: int,
     path: pathlib.Path,
     fmt: str = "wav",
@@ -91,11 +98,11 @@ def get_sample_rate(path: pathlib.Path) -> int:
     pass
 
 
-def mix_down_to_mono(waveform: object) -> object:
+def mix_down_to_mono(waveform: Waveform) -> Waveform:
     """Average all channels of *waveform* into a single-channel array."""
     pass
 
 
-def normalise_peak(waveform: object, peak: float = 1.0) -> object:
+def normalise_peak(waveform: Waveform, peak: float = 1.0) -> Waveform:
     """Scale *waveform* so that its absolute peak equals *peak*."""
     pass

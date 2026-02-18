@@ -20,12 +20,16 @@ Typical usage
 
 import pathlib
 import logging
-from typing import Callable
+from typing import Any, Callable, TypeAlias
 
 from models.basicpitch_loader import BasicPitchModelLoader
 from utils.audio_io import read_audio
 from utils.midi_io import notes_to_midi, write_midi
 from pipelines.resample import Resampler
+
+
+# A note event is a (start_sec, end_sec, pitch_midi, velocity) tuple.
+NoteEvent: TypeAlias = tuple[float, float, int, int]
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +62,13 @@ class BasicPitchConfig:
         output is written alongside the input audio file.
     """
 
+    onset_threshold: float
+    frame_threshold: float
+    minimum_note_length: float
+    minimum_frequency: float | None
+    maximum_frequency: float | None
+    output_dir: pathlib.Path | None
+
     def __init__(
         self,
         onset_threshold: float = 0.5,
@@ -87,10 +98,13 @@ class BasicPitchResult:
         *pitch_midi* follows the standard MIDI pitch numbering (0–127).
     """
 
+    midi_path: pathlib.Path
+    note_events: list[NoteEvent]
+
     def __init__(
         self,
         midi_path: pathlib.Path,
-        note_events: list[tuple[float, float, int, int]],
+        note_events: list[NoteEvent],
     ) -> None:
         pass
 
@@ -121,6 +135,13 @@ class BasicPitchPipeline:
     * The model internally operates at 22 050 Hz; :meth:`_preprocess`
       handles resampling transparently.
     """
+
+    is_loaded: bool
+    _config: BasicPitchConfig | None
+    _model: Any
+    _loader: BasicPitchModelLoader | None
+    _resampler: Resampler | None
+    _progress_callback: Callable[[float], None] | None
 
     def __init__(self) -> None:
         """Initialise the pipeline with no model loaded and no configuration set.
@@ -244,7 +265,7 @@ class BasicPitchPipeline:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _preprocess(self, input_path: pathlib.Path) -> object:
+    def _preprocess(self, input_path: pathlib.Path) -> Any:
         """Downmix the input to mono and resample to 22 050 Hz.
 
         Parameters
@@ -254,12 +275,12 @@ class BasicPitchPipeline:
 
         Returns
         -------
-        object
+        Any
             Mono waveform array at 22 050 Hz, shape ``(samples,)``.
         """
         pass
 
-    def _run_inference(self, frames: object) -> object:
+    def _run_inference(self, frames: Any) -> Any:
         """Run the BasicPitch model on the prepared frame sequence.
 
         Parameters
@@ -269,17 +290,14 @@ class BasicPitchPipeline:
 
         Returns
         -------
-        object
+        Any
             Raw activation arrays: onset activations, frame activations,
             and contour activations, each of shape
             ``(frames, pitch_bins)``.
         """
         pass
 
-    def _activations_to_notes(
-        self,
-        activations: object,
-    ) -> list[tuple[float, float, int, int]]:
+    def _activations_to_notes(self, activations: Any) -> list[NoteEvent]:
         """Decode raw activations into discrete note events.
 
         Applies the onset and frame thresholds from the current configuration
@@ -292,7 +310,7 @@ class BasicPitchPipeline:
 
         Returns
         -------
-        list[tuple[float, float, int, int]]
+        list[NoteEvent]
             List of ``(start_sec, end_sec, pitch_midi, velocity)`` tuples,
             sorted by ``start_sec``.
         """
@@ -300,7 +318,7 @@ class BasicPitchPipeline:
 
     def _write_midi(
         self,
-        note_events: list[tuple[float, float, int, int]],
+        note_events: list[NoteEvent],
         output_path: pathlib.Path,
     ) -> None:
         """Serialise *note_events* to a Standard MIDI File at *output_path*.

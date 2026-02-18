@@ -11,6 +11,7 @@ import os
 import pathlib
 import logging
 import threading
+from typing import Callable
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
 
@@ -30,6 +31,11 @@ class MusicGenPanel:
     optional melody-conditioning toggle, a run button, and a waveform
     preview of the generated audio.
     """
+
+    _pipeline: MusicGenPipeline | None
+    _thread: threading.Thread | None
+    _melody_path: pathlib.Path | None
+    _result_listeners: list[Callable[[pathlib.Path], None]]
 
     def __init__(self) -> None:
         pass
@@ -78,6 +84,6 @@ class MusicGenPanel:
         """Render a waveform thumbnail for the generated audio file."""
         pass
 
-    def add_result_listener(self, callback: object) -> None:
+    def add_result_listener(self, callback: Callable[[pathlib.Path], None]) -> None:
         """Register *callback* to receive the generated audio path on success."""
         pass

@@ -19,7 +19,7 @@ Typical usage
 
 import pathlib
 import logging
-from typing import Callable
+from typing import Any, Callable
 
 from models.demucs_loader import DemucsModelLoader
 from utils.audio_io import read_audio, write_audio
@@ -49,6 +49,11 @@ class DemucsConfig:
         operates at its native rate; this applies to the final write only.
     """
 
+    model_name: str
+    stems: list[str]
+    output_dir: pathlib.Path
+    sample_rate: int
+
     def __init__(
         self,
         model_name: str,
@@ -76,6 +81,10 @@ class DemucsResult:
     duration_seconds:
         Duration of the separated audio in seconds.
     """
+
+    stem_paths: dict[str, pathlib.Path]
+    sample_rate: int
+    duration_seconds: float
 
     def __init__(
         self,
@@ -115,6 +124,13 @@ class DemucsPipeline:
     * The class does *not* start background threads; thread management
       is the caller's responsibility.
     """
+
+    is_loaded: bool
+    _config: DemucsConfig | None
+    _model: Any
+    _loader: DemucsModelLoader | None
+    _resampler: Resampler | None
+    _progress_callback: Callable[[float, str], None] | None
 
     def __init__(self) -> None:
         """Initialise the pipeline with no model loaded and no configuration set.
@@ -239,7 +255,7 @@ class DemucsPipeline:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _preprocess(self, input_path: pathlib.Path) -> object:
+    def _preprocess(self, input_path: pathlib.Path) -> Any:
         """Load the audio file, downmix to stereo, and resample to the model rate.
 
         Parameters
@@ -249,13 +265,13 @@ class DemucsPipeline:
 
         Returns
         -------
-        object
+        Any
             Normalised waveform tensor ready for inference, shape
             ``(channels, samples)``.
         """
         pass
 
-    def _run_inference(self, waveform: object) -> dict[str, object]:
+    def _run_inference(self, waveform: Any) -> dict[str, Any]:
         """Pass *waveform* through the loaded Demucs model.
 
         Parameters
@@ -265,12 +281,12 @@ class DemucsPipeline:
 
         Returns
         -------
-        dict[str, object]
+        dict[str, Any]
             Raw per-stem waveform tensors keyed by stem name.
         """
         pass
 
-    def _postprocess(self, raw_stems: dict[str, object]) -> dict[str, pathlib.Path]:
+    def _postprocess(self, raw_stems: dict[str, Any]) -> dict[str, pathlib.Path]:
         """Clip, rescale, and write each raw stem tensor to an audio file.
 
         Parameters

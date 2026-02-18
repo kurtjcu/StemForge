@@ -27,11 +27,11 @@ from gui.components.export_panel import ExportPanel, EXPORT_FORMATS
 # Panel singletons — one instance per pipeline, shared across callbacks
 # ---------------------------------------------------------------------------
 
-_loader = LoaderPanel()
-_demucs = DemucsPanel()
-_basicpitch = BasicPitchPanel()
-_musicgen = MusicGenPanel()
-_export = ExportPanel()
+_loader: LoaderPanel = LoaderPanel()
+_demucs: DemucsPanel = DemucsPanel()
+_basicpitch: BasicPitchPanel = BasicPitchPanel()
+_musicgen: MusicGenPanel = MusicGenPanel()
+_export: ExportPanel = ExportPanel()
 
 # ---------------------------------------------------------------------------
 # Tab 1 — Load Audio callbacks
@@ -193,6 +193,7 @@ def on_run_export(fmt: str, output_dir: str) -> str:
 # ---------------------------------------------------------------------------
 # UI construction
 # ---------------------------------------------------------------------------
+
 
 def build_ui() -> gr.Blocks:
     """Construct and return the top-level Gradio Blocks application.

@@ -10,6 +10,7 @@ import os
 import pathlib
 import logging
 import threading
+from typing import Callable
 
 from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig, DemucsResult
 
@@ -26,6 +27,11 @@ class DemucsPanel:
     progress indicator.  Results (file paths of separated stems) are
     passed to registered result listeners.
     """
+
+    _pipeline: DemucsPipeline | None
+    _thread: threading.Thread | None
+    _input_path: pathlib.Path | None
+    _result_listeners: list[Callable[[dict[str, pathlib.Path]], None]]
 
     def __init__(self) -> None:
         pass
@@ -62,6 +68,8 @@ class DemucsPanel:
         """Display an error message when the pipeline raises an exception."""
         pass
 
-    def add_result_listener(self, callback: object) -> None:
+    def add_result_listener(
+        self, callback: Callable[[dict[str, pathlib.Path]], None]
+    ) -> None:
         """Register *callback* to receive the dict of stem paths on success."""
         pass
