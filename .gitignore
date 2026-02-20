@@ -84,6 +84,11 @@ flagged/
 *.m4a
 *.opus
 
+# Test fixtures (small reference files needed for smoke tests)
+!tests/data/*.wav
+!tests/data/*.flac
+!tests/data/*.mid
+
 # MIDI output
 *.mid
 *.midi
