@@ -380,9 +380,23 @@ class VocalMidiPipeline:
                 model_name=self._config.whisper_model_size,
             ) from exc
 
-        # BasicPitch loads its weights lazily on the first predict() call.
-        # Store the model path so _extract_notes can pass it explicitly,
-        # avoiding a re-discover on every call.
+        # BasicPitch uses TensorFlow. Force CPU mode:
+        # This TF build has no precompiled CUDA kernels for compute capability
+        # ≥ 12.0 and ptxas is unavailable for JIT fallback, so GPU execution
+        # fails. We apply both approaches so it works regardless of whether TF
+        # has already been initialised transitively by another import:
+        #   1. Env var (effective if TF has not yet been imported)
+        #   2. tf.config.set_visible_devices (effective at runtime)
+        import os
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+        os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+        try:
+            import tensorflow as tf
+            tf.config.set_visible_devices([], "GPU")
+            log.debug("TensorFlow GPU devices hidden for BasicPitch CPU inference.")
+        except Exception as tf_exc:
+            log.debug("Could not configure TF devices (may already be CPU-only): %s", tf_exc)
+
         try:
             from basic_pitch import ICASSP_2022_MODEL_PATH
             self._basicpitch_model = ICASSP_2022_MODEL_PATH

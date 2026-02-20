@@ -38,10 +38,9 @@ classifiers = [
 # Runtime dependencies — REAL, VERIFIED, EXECUTION-READY
 # ---------------------------------------------------------------------------
 dependencies = [
-    # Core PyTorch stack not uv manageable. Install with pip.
-    #"torch==2.9.1+cu128",
-    #"torchaudio==2.9.1+cu128",
-    #"torchvision==0.20.1+cu128",
+    # Core PyTorch stack — CUDA 12.8 wheels via pytorch-cu128 index below.
+    "torch==2.10.0",
+    "torchaudio==2.10.0",
 
     # GitHub-pinned ML components (renamed distributions)
     "demucs @ git+https://github.com/facebookresearch/demucs.git@v4.0.1",
@@ -123,11 +122,19 @@ stemforge = "gui.app:main"
 # Tool hints ----------------------------------------------------------------
 [tool.uv]
 environments = ["python_version == '3.11' and sys_platform == 'linux'"]
+# audiocraft's wheel metadata still pins torch==2.1.0 and torchaudio<2.1.2.
+# The fork is functionally compatible with 2.10.0 — override the stale pins.
+override-dependencies = [
+    "torch>=2.4.0",
+    "torchaudio>=2.4.0",
+]
 [[tool.uv.index]]
-name = "pytorch"
+name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 [tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
 audiocraft = { git = "https://github.com/tsondo/audiocraft.git", rev = "fedora-av-compat" }
 flashy = { path = "vendor/flashy_src" }
 #---------------------------------------------------------------------------
