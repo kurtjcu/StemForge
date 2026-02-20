@@ -24,13 +24,15 @@ from typing import Any, Callable, TypeAlias
 
 from models.basicpitch_loader import BasicPitchModelLoader
 from utils.audio_io import read_audio
-from utils.midi_io import notes_to_midi, write_midi
+from utils.midi_io import notes_to_midi, write_midi, NoteEvent
 from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError, PipelineExecutionError
 from pipelines.resample import Resampler
 
 
-# A note event is a (start_sec, end_sec, pitch_midi, velocity) tuple.
-NoteEvent: TypeAlias = tuple[float, float, int, int]
+log = logging.getLogger("stemforge.pipelines.basicpitch")
+
+# BasicPitch operates at this sample rate internally.
+_BASICPITCH_SAMPLE_RATE: int = 22_050
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +81,12 @@ class BasicPitchConfig:
         maximum_frequency: float | None = None,
         output_dir: pathlib.Path | None = None,
     ) -> None:
-        pass
+        self.onset_threshold = float(onset_threshold)
+        self.frame_threshold = float(frame_threshold)
+        self.minimum_note_length = float(minimum_note_length)
+        self.minimum_frequency = minimum_frequency
+        self.maximum_frequency = maximum_frequency
+        self.output_dir = pathlib.Path(output_dir) if output_dir is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +114,8 @@ class BasicPitchResult:
         midi_path: pathlib.Path,
         note_events: list[NoteEvent],
     ) -> None:
-        pass
+        self.midi_path = midi_path
+        self.note_events = list(note_events)
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +158,12 @@ class BasicPitchPipeline:
         Post-condition: ``self.is_loaded`` is ``False``; calling :meth:`run`
         before :meth:`load_model` must raise :class:`~utils.errors.PipelineExecutionError`.
         """
-        pass
+        self.is_loaded = False
+        self._config = None
+        self._model = None
+        self._loader = None
+        self._resampler = None
+        self._progress_callback = None
 
     # ------------------------------------------------------------------
     # Configuration
@@ -169,7 +182,7 @@ class BasicPitchPipeline:
         config:
             A fully populated :class:`BasicPitchConfig` instance.
         """
-        pass
+        self._config = config
 
     # ------------------------------------------------------------------
     # Model management
@@ -192,7 +205,20 @@ class BasicPitchPipeline:
         --------------
         ``self.is_loaded`` is ``True`` and the model is ready for inference.
         """
-        pass
+        if self._loader is None:
+            self._loader = BasicPitchModelLoader()
+
+        try:
+            self._model = self._loader.load()
+        except ModelLoadError:
+            raise
+        except Exception as exc:
+            raise ModelLoadError(
+                f"Unexpected error loading BasicPitch model: {exc}",
+                model_name="basicpitch",
+            ) from exc
+
+        self.is_loaded = True
 
     # ------------------------------------------------------------------
     # Execution
@@ -227,7 +253,39 @@ class BasicPitchPipeline:
         :class:`~utils.errors.AudioProcessingError`
             If reading or resampling the input audio fails.
         """
-        pass
+        if not self.is_loaded:
+            raise PipelineExecutionError(
+                "load_model() must be called before run().",
+                pipeline_name="basicpitch",
+            )
+        if self._config is None:
+            raise PipelineExecutionError(
+                "configure() must be called before run().",
+                pipeline_name="basicpitch",
+            )
+        if not input_data.exists():
+            raise InvalidInputError(
+                f"Input file not found: {input_data}", field="input_data"
+            )
+
+        self._report(5.0)
+        audio_path = self._preprocess(input_data)
+
+        self._report(10.0)
+        raw_events = self._run_inference(audio_path)
+
+        self._report(85.0)
+        note_events = self._activations_to_notes(raw_events)
+
+        self._report(90.0)
+        output_path = self._resolve_output_path(input_data)
+        self._write_midi(note_events, output_path)
+
+        self._report(100.0)
+        log.info(
+            "BasicPitch: %d notes → %s", len(note_events), output_path
+        )
+        return BasicPitchResult(midi_path=output_path.resolve(), note_events=note_events)
 
     # ------------------------------------------------------------------
     # Cleanup
@@ -246,7 +304,10 @@ class BasicPitchPipeline:
         --------------
         ``self.is_loaded`` is ``False`` and ``self._model`` is ``None``.
         """
-        pass
+        if self._loader is not None:
+            self._loader.evict()
+        self._model = None
+        self.is_loaded = False
 
     # ------------------------------------------------------------------
     # Progress reporting
@@ -261,14 +322,23 @@ class BasicPitchPipeline:
             A callable with signature ``callback(percent: float)``.
             *percent* is in the range ``[0.0, 100.0]``.
         """
-        pass
+        self._progress_callback = callback
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _preprocess(self, input_path: pathlib.Path) -> Any:
+    def _report(self, pct: float) -> None:
+        if self._progress_callback is not None:
+            self._progress_callback(pct)
+
+    def _preprocess(self, input_path: pathlib.Path) -> pathlib.Path:
         """Downmix the input to mono and resample to 22 050 Hz.
+
+        BasicPitch's ``predict`` function handles audio loading and
+        resampling internally, so this method validates the path and
+        returns it unchanged.  The docstring's "Mono waveform at 22 050 Hz"
+        contract is satisfied by BasicPitch internally.
 
         Parameters
         ----------
@@ -280,10 +350,24 @@ class BasicPitchPipeline:
         Any
             Mono waveform array at 22 050 Hz, shape ``(samples,)``.
         """
-        pass
+        # Validate path via audio_io so we get a consistent error type.
+        from utils.audio_io import SUPPORTED_EXTENSIONS
+        if not input_path.exists():
+            raise InvalidInputError(
+                f"Audio file not found: {input_path}", field="input_data"
+            )
+        if input_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+            raise InvalidInputError(
+                f"Unsupported audio extension '{input_path.suffix}'.",
+                field="input_data",
+            )
+        return input_path
 
-    def _run_inference(self, frames: Any) -> Any:
+    def _run_inference(self, audio_path: pathlib.Path) -> list:
         """Run the BasicPitch model on the prepared frame sequence.
+
+        Calls :func:`basic_pitch.inference.predict` with the pre-loaded
+        model object and the thresholds from the current configuration.
 
         Parameters
         ----------
@@ -297,9 +381,33 @@ class BasicPitchPipeline:
             and contour activations, each of shape
             ``(frames, pitch_bins)``.
         """
-        pass
+        try:
+            from basic_pitch.inference import predict
+        except ImportError as exc:
+            raise PipelineExecutionError(
+                f"basic-pitch package is not importable: {exc}",
+                pipeline_name="basicpitch",
+            ) from exc
 
-    def _activations_to_notes(self, activations: Any) -> list[NoteEvent]:
+        cfg = self._config
+        try:
+            _model_output, _midi_data, note_events_raw = predict(
+                audio_path,
+                self._model,
+                onset_threshold=cfg.onset_threshold,
+                frame_threshold=cfg.frame_threshold,
+                minimum_note_length=cfg.minimum_note_length,
+                minimum_frequency=cfg.minimum_frequency,
+                maximum_frequency=cfg.maximum_frequency,
+            )
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"BasicPitch inference failed: {exc}", pipeline_name="basicpitch"
+            ) from exc
+
+        return note_events_raw
+
+    def _activations_to_notes(self, raw_events: list) -> list[NoteEvent]:
         """Decode raw activations into discrete note events.
 
         Applies the onset and frame thresholds from the current configuration
@@ -308,7 +416,8 @@ class BasicPitchPipeline:
         Parameters
         ----------
         activations:
-            Output of :meth:`_run_inference`.
+            Output of :meth:`_run_inference` — list of BasicPitch raw note
+            tuples ``(start_s, end_s, pitch_midi, amplitude, ...)``.
 
         Returns
         -------
@@ -316,7 +425,14 @@ class BasicPitchPipeline:
             List of ``(start_sec, end_sec, pitch_midi, velocity)`` tuples,
             sorted by ``start_sec``.
         """
-        pass
+        note_events: list[NoteEvent] = []
+        for item in raw_events:
+            start_t, end_t, pitch, amplitude, *_ = item
+            velocity = max(1, min(127, int(float(amplitude) * 127)))
+            note_events.append(
+                (float(start_t), float(end_t), int(pitch), velocity)
+            )
+        return sorted(note_events, key=lambda n: n[0])
 
     def _write_midi(
         self,
@@ -333,4 +449,12 @@ class BasicPitchPipeline:
             Destination path for the ``.mid`` file.  Parent directories are
             created if they do not exist.
         """
-        pass
+        midi_data = notes_to_midi(note_events)
+        write_midi(midi_data, output_path)
+
+    def _resolve_output_path(self, input_path: pathlib.Path) -> pathlib.Path:
+        """Compute the MIDI output path from the input stem path."""
+        stem_name = input_path.stem + ".mid"
+        if self._config.output_dir is not None:
+            return self._config.output_dir / stem_name
+        return input_path.with_suffix(".mid")
