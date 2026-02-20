@@ -16,6 +16,17 @@ All modules are stubs with `pass` statements and no real inference logic yet.
 
 StemForge uses **uv** for dependency management and reproducible environments.
 
+### Prerequisites
+
+- **FFmpeg 5.1+** (development headers required). The PyAV dependency builds against
+  your system FFmpeg and requires the `ch_layout` channel API introduced in FFmpeg 5.1.
+  On Ubuntu 22.04 you can install FFmpeg 7 from a PPA:
+
+      sudo add-apt-repository -y ppa:ubuntuhandbook1/ffmpeg7
+      sudo apt update
+      sudo apt install ffmpeg libavcodec-dev libavformat-dev libavdevice-dev \
+          libavfilter-dev libavutil-dev libswscale-dev libswresample-dev
+
 ### 1. Install uv
 
 Install uv by following the instructions at:
