@@ -1,416 +1,190 @@
 """
-StemForge main application entry point — Gradio UI.
+StemForge — main DearPyGUI application.
 
-Builds a tabbed Gradio interface that wires each tab to a stub function
-in the corresponding component module.  No audio processing or model
-logic is performed here; every callback delegates immediately to a panel
-stub and returns a placeholder status string.
+Creates a single primary window containing:
+  · A persistent loader bar at the top (file browse, path display, clear).
+  · A Stop audio button to interrupt any in-progress playback.
+  · A tabbed workspace: Separate · MIDI · Generate · Export.
 
-Tabs
-----
-1. Load Audio   — file upload handled by :mod:`gui.components.loader`
-2. Demucs       — separation controls via :mod:`gui.components.demucs_panel`
-3. BasicPitch   — MIDI extraction via :mod:`gui.components.basicpitch_panel`
-4. MusicGen     — audio generation via :mod:`gui.components.musicgen_panel`
-5. Export       — artefact export via :mod:`gui.components.export_panel`
+All panel singletons are created here, their UIs are built inside the
+correct DearPyGUI parent contexts, and top-level file dialogs are
+registered before the render loop starts.
 """
 
-import gradio as gr
+import logging
 
-from gui.components.loader import LoaderPanel, SUPPORTED_EXTENSIONS
-from gui.components.demucs_panel import DemucsPanel, DEMUCS_MODELS, STEM_TARGETS
+import dearpygui.dearpygui as dpg
+
+from gui.constants import _STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _EXPORT_DIR
+from gui.components.loader import LoaderPanel
+from gui.components.demucs_panel import DemucsPanel
 from gui.components.basicpitch_panel import BasicPitchPanel
-from gui.components.musicgen_panel import MusicGenPanel, MUSICGEN_MODELS
-from gui.components.export_panel import ExportPanel, EXPORT_FORMATS
-
-# ---------------------------------------------------------------------------
-# Panel singletons — one instance per pipeline, shared across callbacks
-# ---------------------------------------------------------------------------
-
-_loader: LoaderPanel = LoaderPanel()
-_demucs: DemucsPanel = DemucsPanel()
-_basicpitch: BasicPitchPanel = BasicPitchPanel()
-_musicgen: MusicGenPanel = MusicGenPanel()
-_export: ExportPanel = ExportPanel()
-
-# ---------------------------------------------------------------------------
-# Tab 1 — Load Audio callbacks
-# ---------------------------------------------------------------------------
+from gui.components.musicgen_panel import MusicGenPanel
+from gui.components.export_panel import ExportPanel
 
 
-def on_audio_upload(audio_path: str | None) -> str:
-    """Delegate file-upload event to the loader panel stub.
+log = logging.getLogger("stemforge.gui.app")
 
-    Parameters
-    ----------
-    audio_path:
-        Temporary file path supplied by Gradio after the user uploads a file,
-        or *None* if the component was cleared.
-
-    Returns
-    -------
-    str
-        Placeholder status message shown in the status box.
-    """
-    _loader.browse()
-    if audio_path is None:
-        return "No file selected."
-    return f"[stub] Loaded: {audio_path}"
-
-
-def on_clear_audio() -> str:
-    """Delegate clear event to the loader panel stub.
-
-    Returns
-    -------
-    str
-        Placeholder status message shown in the status box.
-    """
-    _loader.reset()
-    return "File cleared."
+_VP_WIDTH  = 1280
+_VP_HEIGHT = 820
 
 
 # ---------------------------------------------------------------------------
-# Tab 2 — Demucs callbacks
+# Theme
 # ---------------------------------------------------------------------------
 
-
-def on_run_demucs(model: str, stems: list[str]) -> str:
-    """Delegate the Run Separation button click to the Demucs panel stub.
-
-    Parameters
-    ----------
-    model:
-        Selected Demucs model identifier.
-    stems:
-        List of stem names the user has checked.
-
-    Returns
-    -------
-    str
-        Placeholder status message.
-    """
-    _demucs.run()
-    stems_str = ", ".join(stems) if stems else "(none)"
-    return f"[stub] Separation queued — model={model!r}, stems=[{stems_str}]"
-
-
-# ---------------------------------------------------------------------------
-# Tab 3 — BasicPitch callbacks
-# ---------------------------------------------------------------------------
-
-
-def on_run_basicpitch(
-    stem_choice: str,
-    onset_threshold: float,
-    frame_threshold: float,
-) -> str:
-    """Delegate the Extract MIDI button click to the BasicPitch panel stub.
-
-    Parameters
-    ----------
-    stem_choice:
-        Name of the stem chosen for transcription.
-    onset_threshold:
-        Onset confidence threshold value from the slider (0.0 – 1.0).
-    frame_threshold:
-        Frame confidence threshold value from the slider (0.0 – 1.0).
-
-    Returns
-    -------
-    str
-        Placeholder status message.
-    """
-    _basicpitch.run()
-    return (
-        f"[stub] MIDI extraction queued — stem={stem_choice!r}, "
-        f"onset={onset_threshold:.2f}, frame={frame_threshold:.2f}"
-    )
+def _build_theme() -> int:
+    """Return a custom dark-blue theme tag."""
+    with dpg.theme() as theme_id:
+        with dpg.theme_component(dpg.mvAll):
+            # Background palette
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg,        ( 18,  18,  24, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg,         ( 24,  24,  32, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg,         ( 28,  28,  38, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg,         ( 30,  30,  45, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive,   ( 50,  50,  90, 255))
+            # Tabs
+            dpg.add_theme_color(dpg.mvThemeCol_Tab,             ( 38,  38,  58, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabHovered,      ( 70,  70, 130, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabActive,       ( 90,  90, 160, 255))
+            # Buttons
+            dpg.add_theme_color(dpg.mvThemeCol_Button,          ( 60,  60, 120, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,   ( 80,  80, 150, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,    (100, 100, 180, 255))
+            # Input fields
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg,         ( 38,  38,  55, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  ( 55,  55,  80, 255))
+            # Combo / list headers
+            dpg.add_theme_color(dpg.mvThemeCol_Header,          ( 60,  60, 120, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,   ( 80,  80, 150, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,    (100, 100, 180, 255))
+            # Sliders
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab,      (120, 120, 200, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive,(150, 150, 240, 255))
+            # Checkboxes
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark,       (150, 150, 240, 255))
+            # Progress bars (rendered using the histogram colour)
+            dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram,   (100, 100, 200, 255))
+            # Text
+            dpg.add_theme_color(dpg.mvThemeCol_Text,            (220, 220, 230, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TextDisabled,    ( 90,  90, 100, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Separator,       ( 60,  60,  80, 255))
+            # Rounding
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,   6)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding,  8)
+            dpg.add_theme_style(dpg.mvStyleVar_ChildRounding,   6)
+            dpg.add_theme_style(dpg.mvStyleVar_GrabRounding,    4)
+            dpg.add_theme_style(dpg.mvStyleVar_TabRounding,     6)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding,    8, 5)
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing,     8, 6)
+    return theme_id
 
 
 # ---------------------------------------------------------------------------
-# Tab 4 — MusicGen callbacks
+# Stop-audio helper
 # ---------------------------------------------------------------------------
 
-
-def on_run_musicgen(
-    prompt: str,
-    model: str,
-    duration: float,
-    melody_path: str | None,
-) -> str:
-    """Delegate the Generate button click to the MusicGen panel stub.
-
-    Parameters
-    ----------
-    prompt:
-        Text description of the music to generate.
-    model:
-        Selected MusicGen model identifier.
-    duration:
-        Requested generation length in seconds.
-    melody_path:
-        Temporary path of an uploaded melody-conditioning file, or *None*.
-
-    Returns
-    -------
-    str
-        Placeholder status message.
-    """
-    _musicgen.run()
-    melody_info = f", melody={melody_path!r}" if melody_path else ""
-    return (
-        f"[stub] Generation queued — model={model!r}, "
-        f"duration={duration}s, prompt={prompt!r}{melody_info}"
-    )
+def _stop_audio(sender, app_data, user_data) -> None:
+    """Stop any audio currently playing via sounddevice."""
+    try:
+        import sounddevice as sd
+        sd.stop()
+    except Exception as exc:
+        log.debug("Stop audio: %s", exc)
 
 
 # ---------------------------------------------------------------------------
-# Tab 5 — Export callbacks
+# Application entry point
 # ---------------------------------------------------------------------------
-
-
-def on_run_export(fmt: str, output_dir: str) -> str:
-    """Delegate the Export button click to the export panel stub.
-
-    Parameters
-    ----------
-    fmt:
-        Selected export format string (e.g. ``'wav'``).
-    output_dir:
-        User-entered output directory path (may be empty).
-
-    Returns
-    -------
-    str
-        Placeholder status message.
-    """
-    _export.export()
-    dest = output_dir.strip() or "(not set)"
-    return f"[stub] Export queued — format={fmt!r}, destination={dest!r}"
-
-
-# ---------------------------------------------------------------------------
-# UI construction
-# ---------------------------------------------------------------------------
-
-
-def build_ui() -> gr.Blocks:
-    """Construct and return the top-level Gradio Blocks application.
-
-    Returns
-    -------
-    gr.Blocks
-        Fully wired (but stub-backed) Gradio application object.
-    """
-    with gr.Blocks(title="StemForge", theme=gr.themes.Soft()) as demo:
-
-        gr.Markdown(
-            "# StemForge\n"
-            "AI-powered **stem separation** · **MIDI extraction** · **music generation**"
-        )
-
-        with gr.Tabs():
-
-            # ----------------------------------------------------------------
-            # Tab 1 — Load Audio
-            # ----------------------------------------------------------------
-            with gr.Tab("Load Audio"):
-                gr.Markdown("Upload a supported audio file to make it available to all pipelines.")
-
-                audio_input = gr.Audio(
-                    label="Input audio",
-                    type="filepath",
-                    sources=["upload"],
-                )
-                load_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    placeholder="No file loaded.",
-                )
-                clear_btn = gr.Button("Clear", variant="secondary")
-
-                audio_input.change(
-                    fn=on_audio_upload,
-                    inputs=audio_input,
-                    outputs=load_status,
-                )
-                clear_btn.click(
-                    fn=on_clear_audio,
-                    inputs=None,
-                    outputs=load_status,
-                )
-
-            # ----------------------------------------------------------------
-            # Tab 2 — Demucs
-            # ----------------------------------------------------------------
-            with gr.Tab("Demucs"):
-                gr.Markdown("Split the loaded audio into individual stems.")
-
-                with gr.Row():
-                    demucs_model = gr.Dropdown(
-                        label="Model",
-                        choices=list(DEMUCS_MODELS),
-                        value=DEMUCS_MODELS[0],
-                        scale=1,
-                    )
-                    demucs_stems = gr.CheckboxGroup(
-                        label="Stems to extract",
-                        choices=list(STEM_TARGETS),
-                        value=list(STEM_TARGETS),
-                        scale=2,
-                    )
-
-                demucs_run_btn = gr.Button("Run Separation", variant="primary")
-                demucs_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    placeholder="Idle.",
-                )
-
-                demucs_run_btn.click(
-                    fn=on_run_demucs,
-                    inputs=[demucs_model, demucs_stems],
-                    outputs=demucs_status,
-                )
-
-            # ----------------------------------------------------------------
-            # Tab 3 — BasicPitch
-            # ----------------------------------------------------------------
-            with gr.Tab("BasicPitch"):
-                gr.Markdown("Transcribe a separated stem to a MIDI file.")
-
-                bp_stem = gr.Dropdown(
-                    label="Stem to transcribe",
-                    choices=list(STEM_TARGETS),
-                    value=STEM_TARGETS[0],
-                )
-
-                with gr.Row():
-                    bp_onset = gr.Slider(
-                        label="Onset threshold",
-                        minimum=0.0,
-                        maximum=1.0,
-                        step=0.05,
-                        value=0.5,
-                        info="Minimum onset confidence to accept a note (0 – 1).",
-                    )
-                    bp_frame = gr.Slider(
-                        label="Frame threshold",
-                        minimum=0.0,
-                        maximum=1.0,
-                        step=0.05,
-                        value=0.3,
-                        info="Minimum frame confidence to sustain a note (0 – 1).",
-                    )
-
-                bp_run_btn = gr.Button("Extract MIDI", variant="primary")
-                bp_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    placeholder="Idle.",
-                )
-
-                bp_run_btn.click(
-                    fn=on_run_basicpitch,
-                    inputs=[bp_stem, bp_onset, bp_frame],
-                    outputs=bp_status,
-                )
-
-            # ----------------------------------------------------------------
-            # Tab 4 — MusicGen
-            # ----------------------------------------------------------------
-            with gr.Tab("MusicGen"):
-                gr.Markdown("Generate new audio from a text prompt, with optional melody conditioning.")
-
-                mg_prompt = gr.Textbox(
-                    label="Prompt",
-                    placeholder="e.g. upbeat jazz with piano and walking bass",
-                    lines=3,
-                )
-
-                with gr.Row():
-                    mg_model = gr.Dropdown(
-                        label="Model",
-                        choices=list(MUSICGEN_MODELS),
-                        value=MUSICGEN_MODELS[0],
-                        scale=2,
-                    )
-                    mg_duration = gr.Slider(
-                        label="Duration (seconds)",
-                        minimum=1,
-                        maximum=30,
-                        step=1,
-                        value=10,
-                        scale=1,
-                    )
-
-                mg_melody = gr.Audio(
-                    label="Melody conditioning (optional)",
-                    type="filepath",
-                    sources=["upload"],
-                )
-
-                mg_run_btn = gr.Button("Generate", variant="primary")
-                mg_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    placeholder="Idle.",
-                )
-
-                mg_run_btn.click(
-                    fn=on_run_musicgen,
-                    inputs=[mg_prompt, mg_model, mg_duration, mg_melody],
-                    outputs=mg_status,
-                )
-
-            # ----------------------------------------------------------------
-            # Tab 5 — Export
-            # ----------------------------------------------------------------
-            with gr.Tab("Export"):
-                gr.Markdown("Choose a format and destination, then write all pipeline outputs to disk.")
-
-                with gr.Row():
-                    exp_format = gr.Dropdown(
-                        label="Export format",
-                        choices=list(EXPORT_FORMATS),
-                        value=EXPORT_FORMATS[0],
-                        scale=1,
-                    )
-                    exp_output_dir = gr.Textbox(
-                        label="Output directory",
-                        placeholder="/path/to/output",
-                        scale=3,
-                    )
-
-                exp_run_btn = gr.Button("Export", variant="primary")
-                exp_status = gr.Textbox(
-                    label="Status",
-                    interactive=False,
-                    placeholder="Idle.",
-                )
-
-                exp_run_btn.click(
-                    fn=on_run_export,
-                    inputs=[exp_format, exp_output_dir],
-                    outputs=exp_status,
-                )
-
-    return demo
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
 
 def main() -> None:
-    """Build the UI and start the Gradio development server.
+    """Create the DearPyGUI viewport and run the event loop."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-8s  %(name)s: %(message)s",
+    )
 
-    Called by the ``stemforge`` console script defined in *pyproject.toml*.
-    """
-    demo = build_ui()
-    demo.launch()
+    # ---- DearPyGUI setup -----------------------------------------------
+    dpg.create_context()
+
+    theme = _build_theme()
+    dpg.bind_theme(theme)
+
+    # Pre-create output directories so pipelines never have to.
+    for d in (_STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _EXPORT_DIR):
+        d.mkdir(parents=True, exist_ok=True)
+
+    # ---- Panel singletons ----------------------------------------------
+    _loader     = LoaderPanel()
+    _demucs     = DemucsPanel()
+    _basicpitch = BasicPitchPanel()
+    _musicgen   = MusicGenPanel()
+    _export     = ExportPanel()
+
+    # ---- Top-level file dialogs (must live outside all windows) --------
+    _loader.build_file_dialog()
+    _basicpitch.build_save_dialog()
+    _musicgen.build_save_dialog()
+    _export.build_dir_dialog()
+
+    # ---- Primary window ------------------------------------------------
+    with dpg.window(tag="primary_window"):
+
+        # App title
+        dpg.add_text("StemForge", color=(175, 175, 255, 255))
+        dpg.add_text(
+            "Stem separation  ·  MIDI extraction  ·  Music generation",
+            color=(100, 100, 120, 255),
+        )
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
+
+        # Loader bar + stop button on the same row
+        with dpg.group(horizontal=False):
+            _loader.build_ui()
+            dpg.add_spacer(height=4)
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="■  Stop audio",
+                    callback=_stop_audio,
+                    width=110,
+                    height=26,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Stop any audio that is currently playing.")
+
+        dpg.add_spacer(height=8)
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
+
+        # Tab bar
+        with dpg.tab_bar():
+
+            with dpg.tab(label="  Separate  "):
+                _demucs.build_ui()
+
+            with dpg.tab(label="  MIDI  "):
+                _basicpitch.build_ui()
+
+            with dpg.tab(label="  Generate  "):
+                _musicgen.build_ui()
+
+            with dpg.tab(label="  Export  "):
+                _export.build_ui()
+
+    # ---- Viewport & render loop ----------------------------------------
+    dpg.create_viewport(
+        title="StemForge",
+        width=_VP_WIDTH,
+        height=_VP_HEIGHT,
+        min_width=900,
+        min_height=600,
+    )
+    dpg.setup_dearpygui()
+    dpg.show_viewport()
+    dpg.set_primary_window("primary_window", True)
+    dpg.start_dearpygui()
+    dpg.destroy_context()
 
 
 if __name__ == "__main__":

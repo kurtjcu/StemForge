@@ -1,20 +1,30 @@
 """
-MusicGen audio-generation UI panel for StemForge.
+MusicGen audio-generation panel for StemForge.
 
-Exposes controls for entering a text prompt, selecting a MusicGen model
-variant and duration, optionally conditioning on a melody stem, and
-triggering generation.  Generated audio can be previewed or forwarded
-to the Export panel.
+Left column: text prompt, model selector, duration slider, creativity and
+variety knobs, optional melody-stem picker, and a Generate button.
+Right column: progress bar, status, result info, play and save buttons.
+
+The pipeline runs on a daemon thread; all DearPyGUI updates are
+thread-safe calls to dpg.set_value / dpg.configure_item.
+
+NOTE: MusicGenPipeline methods are currently stubs — the panel is fully
+wired and will produce output as soon as the pipeline is implemented.
 """
 
-import os
 import pathlib
 import logging
 import threading
-from typing import Callable
+import traceback
+
+import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
+from gui.state import app_state
+from gui.constants import _MUSICGEN_DIR
 
+
+log = logging.getLogger("stemforge.gui.musicgen_panel")
 
 MUSICGEN_MODELS: tuple[str, ...] = (
     "facebook/musicgen-small",
@@ -23,67 +33,401 @@ MUSICGEN_MODELS: tuple[str, ...] = (
     "facebook/musicgen-melody",
 )
 
+_MODEL_LABEL: dict[str, str] = {
+    "facebook/musicgen-small":  "Small  (fast, ~300 MB)",
+    "facebook/musicgen-medium": "Medium (~1.5 GB)",
+    "facebook/musicgen-large":  "Large  (best quality, ~3.5 GB)",
+    "facebook/musicgen-melody": "Melody  (text + melody guide)",
+}
+
+_P = "mg"   # tag namespace
+
+
+def _t(name: str) -> str:
+    return f"{_P}_{name}"
+
 
 class MusicGenPanel:
-    """UI panel for configuring and running the MusicGen generation pipeline.
-
-    Provides a text prompt field, model selector, duration spinbox,
-    optional melody-conditioning toggle, a run button, and a waveform
-    preview of the generated audio.
-    """
-
-    _pipeline: MusicGenPipeline | None
-    _thread: threading.Thread | None
-    _melody_path: pathlib.Path | None
-    _result_listeners: list[Callable[[pathlib.Path], None]]
+    """MusicGen audio-generation panel."""
 
     def __init__(self) -> None:
-        pass
+        self._pipeline = MusicGenPipeline()
+        self._thread: threading.Thread | None = None
+        self._result_path: pathlib.Path | None = None
+        self._current_model: str | None = None
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def build_ui(self) -> None:
+        with dpg.group(horizontal=True):
+
+            # ---- Left column: settings --------------------------------
+            with dpg.child_window(width=340, height=-1, border=False):
+
+                dpg.add_text("Describe the music", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Write a plain-English description of what you want.\n"
+                        "Be specific about style, instruments, and mood.\n\n"
+                        "Examples:\n"
+                        "  · upbeat jazz piano with walking bass\n"
+                        "  · slow ambient guitar, heavy reverb\n"
+                        "  · energetic lo-fi hip-hop drum loop"
+                    )
+                dpg.add_input_text(
+                    tag=_t("prompt"),
+                    hint="e.g. upbeat jazz piano with walking bass",
+                    multiline=True,
+                    width=-1,
+                    height=90,
+                )
+
+                dpg.add_spacer(height=14)
+                dpg.add_text("Model", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Small is the quickest to load; Large sounds best.\n"
+                        "Choose Melody to hum or upload a tune for the AI\n"
+                        "to follow as an additional guide."
+                    )
+                dpg.add_combo(
+                    items=[_MODEL_LABEL[m] for m in MUSICGEN_MODELS],
+                    default_value=_MODEL_LABEL["facebook/musicgen-small"],
+                    tag=_t("model"),
+                    callback=self._on_model_change,
+                    width=-1,
+                )
+
+                dpg.add_spacer(height=14)
+                dpg.add_text("Length", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "How many seconds of audio to generate.\n"
+                        "Longer clips take more time and memory."
+                    )
+                dpg.add_slider_int(
+                    tag=_t("duration"),
+                    min_value=5,
+                    max_value=30,
+                    default_value=10,
+                    width=-1,
+                    format="%d seconds",
+                )
+
+                dpg.add_spacer(height=14)
+                # Knobs side-by-side
+                with dpg.group(horizontal=True):
+                    with dpg.group():
+                        dpg.add_text("Creativity", color=(175, 175, 255, 255))
+                        with dpg.tooltip(dpg.last_item()):
+                            dpg.add_text(
+                                "Controls how unpredictable the result is.\n\n"
+                                "Turn up  →  more varied, experimental output.\n"
+                                "Turn down →  safer, more predictable music."
+                            )
+                        dpg.add_knob_float(
+                            tag=_t("temperature"),
+                            min_value=0.2,
+                            max_value=2.0,
+                            default_value=1.0,
+                        )
+
+                    dpg.add_spacer(width=20)
+
+                    with dpg.group():
+                        dpg.add_text("Variety", color=(175, 175, 255, 255))
+                        with dpg.tooltip(dpg.last_item()):
+                            dpg.add_text(
+                                "Number of token choices at each generation step.\n\n"
+                                "Turn up  →  broader range of musical ideas.\n"
+                                "Turn down →  sticks to the most likely sounds."
+                            )
+                        dpg.add_knob_float(
+                            tag=_t("topk"),
+                            min_value=10.0,
+                            max_value=500.0,
+                            default_value=250.0,
+                        )
+
+                dpg.add_spacer(height=14)
+                dpg.add_text("Melody guide  (optional)", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Pick a separated stem for the AI to follow melodically.\n"
+                        "Only effective with the Melody model variant.\n"
+                        "Run Separate first, then pick a part here."
+                    )
+                dpg.add_combo(
+                    items=["None"],
+                    default_value="None",
+                    tag=_t("melody"),
+                    width=-1,
+                    enabled=False,
+                )
+                dpg.add_button(
+                    label="Refresh stems",
+                    tag=_t("refresh_btn"),
+                    callback=self._on_refresh_stems,
+                    width=-1,
+                    enabled=False,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Re-read which separated parts are available.")
+
+                dpg.add_spacer(height=20)
+                dpg.add_button(
+                    label="  Generate  ",
+                    tag=_t("run_btn"),
+                    callback=self._on_run_click,
+                    width=-1,
+                    height=40,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Generate audio from your description.\n"
+                        "The model is loaded on the first run."
+                    )
+
+            # ---- Right column: results --------------------------------
+            with dpg.child_window(width=-1, height=-1, border=False):
+
+                dpg.add_text("Progress", color=(175, 175, 255, 255))
+                dpg.add_progress_bar(
+                    tag=_t("progress"),
+                    default_value=0.0,
+                    width=-1,
+                    height=18,
+                )
+                dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+
+                dpg.add_spacer(height=14)
+                dpg.add_separator()
+                dpg.add_text("Result", color=(175, 175, 255, 255))
+                dpg.add_spacer(height=4)
+                dpg.add_text("—", tag=_t("duration_info"), color=(220, 220, 220, 255))
+                dpg.add_text("—", tag=_t("audio_file"), color=(140, 140, 140, 255), wrap=350)
+
+                dpg.add_spacer(height=12)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="▶ Play",
+                        tag=_t("play_btn"),
+                        callback=self._on_play_click,
+                        width=80,
+                        enabled=False,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Preview the generated audio.")
+                    dpg.add_button(
+                        label="  Save as…  ",
+                        tag=_t("save_btn"),
+                        callback=self._on_save_click,
+                        width=110,
+                        enabled=False,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Copy the generated file to a location you choose.")
+
+    def build_save_dialog(self) -> None:
+        """Create the Save As dialog at the top DearPyGUI level."""
+        with dpg.file_dialog(
+            directory_selector=False,
+            show=False,
+            callback=self._on_save_selected,
+            cancel_callback=lambda s, a: None,
+            tag=_t("save_dialog"),
+            width=720,
+            height=440,
+            modal=True,
+        ):
+            dpg.add_file_extension(".wav{.wav}", color=(100, 220, 100, 255))
+            dpg.add_file_extension(".flac{.flac}", color=(100, 180, 255, 255))
+            dpg.add_file_extension(".*")
+
+    # ------------------------------------------------------------------
+    # Callbacks
+    # ------------------------------------------------------------------
+
+    def _on_model_change(self, sender, app_data, user_data) -> None:
+        model_id = next(
+            (k for k, v in _MODEL_LABEL.items() if v == app_data),
+            "facebook/musicgen-small",
+        )
+        is_melody = model_id.endswith("-melody")
+        dpg.configure_item(_t("melody"), enabled=is_melody)
+        dpg.configure_item(_t("refresh_btn"), enabled=is_melody)
+
+    def _on_refresh_stems(self, sender, app_data, user_data) -> None:
+        from gui.components.demucs_panel import _STEM_LABEL
+        stems = app_state.stem_paths
+        items = ["None"] + [_STEM_LABEL.get(k, k) for k in stems]
+        dpg.configure_item(_t("melody"), items=items)
+        dpg.set_value(_t("melody"), "None")
+
+    def _on_run_click(self, sender, app_data, user_data) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _on_play_click(self, sender, app_data, user_data) -> None:
+        if not self._result_path or not self._result_path.exists():
+            return
+
+        def _play() -> None:
+            try:
+                import sounddevice as sd
+                from utils.audio_io import read_audio
+                waveform, sr = read_audio(self._result_path)
+                sd.play(waveform.T, samplerate=sr)
+            except Exception as exc:
+                log.error("MusicGen playback error: %s", exc)
+
+        threading.Thread(target=_play, daemon=True).start()
+
+    def _on_save_click(self, sender, app_data, user_data) -> None:
+        dpg.configure_item(_t("save_dialog"), show=True)
+
+    def _on_save_selected(self, sender, app_data) -> None:
+        if not self._result_path or not self._result_path.exists():
+            return
+        dest_str = app_data.get("file_path_name", "")
+        if not dest_str:
+            return
+        dest = pathlib.Path(dest_str)
+        if not dest.suffix:
+            dest = dest.with_suffix(".wav")
+        try:
+            import shutil
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self._result_path, dest)
+            dpg.set_value(_t("status"), f"Saved → {dest}")
+        except Exception as exc:
+            dpg.set_value(_t("status"), f"Save failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # Background thread
+    # ------------------------------------------------------------------
+
+    def _run(self) -> None:
+        dpg.configure_item(_t("run_btn"), enabled=False)
+        dpg.configure_item(_t("play_btn"), enabled=False)
+        dpg.configure_item(_t("save_btn"), enabled=False)
+        dpg.set_value(_t("progress"), 0.0)
+
+        try:
+            prompt = dpg.get_value(_t("prompt")).strip()
+            if not prompt:
+                dpg.set_value(_t("status"), "Enter a description first.")
+                return
+
+            model_label = dpg.get_value(_t("model"))
+            model_id = next(
+                (k for k, v in _MODEL_LABEL.items() if v == model_label),
+                "facebook/musicgen-small",
+            )
+
+            # Melody conditioning
+            melody_path: pathlib.Path | None = None
+            if model_id.endswith("-melody"):
+                melody_label = dpg.get_value(_t("melody"))
+                if melody_label and melody_label != "None":
+                    from gui.components.demucs_panel import _STEM_LABEL, STEM_TARGETS
+                    stem_key = next(
+                        (k for k in STEM_TARGETS if _STEM_LABEL.get(k) == melody_label),
+                        None,
+                    )
+                    if stem_key:
+                        melody_path = app_state.stem_paths.get(stem_key)
+
+            # Evict stale model if variant changed
+            if self._current_model and self._current_model != model_id:
+                dpg.set_value(_t("status"), "Unloading previous model…")
+                self._pipeline.clear()
+            self._current_model = model_id
+
+            config = MusicGenConfig(
+                model_name=model_id,
+                duration_seconds=float(dpg.get_value(_t("duration"))),
+                melody_path=melody_path,
+                top_k=int(dpg.get_value(_t("topk"))),
+                temperature=dpg.get_value(_t("temperature")),
+                output_dir=_MUSICGEN_DIR,
+            )
+            self._pipeline.configure(config)
+
+            if not getattr(self._pipeline, "is_loaded", False):
+                dpg.set_value(
+                    _t("status"),
+                    "Loading model — this may take a few minutes on first run…",
+                )
+                self._pipeline.load_model()
+
+            def _progress(pct: float) -> None:
+                dpg.set_value(_t("progress"), pct / 100.0)
+                dpg.set_value(_t("status"), f"Generating… {pct:.0f}%")
+
+            self._pipeline.set_progress_callback(_progress)
+            result = self._pipeline.run(prompt)
+
+            if result is None:
+                dpg.set_value(_t("status"), "MusicGen pipeline not yet implemented.")
+                return
+
+            self._result_path = result.audio_path
+            app_state.musicgen_path = result.audio_path
+
+            dpg.set_value(_t("progress"), 1.0)
+            dpg.set_value(_t("status"), f"Done — {result.duration_seconds:.1f} s generated")
+            dpg.set_value(
+                _t("duration_info"),
+                f"{result.duration_seconds:.1f} s · {result.sample_rate} Hz",
+            )
+            dpg.set_value(_t("audio_file"), str(result.audio_path))
+            dpg.configure_item(_t("play_btn"), enabled=True)
+            dpg.configure_item(_t("save_btn"), enabled=True)
+
+        except Exception as exc:
+            traceback.print_exc()
+            dpg.set_value(_t("status"), f"Error: {exc}")
+            dpg.set_value(_t("progress"), 0.0)
+        finally:
+            dpg.configure_item(_t("run_btn"), enabled=True)
+
+    # ------------------------------------------------------------------
+    # Legacy stub methods
+    # ------------------------------------------------------------------
 
     def set_melody_path(self, path: pathlib.Path) -> None:
-        """Pre-fill the melody conditioning input with a separated stem path."""
         pass
 
     def get_prompt(self) -> str:
-        """Return the text prompt entered by the user."""
-        pass
+        return dpg.get_value(_t("prompt")) if dpg.does_item_exist(_t("prompt")) else ""
 
     def get_selected_model(self) -> str:
-        """Return the currently selected MusicGen model identifier."""
-        pass
+        label = (
+            dpg.get_value(_t("model"))
+            if dpg.does_item_exist(_t("model"))
+            else _MODEL_LABEL["facebook/musicgen-small"]
+        )
+        return next(
+            (k for k, v in _MODEL_LABEL.items() if v == label),
+            "facebook/musicgen-small",
+        )
 
     def get_duration_seconds(self) -> float:
-        """Return the requested generation duration in seconds."""
-        pass
+        return float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 10.0
 
     def get_melody_conditioning(self) -> pathlib.Path | None:
-        """Return the melody conditioning file path, or *None* if disabled."""
-        pass
+        return None
 
     def run(self) -> None:
-        """Validate inputs then launch the MusicGen pipeline in a background thread."""
-        pass
+        self._on_run_click(None, None, None)
 
     def cancel(self) -> None:
-        """Request cancellation of any running generation job."""
         pass
 
-    def _on_progress(self, percent: float) -> None:
-        """Update the progress indicator at *percent* completion."""
-        pass
-
-    def _on_complete(self, audio_path: pathlib.Path) -> None:
-        """Handle pipeline completion, refresh the preview, and notify listeners."""
-        pass
-
-    def _on_error(self, exc: Exception) -> None:
-        """Display an error message when the pipeline raises an exception."""
-        pass
-
-    def _refresh_waveform(self, audio_path: pathlib.Path) -> None:
-        """Render a waveform thumbnail for the generated audio file."""
-        pass
-
-    def add_result_listener(self, callback: Callable[[pathlib.Path], None]) -> None:
-        """Register *callback* to receive the generated audio path on success."""
+    def add_result_listener(self, callback) -> None:
         pass
