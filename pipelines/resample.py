@@ -36,12 +36,17 @@ import pathlib
 import logging
 from typing import Any
 
+import numpy as np
+import soxr
+
 from utils.errors import AudioProcessingError, InvalidInputError, PipelineExecutionError
 
 
 # Waveform type alias: a numeric array-like of shape (channels, samples)
 # or (samples,) for mono.  Concrete type is runtime-dependent.
 Waveform = Any
+
+log = logging.getLogger("stemforge.pipelines.resample")
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +82,10 @@ class ResampleConfig:
         output_dir: pathlib.Path | None = None,
         output_suffix: str = "",
     ) -> None:
-        pass
+        self.original_rate = int(original_rate)
+        self.target_rate = int(target_rate)
+        self.output_dir = output_dir
+        self.output_suffix = output_suffix
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +119,10 @@ class ResampleResult:
         target_rate: int,
         duration_seconds: float,
     ) -> None:
-        pass
+        self.output_path = output_path
+        self.original_rate = int(original_rate)
+        self.target_rate = int(target_rate)
+        self.duration_seconds = float(duration_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +157,9 @@ class ResamplePipeline:
         Post-condition: ``self.is_loaded`` is ``False``; calling :meth:`run`
         before :meth:`load_model` must raise :class:`~utils.errors.PipelineExecutionError`.
         """
-        pass
+        self.is_loaded = False
+        self._config = None
+        self._resampler = None
 
     # ------------------------------------------------------------------
     # Configuration
@@ -164,7 +177,18 @@ class ResamplePipeline:
         config:
             A fully populated :class:`ResampleConfig` instance.
         """
-        pass
+        # Invalidate cached filter if the rate pair changed.
+        if (
+            self.is_loaded
+            and self._config is not None
+            and (
+                config.original_rate != self._config.original_rate
+                or config.target_rate != self._config.target_rate
+            )
+        ):
+            self.is_loaded = False
+            self._resampler = None
+        self._config = config
 
     # ------------------------------------------------------------------
     # Model management (filter initialisation)
@@ -189,7 +213,23 @@ class ResamplePipeline:
         ``self.is_loaded`` is ``True`` and the internal :class:`Resampler`
         is ready for use.
         """
-        pass
+        if self._config is None:
+            raise PipelineExecutionError(
+                "configure() must be called before load_model().",
+                pipeline_name="resample",
+            )
+        if self._config.original_rate <= 0 or self._config.target_rate <= 0:
+            raise InvalidInputError(
+                "original_rate and target_rate must be positive integers.",
+                field="sample_rate",
+            )
+        self._resampler = Resampler(self._config.original_rate, self._config.target_rate)
+        self.is_loaded = True
+        log.debug(
+            "ResamplePipeline ready: %d Hz → %d Hz",
+            self._config.original_rate,
+            self._config.target_rate,
+        )
 
     # ------------------------------------------------------------------
     # Execution
@@ -221,7 +261,43 @@ class ResamplePipeline:
         :class:`~utils.errors.AudioProcessingError`
             If reading the source audio or writing the resampled output fails.
         """
-        pass
+        if not self.is_loaded:
+            raise PipelineExecutionError(
+                "load_model() must be called before run().",
+                pipeline_name="resample",
+            )
+
+        from utils.audio_io import read_audio, write_audio
+
+        try:
+            waveform, _ = read_audio(input_data)
+        except (InvalidInputError, AudioProcessingError):
+            raise
+        except Exception as exc:
+            raise AudioProcessingError(
+                f"Failed to read {input_data}: {exc}", path=str(input_data)
+            ) from exc
+
+        resampled = self._resampler(waveform)
+
+        output_path = self._derive_output_path(input_data)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            write_audio(resampled, self._config.target_rate, output_path)
+        except Exception as exc:
+            raise AudioProcessingError(
+                f"Failed to write resampled audio to {output_path}: {exc}",
+                path=str(output_path),
+            ) from exc
+
+        duration = resampled.shape[-1] / self._config.target_rate
+        return ResampleResult(
+            output_path=output_path.resolve(),
+            original_rate=self._config.original_rate,
+            target_rate=self._config.target_rate,
+            duration_seconds=duration,
+        )
 
     # ------------------------------------------------------------------
     # Cleanup
@@ -240,7 +316,8 @@ class ResamplePipeline:
         --------------
         ``self.is_loaded`` is ``False`` and ``self._resampler`` is ``None``.
         """
-        pass
+        self._resampler = None
+        self.is_loaded = False
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -262,7 +339,11 @@ class ResamplePipeline:
         pathlib.Path
             Resolved output file path (parent directories not yet created).
         """
-        pass
+        stem = input_path.stem + self._config.output_suffix
+        out_name = stem + input_path.suffix
+        if self._config.output_dir is not None:
+            return self._config.output_dir / out_name
+        return input_path.with_name(out_name)
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +377,7 @@ def resample(
         Resampled waveform with the same channel layout as the input and
         length approximately ``samples * target_rate / original_rate``.
     """
-    pass
+    return Resampler(original_rate, target_rate)(waveform)
 
 
 def resample_file(
@@ -321,7 +402,14 @@ def resample_file(
     pathlib.Path
         The resolved absolute path of the written output file.
     """
-    pass
+    from utils.audio_io import read_audio, write_audio
+
+    waveform, sr = read_audio(input_path)
+    resampled = resample(waveform, sr, target_rate)
+    output_path = pathlib.Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_audio(resampled, target_rate, output_path)
+    return output_path.resolve()
 
 
 # ---------------------------------------------------------------------------
@@ -348,7 +436,9 @@ class Resampler:
     _state: Any   # internal filter delay-line state; type is runtime-dependent
 
     def __init__(self, original_rate: int, target_rate: int) -> None:
-        pass
+        self.original_rate = int(original_rate)
+        self.target_rate = int(target_rate)
+        self._state = None  # batch processing; no streaming delay-line needed
 
     def __call__(self, waveform: Waveform) -> Waveform:
         """Apply the cached resampling filter to *waveform*.
@@ -363,7 +453,19 @@ class Resampler:
         Waveform
             Resampled waveform with the same channel layout as the input.
         """
-        pass
+        if self.original_rate == self.target_rate:
+            return np.asarray(waveform, dtype=np.float32)
+
+        arr = np.asarray(waveform, dtype=np.float32)
+        one_d = arr.ndim == 1
+        if one_d:
+            arr = arr[np.newaxis, :]  # treat as (1, samples)
+
+        # soxr expects (samples, channels); result is also (samples, channels)
+        resampled = soxr.resample(arr.T, self.original_rate, self.target_rate, quality="HQ")
+        result = resampled.T  # back to (channels, samples)
+
+        return result[0] if one_d else result
 
     def reset_state(self) -> None:
         """Reset the internal filter delay-line state.
@@ -372,4 +474,4 @@ class Resampler:
         history from one stream contaminating the next.  Not necessary when
         processing a single continuous waveform split into chunks.
         """
-        pass
+        self._state = None
