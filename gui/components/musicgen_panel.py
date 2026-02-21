@@ -20,7 +20,7 @@ import traceback
 import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
-from gui.state import app_state, copy_to_clipboard
+from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
 from gui.constants import _MUSICGEN_DIR
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
@@ -209,13 +209,12 @@ class MusicGenPanel:
                     height=18,
                 )
                 with dpg.group(horizontal=True):
-                    _st = _t("status")
                     dpg.add_button(
                         label="Copy",
-                        callback=lambda s, a, u, _k=_st: copy_to_clipboard(dpg.get_value(_k)),
+                        callback=make_copy_callback(_t("status")),
                         width=50,
                     )
-                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    dpg.add_text(default_value="", tag=_t("status"), color=(160, 160, 160, 255))
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -281,9 +280,9 @@ class MusicGenPanel:
             import shutil
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self._result_path, dest)
-            dpg.set_value(_t("status"), f"Saved → {dest}")
+            set_widget_text(_t("status"),f"Saved → {dest}")
         except Exception as exc:
-            dpg.set_value(_t("status"), f"Save failed: {exc}")
+            set_widget_text(_t("status"),f"Save failed: {exc}")
 
     # ------------------------------------------------------------------
     # Background thread
@@ -297,7 +296,7 @@ class MusicGenPanel:
         try:
             prompt = dpg.get_value(_t("prompt")).strip()
             if not prompt:
-                dpg.set_value(_t("status"), "Enter a description first.")
+                set_widget_text(_t("status"),"Enter a description first.")
                 return
 
             model_label = dpg.get_value(_t("model"))
@@ -319,7 +318,7 @@ class MusicGenPanel:
                         melody_path = app_state.stem_paths.get(stem_key)
 
             if self._current_model and self._current_model != model_id:
-                dpg.set_value(_t("status"), "Unloading previous model…")
+                set_widget_text(_t("status"),"Unloading previous model…")
                 self._pipeline.clear()
             self._current_model = model_id
 
@@ -334,7 +333,7 @@ class MusicGenPanel:
             self._pipeline.configure(config)
 
             if not getattr(self._pipeline, "is_loaded", False):
-                dpg.set_value(
+                set_widget_text(
                     _t("status"),
                     "Loading model — this may take a few minutes on first run…",
                 )
@@ -342,20 +341,20 @@ class MusicGenPanel:
 
             def _progress(pct: float) -> None:
                 dpg.set_value(_t("progress"), pct / 100.0)
-                dpg.set_value(_t("status"), f"Generating… {pct:.0f}%")
+                set_widget_text(_t("status"),f"Generating… {pct:.0f}%")
 
             self._pipeline.set_progress_callback(_progress)
             result = self._pipeline.run(prompt)
 
             if result is None:
-                dpg.set_value(_t("status"), "MusicGen pipeline not yet implemented.")
+                set_widget_text(_t("status"),"MusicGen pipeline not yet implemented.")
                 return
 
             self._result_path = result.audio_path
             app_state.musicgen_path = result.audio_path
 
             dpg.set_value(_t("progress"), 1.0)
-            dpg.set_value(_t("status"), f"Done — {result.duration_seconds:.1f} s generated")
+            set_widget_text(_t("status"),f"Done — {result.duration_seconds:.1f} s generated")
             dpg.set_value(
                 _t("duration_info"),
                 f"{result.duration_seconds:.1f} s · {result.sample_rate} Hz",
@@ -368,7 +367,7 @@ class MusicGenPanel:
 
         except Exception as exc:
             traceback.print_exc()
-            dpg.set_value(_t("status"), f"Error: {exc}")
+            set_widget_text(_t("status"),f"Error: {exc}")
             dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)

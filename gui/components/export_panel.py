@@ -15,7 +15,7 @@ import traceback
 import dearpygui.dearpygui as dpg
 
 from utils.audio_io import read_audio, write_audio
-from gui.state import app_state, copy_to_clipboard
+from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
 from gui.components.file_browser import FileBrowser
 
 
@@ -139,13 +139,12 @@ class ExportPanel:
                     height=18,
                 )
                 with dpg.group(horizontal=True):
-                    _st = _t("status")
                     dpg.add_button(
                         label="Copy",
-                        callback=lambda s, a, u, _k=_st: copy_to_clipboard(dpg.get_value(_k)),
+                        callback=make_copy_callback(_t("status")),
                         width=50,
                     )
-                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    dpg.add_text(default_value="", tag=_t("status"), color=(160, 160, 160, 255))
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -209,7 +208,7 @@ class ExportPanel:
         try:
             outdir_str = dpg.get_value(_t("outdir")).strip()
             if not outdir_str:
-                dpg.set_value(_t("status"), "Set a destination folder first.")
+                set_widget_text(_t("status"),"Set a destination folder first.")
                 return
 
             out = pathlib.Path(outdir_str)
@@ -238,13 +237,13 @@ class ExportPanel:
                     tasks.append((mg_path, f"generated.{fmt}", True))
 
             if not tasks:
-                dpg.set_value(_t("status"), "Nothing ticked — check at least one file.")
+                set_widget_text(_t("status"),"Nothing ticked — check at least one file.")
                 return
 
             written: list[str] = []
             for i, (src, dest_name, is_audio) in enumerate(tasks):
                 dpg.set_value(_t("progress"), i / len(tasks))
-                dpg.set_value(_t("status"), f"Writing {dest_name}…")
+                set_widget_text(_t("status"),f"Writing {dest_name}…")
                 dest = out / dest_name
                 src_ext = src.suffix.lower().lstrip(".")
                 if is_audio and src_ext != fmt:
@@ -255,12 +254,12 @@ class ExportPanel:
                 written.append(str(dest))
 
             dpg.set_value(_t("progress"), 1.0)
-            dpg.set_value(_t("status"), f"Done — {len(written)} file(s) exported")
+            set_widget_text(_t("status"),f"Done — {len(written)} file(s) exported")
             dpg.set_value(_t("result_list"), "\n".join(written))
 
         except Exception as exc:
             traceback.print_exc()
-            dpg.set_value(_t("status"), f"Error: {exc}")
+            set_widget_text(_t("status"),f"Error: {exc}")
             dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)

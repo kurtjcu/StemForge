@@ -13,7 +13,7 @@ from typing import Callable
 import dearpygui.dearpygui as dpg
 
 from utils.audio_io import SUPPORTED_EXTENSIONS as _AUDIO_EXT, probe
-from gui.state import app_state, copy_to_clipboard
+from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
 
@@ -79,13 +79,12 @@ class LoaderPanel:
                 dpg.add_text("Remove the loaded file and reset all pipeline results.")
 
         with dpg.group(horizontal=True):
-            _info_tag = _TAG_INFO
             dpg.add_button(
                 label="Copy",
-                callback=lambda s, a, u, _t=_info_tag: copy_to_clipboard(dpg.get_value(_t)),
+                callback=make_copy_callback(_TAG_INFO),
                 width=50,
             )
-            dpg.add_text("", tag=_TAG_INFO, color=(160, 160, 160, 255))
+            dpg.add_text(default_value="", tag=_TAG_INFO, color=(160, 160, 160, 255))
 
         # Waveform preview
         self._waveform.build_ui()
@@ -110,7 +109,7 @@ class LoaderPanel:
         app_state.audio_path = None
         app_state.clear()
         dpg.set_value(_TAG_PATH, "")
-        dpg.set_value(_TAG_INFO, "")
+        set_widget_text(_TAG_INFO,"")
         self._waveform.clear()
 
     # ------------------------------------------------------------------
@@ -126,7 +125,7 @@ class LoaderPanel:
     def _on_file_selected(self, path: pathlib.Path) -> None:
         """Receive a pathlib.Path from FileBrowser and validate it."""
         if path.suffix.lower() not in _AUDIO_EXT:
-            dpg.set_value(
+            set_widget_text(
                 _TAG_INFO,
                 f"Unsupported format '{path.suffix}'.  "
                 f"Accepted: {', '.join(sorted(_AUDIO_EXT))}",
@@ -136,14 +135,14 @@ class LoaderPanel:
         try:
             info = probe(path)
         except Exception as exc:
-            dpg.set_value(_TAG_INFO, f"Could not read file: {exc}")
+            set_widget_text(_TAG_INFO,f"Could not read file: {exc}")
             log.error("LoaderPanel probe error: %s", exc)
             return
 
         ch_label = {1: "Mono", 2: "Stereo"}.get(info.channels, f"{info.channels}-ch")
         mins, secs = divmod(int(info.duration), 60)
         dpg.set_value(_TAG_PATH, str(path))
-        dpg.set_value(
+        set_widget_text(
             _TAG_INFO,
             f"{path.name}   ·   {ch_label}   ·   {info.sample_rate / 1_000:.1f} kHz   ·   {mins}:{secs:02d}",
         )

@@ -32,7 +32,7 @@ import traceback
 import dearpygui.dearpygui as dpg
 
 from pipelines.basicpitch_pipeline import BasicPitchPipeline, BasicPitchConfig, BasicPitchResult
-from gui.state import app_state, copy_to_clipboard
+from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
 from gui.constants import _MIDI_DIR
 from gui.components.demucs_panel import STEM_TARGETS, _STEM_LABEL
 from gui.components.file_browser import FileBrowser
@@ -215,13 +215,12 @@ class BasicPitchPanel:
                     height=18,
                 )
                 with dpg.group(horizontal=True):
-                    _st = _t("status")
                     dpg.add_button(
                         label="Copy",
-                        callback=lambda s, a, u, _k=_st: copy_to_clipboard(dpg.get_value(_k)),
+                        callback=make_copy_callback(_t("status")),
                         width=50,
                     )
-                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    dpg.add_text(default_value="", tag=_t("status"), color=(160, 160, 160, 255))
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -314,9 +313,9 @@ class BasicPitchPanel:
             import shutil
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self._midi_path, dest)
-            dpg.set_value(_t("status"), f"Saved → {dest}")
+            set_widget_text(_t("status"),f"Saved → {dest}")
         except Exception as exc:
-            dpg.set_value(_t("status"), f"Save failed: {exc}")
+            set_widget_text(_t("status"),f"Save failed: {exc}")
 
     # ------------------------------------------------------------------
     # Background thread
@@ -343,14 +342,14 @@ class BasicPitchPanel:
             ]
 
             if not checked:
-                dpg.set_value(
+                set_widget_text(
                     _t("status"),
                     "No stems selected.  Run Separate first, then tick stems above.",
                 )
                 return
 
             if not self._pipeline.is_loaded:
-                dpg.set_value(_t("status"), "Loading model — first run may take a moment…")
+                set_widget_text(_t("status"),"Loading model — first run may take a moment…")
                 self._pipeline.load_model()
 
             total = len(checked)
@@ -381,7 +380,7 @@ class BasicPitchPanel:
                 def _progress(pct: float, _base=base_frac, _total=total) -> None:
                     overall = _base + (pct / 100.0) / _total
                     dpg.set_value(_t("progress"), overall)
-                    dpg.set_value(_t("status"), f"Processing {stem}… {pct:.0f}%")
+                    set_widget_text(_t("status"),f"Processing {stem}… {pct:.0f}%")
 
                 self._pipeline.set_progress_callback(_progress)
                 result = self._pipeline.run(stem_path)
@@ -398,13 +397,13 @@ class BasicPitchPanel:
                     )
 
             dpg.set_value(_t("progress"), 1.0)
-            dpg.set_value(_t("status"), f"Done — {total} stem(s) processed")
+            set_widget_text(_t("status"),f"Done — {total} stem(s) processed")
             dpg.set_value(_t("midi_file"), str(self._midi_path))
             dpg.configure_item(_t("save_btn"), enabled=True)
 
         except Exception as exc:
             traceback.print_exc()
-            dpg.set_value(_t("status"), f"Error: {exc}")
+            set_widget_text(_t("status"),f"Error: {exc}")
             dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)

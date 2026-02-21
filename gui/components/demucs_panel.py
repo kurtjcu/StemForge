@@ -21,7 +21,7 @@ from typing import Callable
 import dearpygui.dearpygui as dpg
 
 from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig, DemucsResult
-from gui.state import app_state, copy_to_clipboard
+from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
 from gui.components.waveform_widget import WaveformWidget
 
@@ -128,13 +128,12 @@ class DemucsPanel:
                     height=18,
                 )
                 with dpg.group(horizontal=True):
-                    _st = _t("status")
                     dpg.add_button(
                         label="Copy",
-                        callback=lambda s, a, u, _k=_st: copy_to_clipboard(dpg.get_value(_k)),
+                        callback=make_copy_callback(_t("status")),
                         width=50,
                     )
-                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    dpg.add_text(default_value="", tag=_t("status"), color=(160, 160, 160, 255))
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -201,19 +200,19 @@ class DemucsPanel:
         try:
             audio = app_state.audio_path
             if audio is None:
-                dpg.set_value(_t("status"), "Load an audio file first (Browse button above).")
+                set_widget_text(_t("status"),"Load an audio file first (Browse button above).")
                 return
 
             stems = [s for s in STEM_TARGETS if dpg.get_value(_t(f"stem_{s}"))]
             if not stems:
-                dpg.set_value(_t("status"), "Tick at least one part to separate.")
+                set_widget_text(_t("status"),"Tick at least one part to separate.")
                 return
 
             model_name = dpg.get_value(_t("model"))
 
             if self._current_model != model_name:
                 if self._current_model is not None:
-                    dpg.set_value(_t("status"), "Unloading previous model…")
+                    set_widget_text(_t("status"),"Unloading previous model…")
                     self._pipeline.clear()
                 self._current_model = model_name
 
@@ -225,7 +224,7 @@ class DemucsPanel:
             self._pipeline.configure(config)
 
             if not self._pipeline.is_loaded:
-                dpg.set_value(
+                set_widget_text(
                     _t("status"),
                     "Loading model — first run may take a minute while weights download…",
                 )
@@ -233,7 +232,7 @@ class DemucsPanel:
 
             def _progress(pct: float, stage: str) -> None:
                 dpg.set_value(_t("progress"), pct / 100.0)
-                dpg.set_value(_t("status"), stage)
+                set_widget_text(_t("status"),stage)
 
             self._pipeline.set_progress_callback(_progress)
             result = self._pipeline.run(audio)
@@ -242,7 +241,7 @@ class DemucsPanel:
             self._stem_paths = result.stem_paths
 
             dpg.set_value(_t("progress"), 1.0)
-            dpg.set_value(
+            set_widget_text(
                 _t("status"),
                 f"Done — {len(result.stem_paths)} parts  ({result.duration_seconds:.1f} s)",
             )
@@ -264,7 +263,7 @@ class DemucsPanel:
 
         except Exception as exc:
             traceback.print_exc()
-            dpg.set_value(_t("status"), f"Error: {exc}")
+            set_widget_text(_t("status"),f"Error: {exc}")
             dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)

@@ -98,20 +98,99 @@ class AppState:
 app_state: AppState = AppState()
 
 
-def copy_to_clipboard(text: str) -> None:
+# ---------------------------------------------------------------------------
+# Widget text shadow-store
+# ---------------------------------------------------------------------------
+
+_widget_cache: dict[str, str] = {}
+
+
+def set_widget_text(tag: str, text) -> None:
+    """Update a DPG text widget and cache the value for reliable retrieval.
+
+    Use instead of dpg.set_value() for every status and error message widget.
+    get_widget_text() is guaranteed to return whatever was last passed here,
+    regardless of which internal DPG field set_value/get_value actually
+    address for mvText items.  Never raises.
+    """
+    import dearpygui.dearpygui as dpg
+    s = "" if text is None else str(text)
+    _widget_cache[tag] = s
+    try:
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, s)
+    except Exception:
+        pass
+
+
+def get_widget_text(tag: str) -> str:
+    """Return the last string written to *tag* via set_widget_text."""
+    return _widget_cache.get(tag, "")
+
+
+def make_copy_callback(tag: str):
+    """Return a 3-parameter DPG callback that copies get_widget_text(tag).
+
+    Prefer this over ``lambda s, a, u, _k=tag: ...`` patterns: the lambda
+    approach relies on DPG never passing a 4th positional argument, which
+    some DPG versions do (passing ``None``), silently overriding the default
+    and breaking the tag lookup.  A closure is unaffected by argument count.
+    """
+    def _cb(sender, app_data, user_data):
+        copy_to_clipboard(get_widget_text(tag))
+    return _cb
+
+
+def copy_to_clipboard(text) -> None:
     """Copy *text* to the system clipboard.
 
-    Tries wl-copy (Wayland), then xclip, then xsel.  Silently does
-    nothing if none are available — the user still sees the text on screen.
+    Accepts any value: None becomes an empty string; non-strings are
+    converted with str() so dpg.get_value() results never cause a crash.
+
+    Backend priority:
+      1. wl-copy / xclip / xsel    — OS-level clipboard (most reliable).
+      2. pyperclip.copy()          — cross-platform Python library.
+      3. dpg.set_clipboard_text()  — DearPyGUI internal API (last resort).
+
+    Never raises; silently does nothing when no backend succeeds.
     """
+    import os
     import subprocess
+    import dearpygui.dearpygui as dpg
+
+    payload = "" if text is None else str(text)
+
+    # Primary: OS subprocess — most reliable on Linux/Wayland/X11
+    env = os.environ.copy()
     for cmd in (
         ["wl-copy"],
         ["xclip", "-selection", "clipboard"],
         ["xsel", "--clipboard", "--input"],
+        ["pbcopy"],
+        ["clip.exe"],
     ):
         try:
-            subprocess.run(cmd, input=text.encode(), check=True, capture_output=True)
+            subprocess.run(
+                cmd,
+                input=payload.encode(),
+                check=True,
+                capture_output=True,
+                env=env,
+            )
             return
-        except (FileNotFoundError, subprocess.CalledProcessError):
+        except Exception:
             continue
+
+    # Secondary: pyperclip
+    try:
+        import pyperclip
+        pyperclip.copy(payload)
+        return
+    except Exception:
+        pass
+
+    # Last resort: DearPyGUI internal clipboard (may not reach OS clipboard)
+    try:
+        dpg.set_clipboard_text(payload)
+    except Exception:
+        pass
