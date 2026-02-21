@@ -1,0 +1,378 @@
+"""
+MIDI model loader for StemForge.
+
+Wraps the BasicPitch audio-to-MIDI model and provides a high-level
+``convert_audio_to_midi()`` facade that handles model loading, inference,
+duration clipping, and optional key filtering in a single call.
+
+Unlike the other loaders, this one intentionally stays slightly above the
+raw-model level: it owns the BasicPitchModelLoader as a delegate and
+encapsulates the BasicPitch inference protocol so the pipeline layer never
+has to import ``basic_pitch.inference`` directly.
+
+GPU / CPU note
+--------------
+BasicPitch runs on CPU only (the loader sets ``CUDA_VISIBLE_DEVICES=-1``
+before TF is imported via ``BasicPitchModelLoader``).  The MIDI pipeline
+is therefore purely CPU-bound; Demucs/MusicGen GPU memory is unaffected.
+"""
+
+import pathlib
+import logging
+from typing import Any
+
+from models.basicpitch_loader import BasicPitchModelLoader
+from utils.midi_io import NoteEvent, filter_to_key
+from utils.errors import ModelLoadError, PipelineExecutionError
+
+
+log = logging.getLogger("stemforge.models.midi_loader")
+
+_WHISPER_MODEL_SIZE = "base"   # small enough to run on CPU in reasonable time
+
+
+class MidiModelLoader:
+    """Facade that converts audio files to MIDI note events.
+
+    Exposes two conversion paths:
+
+    * :meth:`convert_audio_to_midi` — uses BasicPitch (good for instruments).
+    * :meth:`convert_vocal_to_midi` — uses faster-whisper for word timing
+      and librosa PYIN for pitch estimation (better for sung vocals).
+
+    Lifecycle mirrors all other StemForge loaders::
+
+        loader = MidiModelLoader()
+        loader.load()
+        notes = loader.convert_audio_to_midi(path, key="C major", bpm=120.0)
+        loader.evict()
+
+    Parameters
+    ----------
+    (none — delegates cache configuration to BasicPitchModelLoader defaults)
+    """
+
+    def __init__(self) -> None:
+        self._bp_loader = BasicPitchModelLoader()
+        self._model: Any | None = None          # BasicPitch TF model
+        self._whisper_model: Any | None = None  # faster-whisper WhisperModel
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def load(self) -> Any:
+        """Load the BasicPitch TF SavedModel.  Returns the model object.
+
+        Idempotent: if already loaded, returns the cached instance
+        without re-loading.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If TensorFlow or basic-pitch are not installed, or the
+            SavedModel cannot be deserialised.
+        """
+        if self._model is not None:
+            return self._model
+        try:
+            self._model = self._bp_loader.load()
+        except ModelLoadError:
+            raise
+        except Exception as exc:
+            raise ModelLoadError(
+                f"Unexpected error loading MIDI model: {exc}",
+                model_name="basicpitch",
+            ) from exc
+        log.info("MidiModelLoader: BasicPitch model ready (CPU-only).")
+        return self._model
+
+    @property
+    def is_loaded(self) -> bool:
+        """``True`` if the model is currently in memory."""
+        return self._model is not None
+
+    def evict(self) -> None:
+        """Release both models from memory and trigger GC."""
+        self._bp_loader.evict()
+        self._model = None
+        self._whisper_model = None
+        log.debug("MidiModelLoader: models evicted.")
+
+    # ------------------------------------------------------------------
+    # Internal: Whisper lazy loader
+    # ------------------------------------------------------------------
+
+    def _ensure_whisper(self) -> Any:
+        """Load the faster-whisper model on first use."""
+        if self._whisper_model is not None:
+            return self._whisper_model
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise ModelLoadError(
+                "faster-whisper is not installed — cannot transcribe vocals.",
+                model_name="faster-whisper",
+            ) from exc
+        log.info("Loading faster-whisper '%s' on CPU…", _WHISPER_MODEL_SIZE)
+        self._whisper_model = WhisperModel(
+            _WHISPER_MODEL_SIZE,
+            device="cpu",
+            compute_type="int8",
+        )
+        log.info("faster-whisper model ready.")
+        return self._whisper_model
+
+    # ------------------------------------------------------------------
+    # High-level conversion
+    # ------------------------------------------------------------------
+
+    def convert_audio_to_midi(
+        self,
+        path: pathlib.Path,
+        *,
+        prompt: str | None = None,
+        duration: float = 0.0,
+        key: str = "Any",
+        signature: str = "4/4",
+        bpm: float = 120.0,
+        onset_threshold: float = 0.5,
+        frame_threshold: float = 0.3,
+        minimum_note_length: float = 58.0,
+    ) -> list[NoteEvent]:
+        """Transcribe *path* to a list of note events.
+
+        Parameters
+        ----------
+        path:
+            Audio file to transcribe.  Any format supported by
+            ``utils.audio_io.SUPPORTED_EXTENSIONS``.
+        prompt:
+            Optional text description.  Currently logged but not used for
+            conditioning; reserved for future text-guided post-processing.
+        duration:
+            If positive, clip note events to ``[0, duration)`` seconds.
+            Pass ``0`` (default) to keep all detected notes.
+        key:
+            Musical key for pitch snapping, e.g. ``'C major'`` or
+            ``'A minor'``.  ``'Any'`` skips key filtering entirely.
+        signature:
+            Time signature string (informational; not passed to BasicPitch).
+        bpm:
+            Tempo in BPM (informational; used when building the merged MIDI
+            tempo map in the pipeline layer, not by this method).
+        onset_threshold:
+            BasicPitch onset confidence threshold in ``[0, 1]``.
+        frame_threshold:
+            BasicPitch frame confidence threshold in ``[0, 1]``.
+        minimum_note_length:
+            Minimum note duration in milliseconds.
+
+        Returns
+        -------
+        list[NoteEvent]
+            ``(start_sec, end_sec, pitch_midi, velocity)`` tuples,
+            sorted by ``start_sec``.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If the model has not been loaded and cannot be loaded on demand.
+        :class:`~utils.errors.PipelineExecutionError`
+            If BasicPitch inference raises an unexpected error.
+        """
+        if self._model is None:
+            self.load()
+
+        if prompt:
+            log.debug(
+                "convert_audio_to_midi: text prompt received (%.60r) — "
+                "reserved for future conditioning.",
+                prompt,
+            )
+
+        try:
+            from basic_pitch.inference import predict
+        except ImportError as exc:
+            raise ModelLoadError(
+                "basic-pitch package is not importable — is it installed?",
+                model_name="basicpitch",
+            ) from exc
+
+        try:
+            _model_output, _midi_data, note_events_raw = predict(
+                path,
+                self._model,
+                onset_threshold=onset_threshold,
+                frame_threshold=frame_threshold,
+                minimum_note_length=minimum_note_length,
+            )
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"Audio-to-MIDI transcription failed for '{path.name}': {exc}",
+                pipeline_name="midi",
+            ) from exc
+
+        # Normalise BasicPitch raw output to NoteEvent tuples
+        events: list[NoteEvent] = []
+        for item in note_events_raw:
+            start_t, end_t, pitch, amplitude, *_ = item
+            velocity = max(1, min(127, int(float(amplitude) * 127)))
+            events.append((float(start_t), float(end_t), int(pitch), velocity))
+        events.sort(key=lambda e: e[0])
+
+        # Optional duration clip
+        if duration > 0.0:
+            events = [
+                (s, min(e, duration), p, v)
+                for s, e, p, v in events
+                if s < duration
+            ]
+
+        # Key snap: off-key pitches are moved to the nearest in-scale semitone
+        if key and key != "Any":
+            events = filter_to_key(events, key)
+
+        log.debug(
+            "convert_audio_to_midi: %s → %d notes (key=%r, onset=%.2f, frame=%.2f)",
+            path.name, len(events), key, onset_threshold, frame_threshold,
+        )
+        return events
+
+    def convert_vocal_to_midi(
+        self,
+        path: pathlib.Path,
+        *,
+        duration: float = 0.0,
+        key: str = "Any",
+        bpm: float = 120.0,
+        language: str | None = None,
+    ) -> list[NoteEvent]:
+        """Transcribe a vocal stem to MIDI using faster-whisper + librosa PYIN.
+
+        Word timing from faster-whisper is combined with probabilistic pitch
+        estimation (librosa PYIN) to produce one note per word.  Pitches are
+        snapped to *key* after estimation.
+
+        Parameters
+        ----------
+        path:
+            Vocal audio file (mono or stereo).
+        duration:
+            Clip output to this many seconds if positive.
+        key:
+            Musical key for pitch snapping (e.g. ``'A minor'``).
+        bpm:
+            Tempo (informational; used only in the pipeline's merge step).
+        language:
+            ISO-639-1 language code hint for Whisper (e.g. ``'en'``).
+            ``None`` lets Whisper auto-detect.
+
+        Returns
+        -------
+        list[NoteEvent]
+            One note per transcribed word, pitched to the nearest in-key
+            semitone, sorted by start time.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If faster-whisper or librosa is not installed.
+        :class:`~utils.errors.PipelineExecutionError`
+            If transcription or pitch estimation fails.
+        """
+        try:
+            import numpy as np
+            import librosa
+        except ImportError as exc:
+            raise ModelLoadError(
+                "librosa is required for vocal pitch estimation — is it installed?",
+                model_name="librosa",
+            ) from exc
+
+        whisper = self._ensure_whisper()
+
+        # Load audio at 16 kHz for Whisper and also at 22 050 Hz for PYIN.
+        try:
+            y_pyin, sr_pyin = librosa.load(str(path), sr=22_050, mono=True)
+            y_whisper, _sr_w = librosa.load(str(path), sr=16_000, mono=True)
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"Failed to load vocal audio '{path.name}': {exc}",
+                pipeline_name="midi",
+            ) from exc
+
+        # Pre-compute PYIN pitch track for the whole file.
+        try:
+            f0, voiced_flag, _voiced_probs = librosa.pyin(
+                y_pyin,
+                fmin=librosa.note_to_hz("C2"),
+                fmax=librosa.note_to_hz("C7"),
+                sr=sr_pyin,
+            )
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"Pitch estimation failed for '{path.name}': {exc}",
+                pipeline_name="midi",
+            ) from exc
+
+        frame_times = librosa.frames_to_time(
+            range(len(f0)), sr=sr_pyin, hop_length=512
+        )
+
+        # Transcribe with faster-whisper to get word-level timestamps.
+        try:
+            segments_iter, _info = whisper.transcribe(
+                y_whisper,
+                language=language,
+                word_timestamps=True,
+                vad_filter=True,
+            )
+            segments = list(segments_iter)
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"Whisper transcription failed for '{path.name}': {exc}",
+                pipeline_name="midi",
+            ) from exc
+
+        # Build one NoteEvent per word using median voiced F0 in its window.
+        events: list[NoteEvent] = []
+        for segment in segments:
+            words = getattr(segment, "words", None) or []
+            for word in words:
+                start = float(word.start)
+                end = float(word.end)
+                if end <= start:
+                    continue
+                if duration > 0.0 and start >= duration:
+                    continue
+
+                # Find PYIN frames that fall within [start, end].
+                mask = (frame_times >= start) & (frame_times < end) & voiced_flag
+                voiced_f0 = f0[mask]
+
+                if len(voiced_f0) == 0 or np.all(np.isnan(voiced_f0)):
+                    # Unvoiced window — skip (rest / consonant).
+                    continue
+
+                median_hz = float(np.nanmedian(voiced_f0))
+                if median_hz <= 0.0:
+                    continue
+
+                midi_pitch = int(round(librosa.hz_to_midi(median_hz)))
+                midi_pitch = max(0, min(127, midi_pitch))
+
+                clipped_end = min(end, duration) if duration > 0.0 else end
+                velocity = min(127, max(1, int(abs(word.probability) * 100)))
+                events.append((start, clipped_end, midi_pitch, velocity))
+
+        events.sort(key=lambda e: e[0])
+
+        if key and key != "Any":
+            events = filter_to_key(events, key)
+
+        log.debug(
+            "convert_vocal_to_midi: %s → %d notes from %d segments",
+            path.name, len(events), len(segments),
+        )
+        return events

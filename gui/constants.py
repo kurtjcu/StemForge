@@ -9,6 +9,6 @@ import pathlib
 
 _OUTPUT_BASE  = pathlib.Path.home() / ".local" / "share" / "stemforge" / "output"
 _STEMS_DIR    = _OUTPUT_BASE / "stems"
-_MIDI_DIR     = _OUTPUT_BASE / "midi"
+_MIDI_DIR     = pathlib.Path.home() / "Music" / "StemForge"
 _MUSICGEN_DIR = _OUTPUT_BASE / "musicgen"
 _EXPORT_DIR   = _OUTPUT_BASE / "exports"

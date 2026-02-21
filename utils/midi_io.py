@@ -164,3 +164,262 @@ def quantise_notes(
             q_end = q_start + grid_seconds
         result.append((q_start, q_end, pitch, velocity))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Key / scale helpers
+# ---------------------------------------------------------------------------
+
+# Chromatic pitch-class for each note name (enharmonic equivalents share a value)
+_NOTE_PC: dict[str, int] = {
+    "C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3,
+    "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8,
+    "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11,
+}
+
+_MAJOR_INTERVALS = [0, 2, 4, 5, 7, 9, 11]
+_MINOR_INTERVALS = [0, 2, 3, 5, 7, 8, 10]
+
+
+def _parse_key(key: str) -> tuple[int, list[int]] | None:
+    """Return ``(root_pc, scale_intervals)`` for *key*, or ``None`` if unrecognised."""
+    parts = key.strip().split()
+    if len(parts) != 2:
+        return None
+    root = _NOTE_PC.get(parts[0])
+    if root is None:
+        return None
+    intervals = _MAJOR_INTERVALS if parts[1].lower() == "major" else _MINOR_INTERVALS
+    return root, intervals
+
+
+def _parse_time_sig(sig: str) -> tuple[int, int]:
+    """Parse ``'4/4'`` → ``(4, 4)``.  Returns ``(4, 4)`` on any error."""
+    try:
+        num_s, den_s = sig.split("/")
+        return int(num_s), int(den_s)
+    except Exception:
+        return 4, 4
+
+
+def filter_to_key(note_events: list[NoteEvent], key: str) -> list[NoteEvent]:
+    """Snap pitches that are not in *key* to the nearest in-scale pitch.
+
+    Parameters
+    ----------
+    note_events:
+        Input note events.
+    key:
+        Key string such as ``'C major'`` or ``'A minor'``.
+        Passing ``'Any'`` or an unrecognised string returns *note_events*
+        unchanged.
+
+    Returns
+    -------
+    list[NoteEvent]
+        Same timing and velocity as input; pitches may be adjusted by ±1–6
+        semitones to land on the nearest in-key pitch.
+    """
+    parsed = _parse_key(key)
+    if parsed is None:
+        return list(note_events)
+
+    root, intervals = parsed
+    scale_pcs = {(root + i) % 12 for i in intervals}
+
+    result: list[NoteEvent] = []
+    for start, end, pitch, velocity in note_events:
+        if pitch % 12 in scale_pcs:
+            result.append((start, end, pitch, velocity))
+        else:
+            # Scan ±6 semitones and pick the closest in-key candidate.
+            best, best_dist = pitch, 13
+            for delta in range(-6, 7):
+                candidate = pitch + delta
+                if 0 <= candidate <= 127 and candidate % 12 in scale_pcs:
+                    if abs(delta) < best_dist:
+                        best_dist = abs(delta)
+                        best = candidate
+            result.append((start, end, max(0, min(127, best)), velocity))
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Multi-track merge
+# ---------------------------------------------------------------------------
+
+# Default General MIDI program numbers for known stem names
+_STEM_GM_PROGRAM: dict[str, int] = {
+    "vocals":               52,   # Choir Aahs
+    "Singing voice":        52,
+    "drums":                 0,   # (is_drum=True overrides program)
+    "Drums & percussion":    0,
+    "bass":                 33,   # Electric Bass (finger)
+    "Bass":                 33,
+    "other":                48,   # String Ensemble 1
+    "Everything else":      48,
+    "generated":             0,   # Acoustic Grand Piano
+}
+
+_STEM_IS_DRUM: dict[str, bool] = {
+    "drums":              True,
+    "Drums & percussion": True,
+}
+
+
+def merge_tracks(
+    track_notes: dict[str, list[NoteEvent]],
+    bpm: float = 120.0,
+    time_signature: str = "4/4",
+    ticks_per_beat: int = 480,
+    stem_programs: dict[str, int] | None = None,
+    stem_is_drum: dict[str, bool] | None = None,
+) -> MidiData:
+    """Create a format-1 multi-track MIDI from per-stem note events.
+
+    All tracks share a single tempo and time-signature map so they are
+    perfectly time-aligned on any standards-compliant MIDI player or DAW.
+
+    Parameters
+    ----------
+    track_notes:
+        ``{stem_name: [NoteEvent, ...]}`` — one entry per track.
+    bpm:
+        Tempo in beats per minute (shared across all tracks).
+    time_signature:
+        String such as ``'4/4'`` or ``'3/4'`` (shared across all tracks).
+    ticks_per_beat:
+        MIDI resolution in ticks per quarter-note.
+    stem_programs:
+        Optional override map of stem name → GM program number.  Defaults
+        to :data:`_STEM_GM_PROGRAM` for known names; piano (0) otherwise.
+    stem_is_drum:
+        Optional override map of stem name → ``True`` for percussion tracks.
+        Defaults to :data:`_STEM_IS_DRUM` for known names.
+
+    Returns
+    -------
+    MidiData
+        ``pretty_midi.PrettyMIDI`` with one instrument per stem.
+    """
+    programs = {**_STEM_GM_PROGRAM, **(stem_programs or {})}
+    drums = {**_STEM_IS_DRUM, **(stem_is_drum or {})}
+
+    pm = pretty_midi.PrettyMIDI(
+        resolution=int(ticks_per_beat),
+        initial_tempo=float(bpm),
+    )
+
+    num, den = _parse_time_sig(time_signature)
+    pm.time_signature_changes = [
+        pretty_midi.TimeSignature(numerator=num, denominator=den, time=0.0)
+    ]
+
+    for stem_name, notes in track_notes.items():
+        program = programs.get(stem_name, 0)
+        is_drum = drums.get(stem_name, False)
+        instrument = pretty_midi.Instrument(
+            program=program,
+            is_drum=is_drum,
+            name=stem_name,
+        )
+        for start, end, pitch, velocity in notes:
+            if end <= start:
+                continue
+            instrument.notes.append(pretty_midi.Note(
+                velocity=max(1, min(127, int(velocity))),
+                pitch=max(0, min(127, int(pitch))),
+                start=float(start),
+                end=float(end),
+            ))
+        instrument.notes.sort(key=lambda n: n.start)
+        pm.instruments.append(instrument)
+
+    log.debug(
+        "merge_tracks: %d tracks, bpm=%.1f, time_sig=%s",
+        len(track_notes), bpm, time_signature,
+    )
+    return pm
+
+
+# ---------------------------------------------------------------------------
+# Text-only chord generation
+# ---------------------------------------------------------------------------
+
+# Diatonic triads (semitone offsets from key root) for I–IV–V–I progressions.
+# Each inner list is [root, third, fifth] relative to key root.
+_MAJOR_PROGRESSION: list[list[int]] = [
+    [0, 4, 7],    # I   major
+    [5, 9, 12],   # IV  major
+    [7, 11, 14],  # V   major
+    [0, 4, 7],    # I   major (repeat)
+]
+_MINOR_PROGRESSION: list[list[int]] = [
+    [0, 3, 7],    # i   minor
+    [5, 8, 12],   # iv  minor
+    [7, 11, 14],  # V   major (dominant)
+    [0, 3, 7],    # i   minor (repeat)
+]
+
+
+def generate_chord_progression(
+    key: str,
+    bpm: float,
+    time_signature: str,
+    duration_seconds: float,
+) -> list[NoteEvent]:
+    """Generate a diatonic I–IV–V–I chord progression as note events.
+
+    Used for text-only MIDI generation when no audio stems are available.
+    The progression repeats as needed to fill *duration_seconds*.
+
+    Parameters
+    ----------
+    key:
+        Key string such as ``'C major'`` or ``'A minor'``.
+        ``'Any'`` defaults to ``'C major'``.
+    bpm:
+        Tempo in beats per minute.
+    time_signature:
+        Time-signature string such as ``'4/4'``.
+    duration_seconds:
+        Total duration to fill.  At least one chord is always emitted.
+
+    Returns
+    -------
+    list[NoteEvent]
+        Chord tones as ``(start_sec, end_sec, pitch_midi, velocity)`` tuples,
+        sorted by start time.
+    """
+    if not key or key == "Any":
+        key = "C major"
+
+    parsed = _parse_key(key)
+    root = parsed[0] if parsed else 0
+    is_major = "major" in key.lower()
+    progression = _MAJOR_PROGRESSION if is_major else _MINOR_PROGRESSION
+
+    num, _den = _parse_time_sig(time_signature)
+    beats_per_bar = num
+    bar_seconds = (beats_per_bar / max(1.0, bpm)) * 60.0
+    # Each chord lasts 2 bars
+    chord_seconds = bar_seconds * 2
+
+    events: list[NoteEvent] = []
+    t = 0.0
+    velocity = 80
+    # Middle-C octave (MIDI 48 = C3); keep within 36–84 for a pleasant range.
+    base_midi = root + 48
+
+    while t < duration_seconds:
+        for triad in progression:
+            if t >= duration_seconds:
+                break
+            chord_end = min(t + chord_seconds, duration_seconds)
+            for offset in triad:
+                pitch = max(36, min(84, base_midi + offset))
+                events.append((t, chord_end - 0.02, pitch, velocity))
+            t += chord_seconds
+
+    events.sort(key=lambda e: e[0])
+    return events

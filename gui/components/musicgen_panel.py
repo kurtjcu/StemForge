@@ -175,6 +175,21 @@ class MusicGenPanel:
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text("Re-read which separated parts are available.")
 
+                dpg.add_spacer(height=14)
+                dpg.add_text("MIDI conditioning  (optional)", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "MIDI file produced by the MIDI tab.\n"
+                        "Will be used as a structural/harmonic guide\n"
+                        "when the generation pipeline supports it."
+                    )
+                dpg.add_text(
+                    "No MIDI available — run Extract MIDI first.",
+                    tag=_t("midi_status"),
+                    color=(140, 140, 140, 255),
+                    wrap=300,
+                )
+
                 dpg.add_spacer(height=20)
                 dpg.add_button(
                     label="  Generate  ",
@@ -236,6 +251,15 @@ class MusicGenPanel:
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
+
+    def notify_midi_ready(
+        self,
+        midi_path: pathlib.Path,
+        stem_midi_paths: dict[str, pathlib.Path],
+    ) -> None:
+        """Called by MidiPanel after a successful extraction run."""
+        if dpg.does_item_exist(_t("midi_status")):
+            dpg.set_value(_t("midi_status"), str(midi_path))
 
     def _on_model_change(self, sender, app_data, user_data) -> None:
         pass

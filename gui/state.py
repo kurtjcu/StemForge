@@ -24,6 +24,7 @@ class AppState:
         self._audio_path: Optional[pathlib.Path] = None
         self._stem_paths: dict[str, pathlib.Path] = {}
         self._midi_path: Optional[pathlib.Path] = None
+        self._midi_paths: dict[str, pathlib.Path] = {}
         self._musicgen_path: Optional[pathlib.Path] = None
 
     # ------------------------------------------------------------------
@@ -69,6 +70,20 @@ class AppState:
             self._midi_path = value
 
     # ------------------------------------------------------------------
+    # midi_paths  (per-stem individual MIDI files)
+    # ------------------------------------------------------------------
+
+    @property
+    def midi_paths(self) -> dict[str, pathlib.Path]:
+        with self._lock:
+            return dict(self._midi_paths)
+
+    @midi_paths.setter
+    def midi_paths(self, value: dict[str, pathlib.Path]) -> None:
+        with self._lock:
+            self._midi_paths = dict(value)
+
+    # ------------------------------------------------------------------
     # musicgen_path
     # ------------------------------------------------------------------
 
@@ -91,6 +106,7 @@ class AppState:
         with self._lock:
             self._stem_paths = {}
             self._midi_path = None
+            self._midi_paths = {}
             self._musicgen_path = None
 
 

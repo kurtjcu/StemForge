@@ -72,6 +72,13 @@ dependencies = [
     # Vocal MIDI pipeline
     "faster-whisper>=1.0.0",
 
+    # Stable Audio Open
+    "transformers>=4.40.0",
+    "accelerate>=0.30.0",
+    "safetensors>=0.4.2",
+    "einops>=0.7.0",
+    "huggingface_hub>=0.23.0",
+
     # GUI
     "dearpygui>=1.11.0",
     "sounddevice>=0.5.0",

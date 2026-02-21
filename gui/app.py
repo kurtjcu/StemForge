@@ -18,7 +18,7 @@ import dearpygui.dearpygui as dpg
 from gui.constants import _STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _EXPORT_DIR
 from gui.components.loader import LoaderPanel
 from gui.components.demucs_panel import DemucsPanel
-from gui.components.basicpitch_panel import BasicPitchPanel
+from gui.components.midi_panel import MidiPanel
 from gui.components.musicgen_panel import MusicGenPanel
 from gui.components.export_panel import ExportPanel
 from gui.components.waveform_widget import tick_all
@@ -144,18 +144,19 @@ def main() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
     # ---- Panel singletons ----------------------------------------------
-    _loader     = LoaderPanel()
-    _demucs     = DemucsPanel()
-    _basicpitch = BasicPitchPanel()
-    _musicgen   = MusicGenPanel()
-    _export     = ExportPanel()
+    _loader   = LoaderPanel()
+    _demucs   = DemucsPanel()
+    _midi     = MidiPanel()
+    _musicgen = MusicGenPanel()
+    _export   = ExportPanel()
 
     # ---- Inter-panel wiring --------------------------------------------
-    _demucs.add_result_listener(_basicpitch.notify_stems_ready)
+    _demucs.add_result_listener(_midi.notify_stems_ready)
+    _midi.add_result_listener(_musicgen.notify_midi_ready)
 
     # ---- Top-level dialogs / browser (must live outside all windows) ---
     _loader.build_file_browser()
-    _basicpitch.build_save_dialog()
+    _midi.build_browsers()
     _musicgen.build_save_dialog()
     _export.build_dir_dialog()
 
@@ -185,7 +186,7 @@ def main() -> None:
                 _demucs.build_ui()
 
             with dpg.tab(label="  MIDI  "):
-                _basicpitch.build_ui()
+                _midi.build_ui()
 
             with dpg.tab(label="  Generate  "):
                 _musicgen.build_ui()
