@@ -1,18 +1,20 @@
 """
-MusicGen audio-generation pipeline for StemForge.
+Audio generation pipeline for StemForge.
 
-Orchestrates the full lifecycle of a MusicGen generation job: loading the
+Orchestrates the full lifecycle of an audio generation job: loading the
 model via the model loader, optionally encoding a melody conditioning
-waveform, running autoregressive token generation from a text prompt, and
-decoding the resulting EnCodec tokens back to a waveform that is written
+waveform, running generation from a text prompt, and writing the result
 to disk.
+
+Placeholder — implementation will target Stable Audio Open once the
+dependency is confirmed working on the CUDA 12.8 / torch 2.10 stack.
 
 Typical usage
 -------------
 ::
 
     pipeline = MusicGenPipeline()
-    pipeline.configure(MusicGenConfig(model_name="facebook/musicgen-melody", ...))
+    pipeline.configure(MusicGenConfig(model_name="stabilityai/stable-audio-open-1.0", ...))
     pipeline.load_model()
     result = pipeline.run("upbeat jazz piano trio, walking bass, brushed drums")
     pipeline.clear()
@@ -32,26 +34,22 @@ from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError
 # ---------------------------------------------------------------------------
 
 class MusicGenConfig:
-    """Immutable configuration snapshot for a single MusicGen job.
+    """Immutable configuration snapshot for a single generation job.
 
     Parameters
     ----------
     model_name:
-        HuggingFace model identifier
-        (e.g. ``'facebook/musicgen-small'``, ``'facebook/musicgen-melody'``).
+        Model identifier (e.g. ``'stabilityai/stable-audio-open-1.0'``).
     duration_seconds:
         Target length of the generated audio clip in seconds.
-        Practical upper limit is model-dependent (typically 30 s).
     melody_path:
         Optional path to an audio file used for melody conditioning.
-        Only meaningful when ``model_name`` ends in ``'-melody'``.
+        Only meaningful for models that support it.
         If ``None``, unconditional text-to-audio generation is performed.
     top_k:
         Top-k nucleus sampling parameter applied during token generation.
-        Lower values produce more conservative, less varied outputs.
     temperature:
         Sampling temperature applied during token generation.
-        Values above ``1.0`` increase randomness; values below reduce it.
     output_dir:
         Directory where the generated WAV file will be written.
         Created automatically if it does not exist.
@@ -81,17 +79,16 @@ class MusicGenConfig:
 # ---------------------------------------------------------------------------
 
 class MusicGenResult:
-    """Artefacts produced by a completed MusicGen generation job.
+    """Artefacts produced by a completed generation job.
 
     Parameters
     ----------
     audio_path:
         Absolute path of the generated audio file written to disk.
     sample_rate:
-        Sample rate of the generated audio in Hz (typically 32 000 Hz).
+        Sample rate of the generated audio in Hz.
     duration_seconds:
-        Actual duration of the generated clip in seconds.  May differ
-        slightly from the requested duration due to token-boundary rounding.
+        Actual duration of the generated clip in seconds.
     """
 
     audio_path: pathlib.Path
@@ -112,30 +109,19 @@ class MusicGenResult:
 # ---------------------------------------------------------------------------
 
 class MusicGenPipeline:
-    """Interface for the MusicGen conditional audio-generation pipeline.
+    """Interface for the audio generation pipeline.
 
-    Wraps the complete generation workflow — melody encoding, autoregressive
-    token generation, EnCodec decoding, and audio file writing — behind a
-    minimal, consistent API that mirrors the other StemForge pipelines.
+    Wraps the complete generation workflow — melody encoding, generation,
+    and audio file writing — behind a minimal, consistent API that mirrors
+    the other StemForge pipelines.
 
     Lifecycle
     ---------
     1. ``pipeline = MusicGenPipeline()``
     2. ``pipeline.configure(config)`` — supply a :class:`MusicGenConfig`.
-    3. ``pipeline.load_model()``       — load transformer + codec weights.
+    3. ``pipeline.load_model()``       — load model weights.
     4. ``result = pipeline.run(prompt)`` — generate audio from *prompt*.
     5. ``pipeline.clear()``              — release memory and reset state.
-
-    Notes
-    -----
-    * The primary input to :meth:`run` is the text *prompt*; all other
-      generation parameters (melody path, duration, temperature, …) are
-      supplied via :class:`MusicGenConfig` and set through
-      :meth:`configure`.
-    * Loading MusicGen downloads both the language-model checkpoint and
-      the EnCodec codec checkpoint; :meth:`load_model` handles both.
-    * Because generation is memory-intensive, it is strongly recommended
-      to call :meth:`clear` between sessions to free GPU/CPU RAM.
     """
 
     is_loaded: bool
@@ -175,24 +161,18 @@ class MusicGenPipeline:
     # ------------------------------------------------------------------
 
     def load_model(self) -> None:
-        """Load the MusicGen language model and EnCodec codec into memory.
-
-        Uses ``config.model_name`` to identify which checkpoint to fetch.
-        Both the transformer weights and the codec weights are loaded and
-        retained in ``self._model`` for reuse across multiple :meth:`run`
-        calls.
+        """Load the generation model into memory.
 
         Raises
         ------
         :class:`~utils.errors.PipelineExecutionError`
             If :meth:`configure` has not been called prior to this method.
         :class:`~utils.errors.ModelLoadError`
-            If a checkpoint cannot be read from disk, the download fails,
-            or the model identifier is not recognised.
+            If the checkpoint cannot be loaded.
 
         Post-condition
         --------------
-        ``self.is_loaded`` is ``True`` and both model components are ready.
+        ``self.is_loaded`` is ``True`` and the model is ready for inference.
         """
         pass
 
@@ -203,16 +183,10 @@ class MusicGenPipeline:
     def run(self, input_data: str) -> MusicGenResult:
         """Generate an audio clip conditioned on the text prompt *input_data*.
 
-        If ``config.melody_path`` is set, the melody is encoded first and
-        used as an additional conditioning signal alongside the text prompt.
-        The generated EnCodec tokens are decoded to a waveform and written
-        to ``config.output_dir``.
-
         Parameters
         ----------
         input_data:
-            Natural-language description of the music to generate
-            (e.g. ``'calm piano melody with soft strings'``).
+            Natural-language description of the music to generate.
             Must be a non-empty string.
 
         Returns
@@ -223,14 +197,12 @@ class MusicGenPipeline:
         Raises
         ------
         :class:`~utils.errors.PipelineExecutionError`
-            If :meth:`load_model` has not been called successfully, or if
-            token generation produces invalid output.
+            If :meth:`load_model` has not been called successfully.
         :class:`~utils.errors.InvalidInputError`
             If *input_data* is an empty string, or if ``config.melody_path``
-            is set but does not exist on disk or has an unsupported format.
+            is set but does not exist or has an unsupported format.
         :class:`~utils.errors.AudioProcessingError`
-            If reading the melody conditioning file or writing the generated
-            audio to disk fails.
+            If reading the melody file or writing the generated audio fails.
         """
         pass
 
@@ -240,11 +212,6 @@ class MusicGenPipeline:
 
     def clear(self) -> None:
         """Release all model weights from memory and reset pipeline state.
-
-        Evicts both the language-model and EnCodec codec from memory.
-        After this call the pipeline is in the same state as immediately
-        after :meth:`__init__`: no model is loaded and :meth:`run` will
-        raise :class:`RuntimeError` until :meth:`load_model` is called again.
 
         Safe to call even if no model has been loaded.
 
@@ -259,14 +226,13 @@ class MusicGenPipeline:
     # ------------------------------------------------------------------
 
     def set_progress_callback(self, callback: Callable[[float], None]) -> None:
-        """Register a callback invoked periodically during token generation.
+        """Register a callback invoked periodically during generation.
 
         Parameters
         ----------
         callback:
             A callable with signature ``callback(percent: float)``.
-            *percent* is in the range ``[0.0, 100.0]`` and advances as
-            autoregressive decoding steps complete.
+            *percent* is in the range ``[0.0, 100.0]``.
         """
         pass
 
@@ -275,7 +241,7 @@ class MusicGenPipeline:
     # ------------------------------------------------------------------
 
     def _encode_melody(self, melody_path: pathlib.Path) -> Any:
-        """Load the melody conditioning file and encode it with the EnCodec codec.
+        """Load the melody conditioning file and encode it.
 
         Parameters
         ----------
@@ -285,8 +251,7 @@ class MusicGenPipeline:
         Returns
         -------
         Any
-            Encoded melody representation accepted by the language model's
-            conditioning mechanism.
+            Encoded melody representation accepted by the model.
         """
         pass
 
@@ -295,7 +260,7 @@ class MusicGenPipeline:
         prompt: str,
         melody_encoding: Any | None,
     ) -> Any:
-        """Run autoregressive token generation conditioned on *prompt*.
+        """Run generation conditioned on *prompt*.
 
         Parameters
         ----------
@@ -303,29 +268,27 @@ class MusicGenPipeline:
             Text description of the desired music.
         melody_encoding:
             Encoded melody from :meth:`_encode_melody`, or ``None`` for
-            unconditional text-only generation.
+            text-only generation.
 
         Returns
         -------
         Any
-            Raw EnCodec token sequence of shape
-            ``(batch, codebooks, time_steps)``.
+            Raw output from the model (tokens or decoded audio).
         """
         pass
 
     def _decode_tokens(self, tokens: Any) -> Any:
-        """Decode the EnCodec token sequence back to a raw audio waveform.
+        """Decode raw model output back to an audio waveform.
 
         Parameters
         ----------
         tokens:
-            Token sequence from :meth:`_generate_tokens`.
+            Output of :meth:`_generate_tokens`.
 
         Returns
         -------
         Any
-            Decoded waveform array of shape ``(channels, samples)`` at
-            the codec's native sample rate.
+            Decoded waveform array of shape ``(channels, samples)``.
         """
         pass
 
@@ -338,6 +301,6 @@ class MusicGenPipeline:
             Decoded audio from :meth:`_decode_tokens`.
         output_path:
             Destination file path.  Parent directories are created if they
-            do not exist.  The file is written as a 16-bit WAV by default.
+            do not exist.
         """
         pass

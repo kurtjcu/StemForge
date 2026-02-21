@@ -404,14 +404,48 @@ class DemucsPipeline:
         """
         from demucs.apply import apply_model
 
-        try:
+        waveform = waveform.contiguous()
+
+        is_mdx = self._config.model_name.startswith("mdx")
+        apply_kwargs: dict = dict(progress=False, num_workers=0)
+        if is_mdx and hasattr(self._model, "segment"):
+            apply_kwargs["segment"] = self._model.segment
+
+        def _apply(wav: Any) -> Any:
             with torch.no_grad():
-                # apply_model returns (batch, stems, channels, samples)
-                sources = apply_model(
-                    self._model,
-                    waveform.to(self._device),
-                    progress=False,
-                )
+                return apply_model(self._model, wav, **apply_kwargs)
+
+        try:
+            # apply_model returns (batch, stems, channels, samples)
+            sources = _apply(waveform.to(self._device))
+
+        except RuntimeError as exc:
+            # MDX-Net models create non-contiguous complex strides inside
+            # their STFT/UNet layers that trigger CUBLAS_STATUS_INVALID_VALUE
+            # on CUDA.  The strides are internal to the model — we can't fix
+            # them from outside.  Fall back to CPU inference automatically.
+            is_cuda_error = self._device == "cuda" and (
+                "CUBLAS" in str(exc) or "CUDA error" in str(exc)
+            )
+            if not is_cuda_error:
+                raise PipelineExecutionError(
+                    f"Demucs inference failed: {exc}", pipeline_name="demucs"
+                ) from exc
+
+            log.warning(
+                "GPU inference failed (%s). "
+                "Retrying on CPU — this will be slower. "
+                "For GPU-accelerated separation use htdemucs or htdemucs_ft.",
+                type(exc).__name__,
+            )
+            self._report(12.0, "GPU error — retrying on CPU (slower, may take several minutes)")
+
+            self._model.cpu()  # moves weights in-place; frees VRAM
+            try:
+                sources = _apply(waveform.cpu())
+            finally:
+                self._model.to(self._device)  # restore for next run regardless
+
         except Exception as exc:
             raise PipelineExecutionError(
                 f"Demucs inference failed: {exc}", pipeline_name="demucs"

@@ -1,10 +1,12 @@
 """
-MusicGen model loader for StemForge.
+Audio generation model loader for StemForge.
 
 Responsible for locating, downloading (if absent), verifying, and loading
-MusicGen model weights from the HuggingFace Hub into memory.  Handles
-both the language model (transformer) and the EnCodec audio codec
-checkpoints required for the complete generation pipeline.
+audio generation model weights from a model hub into memory.  Handles
+both the generator model and any required codec checkpoints.
+
+Placeholder — implementation will target Stable Audio Open once the
+dependency is confirmed working on the CUDA 12.8 / torch 2.10 stack.
 """
 
 import os
@@ -22,7 +24,7 @@ DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
 
 
 class MusicGenModelLoader:
-    """Loads and caches MusicGen language-model and codec weights.
+    """Loads and caches audio generation model weights.
 
     Parameters
     ----------
@@ -38,27 +40,22 @@ class MusicGenModelLoader:
         pass
 
     def load(self, model_name: str) -> Any:
-        """Return the MusicGen model for *model_name*.
-
-        Both the transformer and EnCodec weights are loaded and returned as
-        a single composite object.
+        """Return the generation model for *model_name*.
 
         Parameters
         ----------
         model_name:
-            HuggingFace model ID (e.g. ``'facebook/musicgen-melody'``).
+            Model identifier (e.g. ``'stabilityai/stable-audio-open-1.0'``).
 
         Returns
         -------
         Any
-            Composite object exposing ``lm`` and ``codec`` attributes.
+            Loaded model object.
 
         Raises
         ------
         :class:`~utils.errors.ModelLoadError`
-            If *model_name* is not a recognised HuggingFace model ID, any
-            checkpoint file is corrupt, or insufficient memory is available
-            to load both the transformer and codec weights.
+            If the model cannot be loaded or downloaded.
         """
         pass
 
@@ -72,8 +69,7 @@ class MusicGenModelLoader:
         Raises
         ------
         :class:`~utils.errors.ModelLoadError`
-            If the HuggingFace Hub returns an error, the network is
-            unavailable, or a downloaded file fails its checksum check.
+            If the download fails or a file fails its checksum check.
         """
         pass
 

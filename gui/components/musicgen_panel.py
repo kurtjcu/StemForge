@@ -15,7 +15,6 @@ wired and will produce output as soon as the pipeline is implemented.
 import pathlib
 import logging
 import threading
-import traceback
 
 import dearpygui.dearpygui as dpg
 
@@ -28,19 +27,10 @@ from gui.components.file_browser import FileBrowser
 
 log = logging.getLogger("stemforge.gui.musicgen_panel")
 
-MUSICGEN_MODELS: tuple[str, ...] = (
-    "facebook/musicgen-small",
-    "facebook/musicgen-medium",
-    "facebook/musicgen-large",
-    "facebook/musicgen-melody",
-)
-
-_MODEL_LABEL: dict[str, str] = {
-    "facebook/musicgen-small":  "Small  (fast, ~300 MB)",
-    "facebook/musicgen-medium": "Medium (~1.5 GB)",
-    "facebook/musicgen-large":  "Large  (best quality, ~3.5 GB)",
-    "facebook/musicgen-melody": "Melody  (text + melody guide)",
-}
+# Model list — populated when Stable Audio Open integration is complete.
+MUSICGEN_MODELS: tuple[str, ...] = ()
+_MODEL_LABEL: dict[str, str] = {}
+_MODEL_PLACEHOLDER = "— not yet configured —"
 
 _P = "mg"
 
@@ -102,11 +92,12 @@ class MusicGenPanel:
                         "to follow as an additional guide."
                     )
                 dpg.add_combo(
-                    items=[_MODEL_LABEL[m] for m in MUSICGEN_MODELS],
-                    default_value=_MODEL_LABEL["facebook/musicgen-small"],
+                    items=list(_MODEL_LABEL.values()) or [_MODEL_PLACEHOLDER],
+                    default_value=next(iter(_MODEL_LABEL.values()), _MODEL_PLACEHOLDER),
                     tag=_t("model"),
                     callback=self._on_model_change,
                     width=-1,
+                    enabled=bool(MUSICGEN_MODELS),
                 )
 
                 dpg.add_spacer(height=14)
@@ -247,13 +238,7 @@ class MusicGenPanel:
     # ------------------------------------------------------------------
 
     def _on_model_change(self, sender, app_data, user_data) -> None:
-        model_id = next(
-            (k for k, v in _MODEL_LABEL.items() if v == app_data),
-            "facebook/musicgen-small",
-        )
-        is_melody = model_id.endswith("-melody")
-        dpg.configure_item(_t("melody"), enabled=is_melody)
-        dpg.configure_item(_t("refresh_btn"), enabled=is_melody)
+        pass
 
     def _on_refresh_stems(self, sender, app_data, user_data) -> None:
         from gui.components.demucs_panel import _STEM_LABEL
@@ -290,85 +275,9 @@ class MusicGenPanel:
 
     def _run(self) -> None:
         dpg.configure_item(_t("run_btn"), enabled=False)
-        dpg.configure_item(_t("save_btn"), enabled=False)
         dpg.set_value(_t("progress"), 0.0)
-
         try:
-            prompt = dpg.get_value(_t("prompt")).strip()
-            if not prompt:
-                set_widget_text(_t("status"),"Enter a description first.")
-                return
-
-            model_label = dpg.get_value(_t("model"))
-            model_id = next(
-                (k for k, v in _MODEL_LABEL.items() if v == model_label),
-                "facebook/musicgen-small",
-            )
-
-            melody_path: pathlib.Path | None = None
-            if model_id.endswith("-melody"):
-                melody_label = dpg.get_value(_t("melody"))
-                if melody_label and melody_label != "None":
-                    from gui.components.demucs_panel import _STEM_LABEL, STEM_TARGETS
-                    stem_key = next(
-                        (k for k in STEM_TARGETS if _STEM_LABEL.get(k) == melody_label),
-                        None,
-                    )
-                    if stem_key:
-                        melody_path = app_state.stem_paths.get(stem_key)
-
-            if self._current_model and self._current_model != model_id:
-                set_widget_text(_t("status"),"Unloading previous model…")
-                self._pipeline.clear()
-            self._current_model = model_id
-
-            config = MusicGenConfig(
-                model_name=model_id,
-                duration_seconds=float(dpg.get_value(_t("duration"))),
-                melody_path=melody_path,
-                top_k=int(dpg.get_value(_t("topk"))),
-                temperature=dpg.get_value(_t("temperature")),
-                output_dir=_MUSICGEN_DIR,
-            )
-            self._pipeline.configure(config)
-
-            if not getattr(self._pipeline, "is_loaded", False):
-                set_widget_text(
-                    _t("status"),
-                    "Loading model — this may take a few minutes on first run…",
-                )
-                self._pipeline.load_model()
-
-            def _progress(pct: float) -> None:
-                dpg.set_value(_t("progress"), pct / 100.0)
-                set_widget_text(_t("status"),f"Generating… {pct:.0f}%")
-
-            self._pipeline.set_progress_callback(_progress)
-            result = self._pipeline.run(prompt)
-
-            if result is None:
-                set_widget_text(_t("status"),"MusicGen pipeline not yet implemented.")
-                return
-
-            self._result_path = result.audio_path
-            app_state.musicgen_path = result.audio_path
-
-            dpg.set_value(_t("progress"), 1.0)
-            set_widget_text(_t("status"),f"Done — {result.duration_seconds:.1f} s generated")
-            dpg.set_value(
-                _t("duration_info"),
-                f"{result.duration_seconds:.1f} s · {result.sample_rate} Hz",
-            )
-            dpg.set_value(_t("audio_file"), str(result.audio_path))
-            dpg.configure_item(_t("save_btn"), enabled=True)
-
-            # Load waveform preview
-            self._waveform.load_async(result.audio_path)
-
-        except Exception as exc:
-            traceback.print_exc()
-            set_widget_text(_t("status"),f"Error: {exc}")
-            dpg.set_value(_t("progress"), 0.0)
+            set_widget_text(_t("status"), "Generation pipeline not yet implemented.")
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)
 
@@ -383,15 +292,8 @@ class MusicGenPanel:
         return dpg.get_value(_t("prompt")) if dpg.does_item_exist(_t("prompt")) else ""
 
     def get_selected_model(self) -> str:
-        label = (
-            dpg.get_value(_t("model"))
-            if dpg.does_item_exist(_t("model"))
-            else _MODEL_LABEL["facebook/musicgen-small"]
-        )
-        return next(
-            (k for k, v in _MODEL_LABEL.items() if v == label),
-            "facebook/musicgen-small",
-        )
+        label = dpg.get_value(_t("model")) if dpg.does_item_exist(_t("model")) else ""
+        return next((k for k, v in _MODEL_LABEL.items() if v == label), "")
 
     def get_duration_seconds(self) -> float:
         return float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 10.0
