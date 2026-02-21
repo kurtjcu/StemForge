@@ -96,3 +96,22 @@ class AppState:
 
 # Module-level singleton — import this from every panel and callback.
 app_state: AppState = AppState()
+
+
+def copy_to_clipboard(text: str) -> None:
+    """Copy *text* to the system clipboard.
+
+    Tries wl-copy (Wayland), then xclip, then xsel.  Silently does
+    nothing if none are available — the user still sees the text on screen.
+    """
+    import subprocess
+    for cmd in (
+        ["wl-copy"],
+        ["xclip", "-selection", "clipboard"],
+        ["xsel", "--clipboard", "--input"],
+    ):
+        try:
+            subprocess.run(cmd, input=text.encode(), check=True, capture_output=True)
+            return
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            continue

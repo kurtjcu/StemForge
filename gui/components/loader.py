@@ -13,7 +13,7 @@ from typing import Callable
 import dearpygui.dearpygui as dpg
 
 from utils.audio_io import SUPPORTED_EXTENSIONS as _AUDIO_EXT, probe
-from gui.state import app_state
+from gui.state import app_state, copy_to_clipboard
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
 
@@ -70,7 +70,7 @@ class LoaderPanel:
             )
 
             dpg.add_button(
-                label="✕  Clear",
+                label="Clear",
                 callback=self._on_clear,
                 width=90,
                 height=32,
@@ -79,13 +79,13 @@ class LoaderPanel:
                 dpg.add_text("Remove the loaded file and reset all pipeline results.")
 
         with dpg.group(horizontal=True):
-            dpg.add_text("", tag=_TAG_INFO, color=(160, 160, 160, 255))
             _info_tag = _TAG_INFO
             dpg.add_button(
                 label="Copy",
-                callback=lambda s, a, u, _t=_info_tag: dpg.set_clipboard_text(dpg.get_value(_t)),
+                callback=lambda s, a, u, _t=_info_tag: copy_to_clipboard(dpg.get_value(_t)),
                 width=50,
             )
+            dpg.add_text("", tag=_TAG_INFO, color=(160, 160, 160, 255))
 
         # Waveform preview
         self._waveform.build_ui()

@@ -81,14 +81,14 @@ class WaveformWidget:
             # Control row
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="▶ Play",
+                    label="Play",
                     tag=self._tag("play_btn"),
                     callback=self._on_play,
                     width=70,
                     enabled=False,
                 )
                 dpg.add_button(
-                    label="■ Stop",
+                    label="Stop",
                     tag=self._tag("stop_btn"),
                     callback=self._on_stop,
                     width=70,

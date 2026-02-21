@@ -178,8 +178,8 @@ class FileBrowser:
         ):
             # Navigation bar
             with dpg.group(horizontal=True):
-                dpg.add_button(label=" ↑ Up ", callback=self._on_up, width=60)
-                dpg.add_button(label=" ⌂ Home ", callback=self._on_home, width=70)
+                dpg.add_button(label="  ..  Up", callback=self._on_up)
+                dpg.add_button(label="  ~  Home", callback=self._on_home)
                 dpg.add_text("", tag=self._t("cwd_label"), color=(180, 180, 200, 255))
 
             dpg.add_separator()
@@ -187,7 +187,7 @@ class FileBrowser:
             # Column sort headers
             with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="Name ↑",
+                    label="Name ^",
                     tag=self._t("hdr_name"),
                     callback=self._on_sort_name,
                     width=300,
@@ -319,15 +319,15 @@ class FileBrowser:
         self._refresh_list()
 
     def _update_sort_headers(self) -> None:
-        """Refresh sort-indicator arrows on the three header buttons."""
-        arrow = "↑" if self._sort_asc else "↓"
+        """Refresh sort-indicator markers on the three header buttons."""
+        marker = "^" if self._sort_asc else "v"
         labels = {
             _COL_NAME:  ("Name", self._t("hdr_name")),
             _COL_MTIME: ("Modified", self._t("hdr_mtime")),
             _COL_TYPE:  ("Type", self._t("hdr_type")),
         }
         for col, (base, tag) in labels.items():
-            label = f"{base} {arrow}" if col == self._sort_col else base
+            label = f"{base} {marker}" if col == self._sort_col else base
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, label=label)
 

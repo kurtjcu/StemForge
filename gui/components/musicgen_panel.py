@@ -20,7 +20,7 @@ import traceback
 import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
-from gui.state import app_state
+from gui.state import app_state, copy_to_clipboard
 from gui.constants import _MUSICGEN_DIR
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
@@ -209,13 +209,13 @@ class MusicGenPanel:
                     height=18,
                 )
                 with dpg.group(horizontal=True):
-                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
                     _st = _t("status")
                     dpg.add_button(
                         label="Copy",
-                        callback=lambda s, a, u, _k=_st: dpg.set_clipboard_text(dpg.get_value(_k)),
+                        callback=lambda s, a, u, _k=_st: copy_to_clipboard(dpg.get_value(_k)),
                         width=50,
                     )
+                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()

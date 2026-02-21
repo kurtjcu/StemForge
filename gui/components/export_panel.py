@@ -15,7 +15,7 @@ import traceback
 import dearpygui.dearpygui as dpg
 
 from utils.audio_io import read_audio, write_audio
-from gui.state import app_state
+from gui.state import app_state, copy_to_clipboard
 from gui.components.file_browser import FileBrowser
 
 
@@ -139,13 +139,13 @@ class ExportPanel:
                     height=18,
                 )
                 with dpg.group(horizontal=True):
-                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
                     _st = _t("status")
                     dpg.add_button(
                         label="Copy",
-                        callback=lambda s, a, u, _k=_st: dpg.set_clipboard_text(dpg.get_value(_k)),
+                        callback=lambda s, a, u, _k=_st: copy_to_clipboard(dpg.get_value(_k)),
                         width=50,
                     )
+                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
