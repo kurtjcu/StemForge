@@ -192,21 +192,14 @@ class MidiModelLoader:
             )
 
         try:
-            from basic_pitch.inference import predict
-        except ImportError as exc:
-            raise ModelLoadError(
-                "basic-pitch package is not importable — is it installed?",
-                model_name="basicpitch",
-            ) from exc
-
-        try:
-            _model_output, _midi_data, note_events_raw = predict(
+            note_events_raw = self._model.predict(
                 path,
-                self._model,
                 onset_threshold=onset_threshold,
                 frame_threshold=frame_threshold,
                 minimum_note_length=minimum_note_length,
             )
+        except PipelineExecutionError:
+            raise
         except Exception as exc:
             raise PipelineExecutionError(
                 f"Audio-to-MIDI transcription failed for '{path.name}': {exc}",

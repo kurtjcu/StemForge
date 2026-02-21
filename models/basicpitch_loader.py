@@ -2,35 +2,54 @@
 BasicPitch TFLite model loader for StemForge.
 
 This version removes all TensorFlow and SavedModel dependencies and uses
-`tflite-runtime` to load the official BasicPitch `.tflite` model shipped
-inside the `basic_pitch` GitHub package.
+`ai-edge-litert` (Google's NumPy-2.x-compatible TFLite runtime) to load
+the vendored BasicPitch `.tflite` model.
 
-The public API remains compatible with the previous TensorFlow-based
-loader: `.load()` initialises the model, and `.predict(audio)` performs
-frame-level inference and returns note events.
+The public API is compatible with the pipeline callers in
+`pipelines/basicpitch_pipeline.py` and `models/midi_loader.py`:
+  - `.load()` initialises the interpreter and returns `self`
+  - `.predict(audio_path, ...)` runs windowed TFLite inference and returns
+    a list of raw note events ``(start_s, end_s, pitch_midi, amplitude, ...)``.
 """
 
-import os
 import pathlib
 import logging
-from typing import Any, List
+from typing import List, Optional, Union
 
 import numpy as np
-import tflite_runtime.interpreter as tflite
+import ai_edge_litert.interpreter as tflite
 
-from utils.errors import ModelLoadError
-
-# BasicPitch feature extraction + postprocessing
-from basic_pitch.features import compute_features
-from basic_pitch.postprocessing import model_output_to_notes
-from basic_pitch.constants import AUDIO_SAMPLE_RATE
+from utils.errors import ModelLoadError, PipelineExecutionError
+from models.basicpitch.constants import (
+    AUDIO_SAMPLE_RATE,
+    AUDIO_N_SAMPLES,
+    FFT_HOP,
+    N_FREQ_BINS_CONTOURS,
+    ANNOTATIONS_FPS,
+    AUDIO_WINDOW_LENGTH,
+)
+from models.basicpitch.inference import get_audio_input, unwrap_output, DEFAULT_OVERLAPPING_FRAMES
+from models.basicpitch.note_creation import model_output_to_notes
 
 log = logging.getLogger("stemforge.models.basicpitch_loader")
+
+# Number of overlap frames used when windowing audio
+_OVERLAP_LEN: int = DEFAULT_OVERLAPPING_FRAMES * FFT_HOP
+_HOP_SIZE: int = AUDIO_N_SAMPLES - _OVERLAP_LEN
+
+
+def _suffix_key(detail: dict) -> int:
+    """Return the integer suffix from a tensor name like 'StatefulPartitionedCall:2'."""
+    name = detail["name"]
+    try:
+        return int(name.rsplit(":", 1)[-1])
+    except (ValueError, IndexError):
+        return 999
 
 
 class BasicPitchModelLoader:
     """
-    Loads the BasicPitch TFLite model and exposes a simple inference API.
+    Loads the BasicPitch TFLite model and exposes a file-level inference API.
 
     The TFLite interpreter is CPU-only, lightweight, and fully compatible
     with NumPy 2.x and the rest of the PyTorch-based StemForge stack.
@@ -44,40 +63,16 @@ class BasicPitchModelLoader:
         self._model_path = None
 
     def _find_tflite_model(self) -> pathlib.Path:
-        """
-        Locate the BasicPitch TFLite model inside the installed package.
-
-        The GitHub repo ships the model at:
-            basic_pitch/model.tflite
-        """
-        try:
-            import basic_pitch
-        except ImportError as exc:
-            raise ModelLoadError(
-                f"basic-pitch package is not installed: {exc}",
-                model_name="basicpitch",
-            ) from exc
-
-        pkg_dir = pathlib.Path(basic_pitch.__file__).parent
-        model_path = pkg_dir / "model.tflite"
-
+        model_path = pathlib.Path(__file__).parent / "basicpitch" / "model.tflite"
         if not model_path.exists():
             raise ModelLoadError(
                 f"BasicPitch TFLite model not found at: {model_path}",
                 model_name="basicpitch",
             )
-
         return model_path
 
     def load(self) -> "BasicPitchModelLoader":
-        """
-        Load the TFLite interpreter and prepare it for inference.
-
-        Returns
-        -------
-        BasicPitchModelLoader
-            The loader instance with an initialised interpreter.
-        """
+        """Load the TFLite interpreter. Returns self (idempotent)."""
         if self._interpreter is not None:
             log.debug("Returning cached BasicPitch TFLite interpreter")
             return self
@@ -99,21 +94,28 @@ class BasicPitchModelLoader:
         log.info("BasicPitch TFLite model loaded (CPU-only)")
         return self
 
-    def predict(self, audio: np.ndarray, sample_rate: int = AUDIO_SAMPLE_RATE) -> List[Any]:
-        """
-        Run BasicPitch inference on a raw audio array.
+    def predict(
+        self,
+        audio_path: Union[pathlib.Path, str],
+        *,
+        onset_threshold: float = 0.5,
+        frame_threshold: float = 0.3,
+        minimum_note_length: float = 58.0,
+        minimum_frequency: Optional[float] = None,
+        maximum_frequency: Optional[float] = None,
+        include_pitch_bends: bool = True,
+        multiple_pitch_bends: bool = False,
+        melodia_trick: bool = True,
+        midi_tempo: float = 120.0,
+    ) -> list:
+        """Transcribe *audio_path* to a list of raw note events.
 
-        Parameters
-        ----------
-        audio : np.ndarray
-            Raw mono audio samples.
-        sample_rate : int
-            Audio sample rate. Must match BasicPitch's expected rate.
+        Runs windowed TFLite inference and post-processes the model output
+        into note events.
 
         Returns
         -------
-        list
-            A list of note events (pitch, onset, offset, velocity).
+        list of (start_s, end_s, pitch_midi, amplitude, pitch_bends) tuples.
         """
         if self._interpreter is None:
             raise ModelLoadError(
@@ -121,27 +123,91 @@ class BasicPitchModelLoader:
                 model_name="basicpitch",
             )
 
-        # Extract features using the official BasicPitch pipeline
-        features = compute_features(audio, sample_rate)
+        # Convert ms → frames for minimum note length
+        min_note_len = max(1, int(round(minimum_note_length / 1000.0 * ANNOTATIONS_FPS)))
 
-        # TFLite expects float32 input
-        input_tensor = features.astype(np.float32)
+        # Collect per-window outputs:
+        # per_window[j] = list of shape-(1, ANNOT_N_FRAMES, bins) arrays, one per window
+        n_outputs = len(self._output_details)
+        per_window: List[List[np.ndarray]] = [[] for _ in range(n_outputs)]
+        audio_original_length: int = 0
 
-        # Set input tensor
-        self._interpreter.set_tensor(self._input_details[0]["index"], input_tensor)
+        try:
+            for window, _window_time, orig_len in get_audio_input(
+                audio_path, _OVERLAP_LEN, _HOP_SIZE
+            ):
+                audio_original_length = orig_len  # same value every iteration
 
-        # Run inference
-        self._interpreter.invoke()
+                self._interpreter.set_tensor(
+                    self._input_details[0]["index"],
+                    window.astype(np.float32),
+                )
+                self._interpreter.invoke()
 
-        # Collect output tensors
-        outputs = [
-            self._interpreter.get_tensor(detail["index"])
-            for detail in self._output_details
+                for j, detail in enumerate(self._output_details):
+                    per_window[j].append(
+                        self._interpreter.get_tensor(detail["index"]).copy()
+                    )
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"BasicPitch TFLite inference failed: {exc}",
+                pipeline_name="basicpitch",
+            ) from exc
+
+        if not per_window[0]:
+            return []
+
+        # Stack windows: (n_windows, ANNOT_N_FRAMES, bins) → unwrap to (n_frames_total, bins)
+        stacked = [
+            np.concatenate(per_window[j], axis=0)  # (n_windows, frames, bins)
+            for j in range(n_outputs)
         ]
 
-        # Convert model outputs to note events
-        notes = model_output_to_notes(outputs)
-        return notes
+        unwrapped: List[Optional[np.ndarray]] = [
+            unwrap_output(stacked[j], audio_original_length, DEFAULT_OVERLAPPING_FRAMES, _HOP_SIZE)
+            for j in range(n_outputs)
+        ]
+
+        # Map outputs to named keys using the StatefulPartitionedCall:N suffix.
+        # Suffix :0 → contour (264 bins), :1 → note (88 bins), :2 → onset (88 bins)
+        sorted_by_suffix = sorted(
+            enumerate(self._output_details), key=lambda t: _suffix_key(t[1])
+        )
+        output_dict: dict = {}
+        note_onset_queue: List[np.ndarray] = []
+        for j, detail in sorted_by_suffix:
+            arr = unwrapped[j]
+            if arr is None:
+                continue
+            n_bins = arr.shape[-1]
+            if n_bins == N_FREQ_BINS_CONTOURS:
+                output_dict["contour"] = arr
+            else:
+                note_onset_queue.append(arr)
+
+        if len(note_onset_queue) >= 1:
+            output_dict["note"] = note_onset_queue[0]
+        if len(note_onset_queue) >= 2:
+            output_dict["onset"] = note_onset_queue[1]
+
+        if not output_dict.get("note") is not None or not output_dict.get("onset") is not None:
+            log.warning("BasicPitch: could not map all output tensors — got keys: %s", list(output_dict))
+
+        _midi, note_events = model_output_to_notes(
+            output_dict,
+            onset_thresh=onset_threshold,
+            frame_thresh=frame_threshold,
+            infer_onsets=True,
+            min_note_len=min_note_len,
+            min_freq=minimum_frequency,
+            max_freq=maximum_frequency,
+            include_pitch_bends=include_pitch_bends,
+            multiple_pitch_bends=multiple_pitch_bends,
+            melodia_trick=melodia_trick,
+            midi_tempo=midi_tempo,
+        )
+
+        return note_events
 
     def evict(self) -> None:
         """Release interpreter resources."""
