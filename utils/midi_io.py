@@ -24,6 +24,11 @@ import pretty_midi
 # A note event is a (start_sec, end_sec, pitch_midi, velocity) tuple.
 NoteEvent: TypeAlias = tuple[float, float, int, int]
 
+# A lyric event is a (time_seconds, word_text) pair.  Used to embed MIDI
+# lyric meta-events (type 0x05) that singing synths such as Ace Studio,
+# VOCALOID, and SynthV read on MIDI import.
+LyricEvent: TypeAlias = tuple[float, str]
+
 # A MIDI data object wraps tracks, tempo, and resolution.  The concrete
 # type is determined at runtime by whichever MIDI library is available.
 MidiData: TypeAlias = Any
@@ -80,6 +85,7 @@ def notes_to_midi(
     note_events: list[NoteEvent],
     ticks_per_beat: int = 480,
     tempo_bpm: float = 120.0,
+    lyrics: list[LyricEvent] | None = None,
 ) -> MidiData:
     """Convert a list of note events to a MIDI data object.
 
@@ -118,6 +124,11 @@ def notes_to_midi(
         instrument.notes.append(note)
     instrument.notes.sort(key=lambda n: n.start)
     pm.instruments.append(instrument)
+    if lyrics:
+        for t, text in lyrics:
+            if text:
+                pm.lyrics.append(pretty_midi.Lyric(text=text, time=float(t)))
+        pm.lyrics.sort(key=lambda l: l.time)
     return pm
 
 
@@ -274,6 +285,7 @@ def merge_tracks(
     ticks_per_beat: int = 480,
     stem_programs: dict[str, int] | None = None,
     stem_is_drum: dict[str, bool] | None = None,
+    track_lyrics: dict[str, list[LyricEvent]] | None = None,
 ) -> MidiData:
     """Create a format-1 multi-track MIDI from per-stem note events.
 
@@ -335,9 +347,17 @@ def merge_tracks(
         instrument.notes.sort(key=lambda n: n.start)
         pm.instruments.append(instrument)
 
+    if track_lyrics:
+        for stem_name, lyrics in track_lyrics.items():
+            for t, text in lyrics:
+                if text:
+                    pm.lyrics.append(pretty_midi.Lyric(text=text, time=float(t)))
+        pm.lyrics.sort(key=lambda l: l.time)
+
     log.debug(
-        "merge_tracks: %d tracks, bpm=%.1f, time_sig=%s",
+        "merge_tracks: %d tracks, bpm=%.1f, time_sig=%s, lyric_events=%d",
         len(track_notes), bpm, time_signature,
+        sum(len(v) for v in (track_lyrics or {}).values()),
     )
     return pm
 

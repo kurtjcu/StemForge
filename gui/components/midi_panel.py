@@ -35,6 +35,7 @@ callback is invoked with (midi_path, stem_midi_paths) after a successful
 run so that the Generate panel can detect available MIDI conditioning.
 """
 
+import json
 import pathlib
 import logging
 import threading
@@ -74,6 +75,36 @@ _KEYS: list[str] = [
 ]
 
 _TIME_SIGS: list[str] = ["4/4", "3/4", "6/8", "5/4", "7/8", "2/4"]
+
+# Ace-Step cot_timesignature stores just the numerator as a string.
+_COT_TS_MAP: dict[str, str] = {
+    "2": "2/4", "3": "3/4", "4": "4/4", "5": "5/4", "6": "6/8", "7": "7/8",
+}
+
+
+def _load_acestep_meta(audio_path: pathlib.Path) -> dict | None:
+    """Return the parsed Ace-Step JSON sidecar for *audio_path*, or None."""
+    json_path = audio_path.with_suffix(".json")
+    if not json_path.exists():
+        return None
+    try:
+        with json_path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        log.debug("Could not read Ace-Step metadata from %s", json_path)
+        return None
+
+
+def _parse_ts(meta: dict) -> str | None:
+    """Extract a time-signature string from Ace-Step metadata, or None."""
+    raw = meta.get("timesignature", "").strip()
+    if not raw:
+        raw = str(meta.get("cot_timesignature", "")).strip()
+    if not raw:
+        return None
+    if "/" in raw:
+        return raw if raw in _TIME_SIGS else None
+    return _COT_TS_MAP.get(raw)
 
 
 def _t(name: str) -> str:
@@ -356,6 +387,8 @@ class MidiPanel:
 
         *stem_paths* uses internal names ("vocals", "drums", "bass", "other").
         Shows stem checkboxes for available stems and hides the rest.
+        Also auto-loads an Ace-Step JSON sidecar from the source audio file
+        if one exists.
         """
         self._available_stems = dict(stem_paths)
 
@@ -373,6 +406,47 @@ class MidiPanel:
         )
         if dpg.does_item_exist(_t("stems_status")):
             dpg.set_value(_t("stems_status"), status)
+
+        # Pre-fill musical parameters from an Ace-Step JSON sidecar if present.
+        if (src := app_state.audio_path) and (meta := _load_acestep_meta(src)):
+            self.apply_acestep_meta(meta)
+            log.info("MidiPanel: pre-filled parameters from %s", src.with_suffix(".json").name)
+
+    def apply_acestep_meta(self, meta: dict) -> None:
+        """Pre-fill musical parameters from an Ace-Step JSON sidecar dict.
+
+        Safe to call at any time; silently skips any widget that does not yet
+        exist (e.g. if called before ``build_ui``).
+        """
+        def _set(tag: str, value) -> None:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, value)
+
+        if (bpm := meta.get("bpm")):
+            _set(_t("bpm"), int(bpm))
+
+        if (keyscale := meta.get("keyscale", "").strip()) and keyscale in _KEYS:
+            _set(_t("key"), keyscale)
+
+        if ts := _parse_ts(meta):
+            _set(_t("time_sig"), ts)
+
+        if (duration := meta.get("duration")):
+            dur = float(duration)
+            if dpg.does_item_exist(_t("duration")):
+                # Expand the slider ceiling to fit the actual file length.
+                dpg.configure_item(_t("duration"), max_value=max(120.0, dur))
+                dpg.set_value(_t("duration"), dur)
+
+        # Caption → prompt only if the prompt field is currently blank.
+        if (caption := meta.get("caption", "").strip()):
+            if dpg.does_item_exist(_t("prompt")) and not dpg.get_value(_t("prompt")).strip():
+                dpg.set_value(_t("prompt"), caption)
+
+        log.debug(
+            "MidiPanel: applied Ace-Step metadata — bpm=%s key=%s ts=%s dur=%s",
+            meta.get("bpm"), meta.get("keyscale"), _parse_ts(meta), meta.get("duration"),
+        )
 
     def add_result_listener(
         self,
@@ -395,9 +469,16 @@ class MidiPanel:
         self._stem_browser.show()
 
     def _on_stem_file_selected(self, path: pathlib.Path) -> None:
-        """Add a manually loaded audio file as a stem for MIDI extraction."""
+        """Add a manually loaded audio file as a stem for MIDI extraction.
+
+        Also checks for an Ace-Step JSON sidecar alongside the selected file.
+        """
         label = path.stem
         self._manual_stems[label] = path
+
+        if meta := _load_acestep_meta(path):
+            self.apply_acestep_meta(meta)
+            log.info("MidiPanel: pre-filled parameters from %s", path.with_suffix(".json").name)
 
         row_tag = _t(f"manual_{label}_group")
         if not dpg.does_item_exist(row_tag):

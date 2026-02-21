@@ -34,7 +34,7 @@ from typing import Any, Callable
 
 from models.midi_loader import MidiModelLoader
 from utils.midi_io import (
-    NoteEvent, MidiData,
+    NoteEvent, LyricEvent, MidiData,
     notes_to_midi, write_midi, merge_tracks, generate_chord_progression,
 )
 from utils.errors import (
@@ -297,6 +297,7 @@ class MidiPipeline:
         self._report(2.0)
 
         track_notes: dict[str, list[NoteEvent]] = {}
+        track_lyrics: dict[str, list[LyricEvent]] = {}
         stem_midi_paths: dict[str, pathlib.Path] = {}
 
         if has_stems:
@@ -308,12 +309,14 @@ class MidiPipeline:
 
                 if label in _VOCAL_STEM_LABELS:
                     log.info("MidiPipeline: routing '%s' to vocal path.", label)
-                    notes = self._loader.convert_vocal_to_midi(
+                    notes, lyrics = self._loader.convert_vocal_to_midi(
                         path,
                         duration=cfg.duration_seconds,
                         key=cfg.key,
                         bpm=cfg.bpm,
                     )
+                    if lyrics:
+                        track_lyrics[label] = lyrics
                 else:
                     notes = self._loader.convert_audio_to_midi(
                         path,
@@ -329,7 +332,8 @@ class MidiPipeline:
                 track_notes[label] = notes
 
                 # Write individual single-track MIDI for this stem
-                per_stem_path = self._write_stem_midi(label, notes, cfg)
+                stem_lyrics = track_lyrics.get(label)
+                per_stem_path = self._write_stem_midi(label, notes, cfg, stem_lyrics)
                 stem_midi_paths[label] = per_stem_path
 
                 self._report(base_pct + (1.0 / total) * 70.0)
@@ -358,6 +362,7 @@ class MidiPipeline:
             bpm=cfg.bpm,
             time_signature=cfg.time_signature,
             ticks_per_beat=_TICKS_PER_BEAT,
+            track_lyrics=track_lyrics or None,
         )
 
         output_path = self._resolve_output_path(cfg)
@@ -420,6 +425,7 @@ class MidiPipeline:
         stem_name: str,
         notes: list[NoteEvent],
         cfg: MidiConfig,
+        lyrics: list[LyricEvent] | None = None,
     ) -> pathlib.Path:
         """Write a single-track MIDI for *stem_name* to *cfg.output_dir*."""
         out_dir = cfg.output_dir
@@ -431,7 +437,7 @@ class MidiPipeline:
         filename = f"{safe_name}_{int(time.time())}.mid"
         path = out_dir / filename
 
-        pm = notes_to_midi(notes, ticks_per_beat=_TICKS_PER_BEAT, tempo_bpm=cfg.bpm)
+        pm = notes_to_midi(notes, ticks_per_beat=_TICKS_PER_BEAT, tempo_bpm=cfg.bpm, lyrics=lyrics)
         try:
             write_midi(pm, path)
         except Exception as exc:

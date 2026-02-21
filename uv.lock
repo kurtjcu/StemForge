@@ -36,6 +36,23 @@ wheels = [
 ]
 
 [[package]]
+name = "ai-edge-litert"
+version = "2.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "backports-strenum", marker = "sys_platform == 'linux'" },
+    { name = "flatbuffers", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "protobuf", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
+    { name = "typing-extensions", marker = "sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ee/5a/57d9b8967fa5a2f3055ad3e7666446c8d2271446319e7f17c897b151544c/ai_edge_litert-2.1.2-cp311-cp311-manylinux_2_27_aarch64.whl", hash = "sha256:7dc4afc4b67797e77d879e35ad558e60f746be7c1e616a6653bd2cbf1ffef9ad", size = 12633093, upload-time = "2026-01-28T07:05:38.638Z" },
+    { url = "https://files.pythonhosted.org/packages/6a/a8/c8024c9657a76e3589cf2b8b21cbccdef0b9a64b74d98eebcabbbdfaeb7a/ai_edge_litert-2.1.2-cp311-cp311-manylinux_2_27_x86_64.whl", hash = "sha256:b3ff3b12df45dfc540934e33bde9af474b0b4c12c3bb6112b251aaae4d2930a0", size = 16326113, upload-time = "2026-01-28T07:00:07.441Z" },
+]
+
+[[package]]
 name = "alias-free-torch"
 version = "0.0.6"
 source = { registry = "https://pypi.org/simple" }
@@ -127,6 +144,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/1a/31/fc62b9fe8738d2693e18d99f040b219e26e8df894c10d065f27c6b4f07e3/av-16.1.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:c7f2bc703d0df260a1fdf4de4253c7f5500ca9fc57772ea241b0cb241bcf972e", size = 40846822, upload-time = "2026-01-09T20:18:24.275Z" },
     { url = "https://files.pythonhosted.org/packages/53/10/ab446583dbce730000e8e6beec6ec3c2753e628c7f78f334a35cad0317f4/av-16.1.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:d69c393809babada7d54964d56099e4b30a3e1f8b5736ca5e27bd7be0e0f3c83", size = 40675604, upload-time = "2026-01-09T20:18:26.866Z" },
     { url = "https://files.pythonhosted.org/packages/31/d7/1003be685277005f6d63fd9e64904ee222fe1f7a0ea70af313468bb597db/av-16.1.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:441892be28582356d53f282873c5a951592daaf71642c7f20165e3ddcb0b4c63", size = 42015955, upload-time = "2026-01-09T20:18:29.461Z" },
+]
+
+[[package]]
+name = "backports-strenum"
+version = "1.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/35/c7/2ed54c32fed313591ffb21edbd48db71e68827d43a61938e5a0bc2b6ec91/backports_strenum-1.3.1.tar.gz", hash = "sha256:77c52407342898497714f0596e86188bb7084f89063226f4ba66863482f42414", size = 7257, upload-time = "2023-12-09T14:36:40.937Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/50/56cf20e2ee5127b603b81d5a69580a1a325083e2b921aa8f067da83927c0/backports_strenum-1.3.1-py3-none-any.whl", hash = "sha256:cdcfe36dc897e2615dc793b7d3097f54d359918fc448754a517e6f23044ccf83", size = 8304, upload-time = "2023-12-09T14:36:39.905Z" },
 ]
 
 [[package]]
@@ -1852,6 +1878,19 @@ wheels = [
 ]
 
 [[package]]
+name = "resampy"
+version = "0.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numba", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/f1/34be702a69a5d272e844c98cee82351f880985cfbca0cc86378011078497/resampy-0.4.3.tar.gz", hash = "sha256:a0d1c28398f0e55994b739650afef4e3974115edbe96cd4bb81968425e916e47", size = 3080604, upload-time = "2024-03-05T20:36:08.119Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4d/b9/3b00ac340a1aab3389ebcc52c779914a44aadf7b0cb7a3bf053195735607/resampy-0.4.3-py3-none-any.whl", hash = "sha256:ad2ed64516b140a122d96704e32bc0f92b23f45419e8b8f478e5a05f83edcebd", size = 3076529, upload-time = "2024-03-05T20:36:02.439Z" },
+]
+
+[[package]]
 name = "resize-right"
 version = "0.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -2111,6 +2150,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "accelerate", marker = "sys_platform == 'linux'" },
+    { name = "ai-edge-litert", marker = "sys_platform == 'linux'" },
     { name = "alias-free-torch", marker = "sys_platform == 'linux'" },
     { name = "dearpygui", marker = "sys_platform == 'linux'" },
     { name = "demucs", marker = "sys_platform == 'linux'" },
@@ -2131,6 +2171,7 @@ dependencies = [
     { name = "openunmix", marker = "sys_platform == 'linux'" },
     { name = "pretty-midi", marker = "sys_platform == 'linux'" },
     { name = "pydub", marker = "sys_platform == 'linux'" },
+    { name = "resampy", marker = "sys_platform == 'linux'" },
     { name = "safetensors", marker = "sys_platform == 'linux'" },
     { name = "scipy", marker = "sys_platform == 'linux'" },
     { name = "setuptools", marker = "sys_platform == 'linux'" },
@@ -2160,6 +2201,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = ">=0.30.0" },
+    { name = "ai-edge-litert", specifier = ">=1.1.0" },
     { name = "alias-free-torch", specifier = ">=0.0.6" },
     { name = "dearpygui", specifier = ">=1.11.0" },
     { name = "demucs", git = "https://github.com/facebookresearch/demucs.git?rev=v4.0.1" },
@@ -2184,6 +2226,7 @@ requires-dist = [
     { name = "pydub", specifier = "==0.25.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
+    { name = "resampy", specifier = ">=0.4.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4.0" },
     { name = "safetensors", specifier = ">=0.4.2" },
     { name = "scipy", specifier = "==1.13.0" },

@@ -382,25 +382,18 @@ class BasicPitchPipeline:
             and contour activations, each of shape
             ``(frames, pitch_bins)``.
         """
-        try:
-            from basic_pitch.inference import predict
-        except ImportError as exc:
-            raise PipelineExecutionError(
-                f"basic-pitch package is not importable: {exc}",
-                pipeline_name="basicpitch",
-            ) from exc
-
         cfg = self._config
         try:
-            _model_output, _midi_data, note_events_raw = predict(
+            note_events_raw = self._model.predict(
                 audio_path,
-                self._model,
                 onset_threshold=cfg.onset_threshold,
                 frame_threshold=cfg.frame_threshold,
                 minimum_note_length=cfg.minimum_note_length,
                 minimum_frequency=cfg.minimum_frequency,
                 maximum_frequency=cfg.maximum_frequency,
             )
+        except PipelineExecutionError:
+            raise
         except Exception as exc:
             raise PipelineExecutionError(
                 f"BasicPitch inference failed: {exc}", pipeline_name="basicpitch"

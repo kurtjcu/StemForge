@@ -23,7 +23,7 @@ from typing import Any
 
 from models.basicpitch_loader import BasicPitchModelLoader
 from models.registry import DEFAULT_WHISPER_SPEC
-from utils.midi_io import NoteEvent, filter_to_key
+from utils.midi_io import NoteEvent, LyricEvent, filter_to_key
 from utils.errors import ModelLoadError, PipelineExecutionError
 
 
@@ -240,7 +240,7 @@ class MidiModelLoader:
         key: str = "Any",
         bpm: float = 120.0,
         language: str | None = None,
-    ) -> list[NoteEvent]:
+    ) -> tuple[list[NoteEvent], list[LyricEvent]]:
         """Transcribe a vocal stem to MIDI using faster-whisper + librosa PYIN.
 
         Word timing from faster-whisper is combined with probabilistic pitch
@@ -263,9 +263,10 @@ class MidiModelLoader:
 
         Returns
         -------
-        list[NoteEvent]
-            One note per transcribed word, pitched to the nearest in-key
-            semitone, sorted by start time.
+        tuple[list[NoteEvent], list[LyricEvent]]
+            ``(notes, lyrics)`` — one note per transcribed word, and a
+            parallel list of ``(time_seconds, word_text)`` lyric events
+            suitable for embedding as MIDI type-0x05 meta messages.
 
         Raises
         ------
@@ -328,8 +329,9 @@ class MidiModelLoader:
                 pipeline_name="midi",
             ) from exc
 
-        # Build one NoteEvent per word using median voiced F0 in its window.
+        # Build one NoteEvent + LyricEvent per voiced word.
         events: list[NoteEvent] = []
+        lyrics: list[LyricEvent] = []
         for segment in segments:
             words = getattr(segment, "words", None) or []
             for word in words:
@@ -359,13 +361,19 @@ class MidiModelLoader:
                 velocity = min(127, max(1, int(abs(word.probability) * 100)))
                 events.append((start, clipped_end, midi_pitch, velocity))
 
+                # Strip leading/trailing punctuation but keep apostrophes.
+                text = word.word.strip().strip('.,!?;:"()[]{}…—–')
+                if text:
+                    lyrics.append((start, text))
+
         events.sort(key=lambda e: e[0])
+        lyrics.sort(key=lambda l: l[0])
 
         if key and key != "Any":
             events = filter_to_key(events, key)
 
         log.debug(
-            "convert_vocal_to_midi: %s → %d notes from %d segments",
-            path.name, len(events), len(segments),
+            "convert_vocal_to_midi: %s → %d notes, %d lyric events from %d segments",
+            path.name, len(events), len(lyrics), len(segments),
         )
-        return events
+        return events, lyrics
