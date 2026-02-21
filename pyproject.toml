@@ -44,7 +44,7 @@ dependencies = [
 
     # GitHub-pinned ML components (renamed distributions)
     "demucs @ git+https://github.com/facebookresearch/demucs.git@v4.0.1",
-    "basic-pitch @ git+https://github.com/spotify/basic-pitch.git@v0.4.0",
+    # vendored "basic-pitch",
 
     # Demucs deps
     "dora-search==0.1.12",
@@ -56,12 +56,12 @@ dependencies = [
     # BasicPitch deps
     "pretty_midi==0.2.11",
     "mir_eval==0.8.2",
-    "setuptools==59.8.0",
+    "setuptools==68.0.0",
 
     # Audio I/O + DSP
     "soundfile==0.13.1",
-    "numpy==1.26.4",
-    "scipy==1.17.0",
+    "numpy>=2.0.0",
+    "scipy==1.13.0",
     "librosa==0.11.0",
     "soxr==1.0.0",
     "pydub==0.25.1",
@@ -80,7 +80,9 @@ dependencies = [
     "huggingface_hub>=0.23.0",
     "k-diffusion>=0.0.19",
     "einops-exts>=0.0.4",
-
+    "alias-free-torch>=0.0.6",
+    "descript-audio-codec>=1.0.0",
+    "laion-clap>=1.1.4",
 
     # GUI
     "dearpygui>=1.11.0",
