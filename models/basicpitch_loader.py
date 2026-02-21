@@ -1,172 +1,151 @@
 """
-BasicPitch model loader for StemForge.
+BasicPitch TFLite model loader for StemForge.
 
-Responsible for locating, downloading (if absent), verifying, and loading
-the BasicPitch neural network weights into memory.  The loader supports
-both the original TensorFlow SavedModel format and an ONNX export, with
-format selection deferred to runtime environment detection.
+This version removes all TensorFlow and SavedModel dependencies and uses
+`tflite-runtime` to load the official BasicPitch `.tflite` model shipped
+inside the `basic_pitch` GitHub package.
 
-GPU note
---------
-BasicPitch's TensorFlow build has no precompiled CUDA kernels for compute
-capability 12.0 (RTX 5080) and ptxas is unavailable for JIT fallback.
-``load()`` therefore unconditionally forces TF to run on CPU only by
-setting ``CUDA_VISIBLE_DEVICES=-1`` *before* TF is imported and calling
-``tf.config.set_visible_devices([], "GPU")`` after initialisation.
-This has no effect on the PyTorch-based pipelines (Demucs, MusicGen).
+The public API remains compatible with the previous TensorFlow-based
+loader: `.load()` initialises the model, and `.predict(audio)` performs
+frame-level inference and returns note events.
 """
 
-import gc
 import os
 import pathlib
 import logging
-import hashlib
-from typing import Any
+from typing import Any, List
 
-from models.registry import BASICPITCH
+import numpy as np
+import tflite_runtime.interpreter as tflite
+
 from utils.errors import ModelLoadError
 
-
-DEFAULT_MODEL_CACHE_DIR: pathlib.Path = BASICPITCH.cache_dir
-
-SUPPORTED_FORMATS: tuple[str, ...] = ("savedmodel", "onnx")
+# BasicPitch feature extraction + postprocessing
+from basic_pitch.features import compute_features
+from basic_pitch.postprocessing import model_output_to_notes
+from basic_pitch.constants import AUDIO_SAMPLE_RATE
 
 log = logging.getLogger("stemforge.models.basicpitch_loader")
 
 
 class BasicPitchModelLoader:
-    """Loads and caches BasicPitch model weights.
+    """
+    Loads the BasicPitch TFLite model and exposes a simple inference API.
 
-    Parameters
-    ----------
-    cache_dir:
-        Directory used to store downloaded model files.  Defaults to
-        ``~/.cache/stemforge/basicpitch``.
-    preferred_format:
-        Preferred model serialisation format (``'savedmodel'`` or ``'onnx'``).
-        Currently only ``'savedmodel'`` is supported; ``'onnx'`` is reserved
-        for a future export path.
+    The TFLite interpreter is CPU-only, lightweight, and fully compatible
+    with NumPy 2.x and the rest of the PyTorch-based StemForge stack.
     """
 
-    cache_dir: pathlib.Path
-    preferred_format: str
-    _model: Any
-
-    def __init__(
-        self,
-        cache_dir: pathlib.Path = DEFAULT_MODEL_CACHE_DIR,
-        preferred_format: str = "savedmodel",
-    ) -> None:
-        self.cache_dir = cache_dir
+    def __init__(self, preferred_format: str = "tflite") -> None:
         self.preferred_format = preferred_format
-        self._model = None
+        self._interpreter: tflite.Interpreter | None = None
+        self._input_details = None
+        self._output_details = None
+        self._model_path = None
 
-    def load(self) -> Any:
-        """Return the BasicPitch model, loading or downloading it as needed.
+    def _find_tflite_model(self) -> pathlib.Path:
+        """
+        Locate the BasicPitch TFLite model inside the installed package.
 
-        Forces TensorFlow to run on CPU only to avoid CUDA kernel
-        incompatibilities on unsupported GPU architectures.
+        The GitHub repo ships the model at:
+            basic_pitch/model.tflite
+        """
+        try:
+            import basic_pitch
+        except ImportError as exc:
+            raise ModelLoadError(
+                f"basic-pitch package is not installed: {exc}",
+                model_name="basicpitch",
+            ) from exc
+
+        pkg_dir = pathlib.Path(basic_pitch.__file__).parent
+        model_path = pkg_dir / "model.tflite"
+
+        if not model_path.exists():
+            raise ModelLoadError(
+                f"BasicPitch TFLite model not found at: {model_path}",
+                model_name="basicpitch",
+            )
+
+        return model_path
+
+    def load(self) -> "BasicPitchModelLoader":
+        """
+        Load the TFLite interpreter and prepare it for inference.
 
         Returns
         -------
-        Any
-            Loaded TF SavedModel object ready for frame-level inference.
-
-        Raises
-        ------
-        :class:`~utils.errors.ModelLoadError`
-            If the model files are corrupt, cannot be deserialised, or
-            insufficient memory is available to initialise the session.
+        BasicPitchModelLoader
+            The loader instance with an initialised interpreter.
         """
-        if self._model is not None:
-            log.debug("Returning cached BasicPitch model")
-            return self._model
+        if self._interpreter is not None:
+            log.debug("Returning cached BasicPitch TFLite interpreter")
+            return self
 
-        # Force TF to CPU *before* any TF symbol is imported.
-        # This must happen before `import tensorflow` to take effect.
-        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-        try:
-            import tensorflow as tf
-        except ImportError as exc:
-            raise ModelLoadError(
-                f"TensorFlow is not installed: {exc}", model_name="basicpitch"
-            ) from exc
-
-        # Belt-and-suspenders: also call the runtime API in case TF was
-        # already imported earlier in this process.
-        try:
-            tf.config.set_visible_devices([], "GPU")
-        except RuntimeError:
-            pass  # GPU init already happened; env var should have prevented it
+        self._model_path = self._find_tflite_model()
+        log.info("Loading BasicPitch TFLite model from %s", self._model_path)
 
         try:
-            from basic_pitch import ICASSP_2022_MODEL_PATH
-        except ImportError as exc:
-            raise ModelLoadError(
-                f"basic-pitch package is not installed: {exc}", model_name="basicpitch"
-            ) from exc
-
-        log.info("Loading BasicPitch model from %s", ICASSP_2022_MODEL_PATH)
-        try:
-            self._model = tf.saved_model.load(str(ICASSP_2022_MODEL_PATH))
+            self._interpreter = tflite.Interpreter(model_path=str(self._model_path))
+            self._interpreter.allocate_tensors()
+            self._input_details = self._interpreter.get_input_details()
+            self._output_details = self._interpreter.get_output_details()
         except Exception as exc:
             raise ModelLoadError(
-                f"Failed to load BasicPitch SavedModel: {exc}", model_name="basicpitch"
+                f"Failed to load BasicPitch TFLite model: {exc}",
+                model_name="basicpitch",
             ) from exc
 
-        log.info("BasicPitch model loaded (CPU-only)")
-        return self._model
+        log.info("BasicPitch TFLite model loaded (CPU-only)")
+        return self
 
-    def is_cached(self) -> bool:
-        """Return *True* if the model files exist in the local cache directory."""
-        if self._model is not None:
-            return True
-        # BasicPitch ships its model inside the package directory.
-        try:
-            from basic_pitch import ICASSP_2022_MODEL_PATH
-            return pathlib.Path(ICASSP_2022_MODEL_PATH).exists()
-        except ImportError:
-            return False
-
-    def download(self) -> pathlib.Path:
-        """Download the model files and return the root cache directory path.
-
-        BasicPitch bundles its weights inside the installed package, so no
-        explicit download step is needed.  This method calls :meth:`load`
-        to trigger any deferred initialisation and returns the package
-        model directory.
-
-        Raises
-        ------
-        :class:`~utils.errors.ModelLoadError`
-            If the download fails due to a network error or the server
-            returns an unexpected response.
+    def predict(self, audio: np.ndarray, sample_rate: int = AUDIO_SAMPLE_RATE) -> List[Any]:
         """
-        self.load()
-        try:
-            from basic_pitch import ICASSP_2022_MODEL_PATH
-            return pathlib.Path(ICASSP_2022_MODEL_PATH)
-        except ImportError:
-            return self.cache_dir
+        Run BasicPitch inference on a raw audio array.
 
-    def _verify_checksum(self, file_path: pathlib.Path, expected: str) -> bool:
-        """Return *True* when SHA-256 of *file_path* matches *expected*."""
-        sha = hashlib.sha256()
-        with file_path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(65_536), b""):
-                sha.update(chunk)
-        return sha.hexdigest() == expected
+        Parameters
+        ----------
+        audio : np.ndarray
+            Raw mono audio samples.
+        sample_rate : int
+            Audio sample rate. Must match BasicPitch's expected rate.
 
-    def _select_format(self) -> str:
-        """Choose the best available format based on installed runtime libraries."""
-        # ONNX export is not yet supported by the upstream basic-pitch package.
-        # Always fall back to savedmodel regardless of preferred_format.
-        return "savedmodel"
+        Returns
+        -------
+        list
+            A list of note events (pitch, onset, offset, velocity).
+        """
+        if self._interpreter is None:
+            raise ModelLoadError(
+                "BasicPitch model not loaded. Call load() first.",
+                model_name="basicpitch",
+            )
+
+        # Extract features using the official BasicPitch pipeline
+        features = compute_features(audio, sample_rate)
+
+        # TFLite expects float32 input
+        input_tensor = features.astype(np.float32)
+
+        # Set input tensor
+        self._interpreter.set_tensor(self._input_details[0]["index"], input_tensor)
+
+        # Run inference
+        self._interpreter.invoke()
+
+        # Collect output tensors
+        outputs = [
+            self._interpreter.get_tensor(detail["index"])
+            for detail in self._output_details
+        ]
+
+        # Convert model outputs to note events
+        notes = model_output_to_notes(outputs)
+        return notes
 
     def evict(self) -> None:
-        """Remove the in-memory cached model to free memory."""
-        if self._model is not None:
-            self._model = None
-            gc.collect()
-            log.debug("BasicPitch model evicted from memory")
+        """Release interpreter resources."""
+        self._interpreter = None
+        self._input_details = None
+        self._output_details = None
+        log.debug("BasicPitch TFLite interpreter evicted from memory")

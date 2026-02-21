@@ -44,7 +44,7 @@ dependencies = [
 
     # GitHub-pinned ML components (renamed distributions)
     "demucs @ git+https://github.com/facebookresearch/demucs.git@v4.0.1",
-    # vendored "basic-pitch",
+    "basic-pitch @ git+https://github.com/spotify/basic-pitch.git", tensor flow version that is not cuda 12.8 compatible    
 
     # Demucs deps
     "dora-search==0.1.12",
@@ -57,6 +57,8 @@ dependencies = [
     "pretty_midi==0.2.11",
     "mir_eval==0.8.2",
     "setuptools==68.0.0",
+    "tflite-runtime>=2.12.0",
+
 
     # Audio I/O + DSP
     "soundfile==0.13.1",
@@ -78,11 +80,11 @@ dependencies = [
     "safetensors>=0.4.2",
     "einops>=0.7.0",
     "huggingface_hub>=0.23.0",
-    "k-diffusion>=0.0.19",
     "einops-exts>=0.0.4",
     "alias-free-torch>=0.0.6",
     "descript-audio-codec>=1.0.0",
     "laion-clap>=1.1.4",
+    "k-diffusion==0.0.16",
 
     # GUI
     "dearpygui>=1.11.0",
