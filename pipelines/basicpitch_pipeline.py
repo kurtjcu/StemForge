@@ -23,6 +23,7 @@ import logging
 from typing import Any, Callable, TypeAlias
 
 from models.basicpitch_loader import BasicPitchModelLoader
+from models.registry import BASICPITCH
 from utils.audio_io import read_audio
 from utils.midi_io import notes_to_midi, write_midi, NoteEvent
 from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError, PipelineExecutionError
@@ -32,7 +33,7 @@ from pipelines.resample import Resampler
 log = logging.getLogger("stemforge.pipelines.basicpitch")
 
 # BasicPitch operates at this sample rate internally.
-_BASICPITCH_SAMPLE_RATE: int = 22_050
+_BASICPITCH_SAMPLE_RATE: int = BASICPITCH.sample_rate
 
 
 # ---------------------------------------------------------------------------

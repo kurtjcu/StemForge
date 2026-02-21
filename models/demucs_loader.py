@@ -14,10 +14,11 @@ import logging
 import hashlib
 from typing import Any
 
+from models.registry import DEFAULT_DEMUCS_SPEC
 from utils.errors import ModelLoadError
 
 
-DEFAULT_MODEL_CACHE_DIR: pathlib.Path = pathlib.Path.home() / ".cache" / "stemforge" / "demucs"
+DEFAULT_MODEL_CACHE_DIR: pathlib.Path = DEFAULT_DEMUCS_SPEC.cache_dir
 
 log = logging.getLogger("stemforge.models.demucs_loader")
 

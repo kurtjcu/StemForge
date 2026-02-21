@@ -22,13 +22,12 @@ import logging
 from typing import Any
 
 from models.basicpitch_loader import BasicPitchModelLoader
+from models.registry import DEFAULT_WHISPER_SPEC
 from utils.midi_io import NoteEvent, filter_to_key
 from utils.errors import ModelLoadError, PipelineExecutionError
 
 
 log = logging.getLogger("stemforge.models.midi_loader")
-
-_WHISPER_MODEL_SIZE = "base"   # small enough to run on CPU in reasonable time
 
 
 class MidiModelLoader:
@@ -114,11 +113,12 @@ class MidiModelLoader:
                 "faster-whisper is not installed — cannot transcribe vocals.",
                 model_name="faster-whisper",
             ) from exc
-        log.info("Loading faster-whisper '%s' on CPU…", _WHISPER_MODEL_SIZE)
+        spec = DEFAULT_WHISPER_SPEC
+        log.info("Loading faster-whisper '%s' on CPU…", spec.model_size)
         self._whisper_model = WhisperModel(
-            _WHISPER_MODEL_SIZE,
-            device="cpu",
-            compute_type="int8",
+            spec.model_size,
+            device=spec.device,
+            compute_type=spec.compute_type,
         )
         log.info("faster-whisper model ready.")
         return self._whisper_model

@@ -43,10 +43,18 @@ from typing import Callable
 import dearpygui.dearpygui as dpg
 
 from pipelines.midi_pipeline import MidiPipeline, MidiConfig
+from models.registry import BASICPITCH
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIDI_DIR
 from gui.components.demucs_panel import STEM_TARGETS, _STEM_LABEL
 from gui.components.file_browser import FileBrowser
+
+_BP_ONSET_DEFAULT: float = BASICPITCH.default_onset
+_BP_FRAME_DEFAULT: float = BASICPITCH.default_frame
+_BP_MIN_NOTE_DEFAULT: float = BASICPITCH.default_min_note_ms
+_BP_ONSET_RANGE: tuple[float, float] = BASICPITCH.onset_range
+_BP_FRAME_RANGE: tuple[float, float] = BASICPITCH.frame_range
+_BP_MIN_NOTE_RANGE: tuple[float, float] = BASICPITCH.min_note_range
 
 
 log = logging.getLogger("stemforge.gui.midi_panel")
@@ -234,9 +242,9 @@ class MidiPanel:
                             )
                         dpg.add_knob_float(
                             tag=_t("onset"),
-                            min_value=0.0,
-                            max_value=1.0,
-                            default_value=0.5,
+                            min_value=_BP_ONSET_RANGE[0],
+                            max_value=_BP_ONSET_RANGE[1],
+                            default_value=_BP_ONSET_DEFAULT,
                         )
                     dpg.add_spacer(width=20)
                     with dpg.group():
@@ -248,9 +256,9 @@ class MidiPanel:
                             )
                         dpg.add_knob_float(
                             tag=_t("frame"),
-                            min_value=0.0,
-                            max_value=1.0,
-                            default_value=0.3,
+                            min_value=_BP_FRAME_RANGE[0],
+                            max_value=_BP_FRAME_RANGE[1],
+                            default_value=_BP_FRAME_DEFAULT,
                         )
 
                 dpg.add_spacer(height=6)
@@ -262,9 +270,9 @@ class MidiPanel:
                     )
                 dpg.add_slider_float(
                     tag=_t("min_note"),
-                    default_value=58.0,
-                    min_value=20.0,
-                    max_value=500.0,
+                    default_value=_BP_MIN_NOTE_DEFAULT,
+                    min_value=_BP_MIN_NOTE_RANGE[0],
+                    max_value=_BP_MIN_NOTE_RANGE[1],
                     format="%.0f ms",
                     width=-1,
                 )

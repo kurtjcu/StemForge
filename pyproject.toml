@@ -78,6 +78,9 @@ dependencies = [
     "safetensors>=0.4.2",
     "einops>=0.7.0",
     "huggingface_hub>=0.23.0",
+    "k-diffusion>=0.0.19",
+    "einops-exts>=0.0.4",
+
 
     # GUI
     "dearpygui>=1.11.0",

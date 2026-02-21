@@ -23,12 +23,11 @@ import logging
 import hashlib
 from typing import Any
 
+from models.registry import BASICPITCH
 from utils.errors import ModelLoadError
 
 
-DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
-    pathlib.Path.home() / ".cache" / "stemforge" / "basicpitch"
-)
+DEFAULT_MODEL_CACHE_DIR: pathlib.Path = BASICPITCH.cache_dir
 
 SUPPORTED_FORMATS: tuple[str, ...] = ("savedmodel", "onnx")
 

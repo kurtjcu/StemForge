@@ -21,6 +21,7 @@ from typing import Callable
 import dearpygui.dearpygui as dpg
 
 from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig, DemucsResult
+from models.registry import list_specs, DemucsSpec
 from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
 from gui.components.waveform_widget import WaveformWidget
@@ -28,7 +29,7 @@ from gui.components.waveform_widget import WaveformWidget
 
 log = logging.getLogger("stemforge.gui.demucs_panel")
 
-DEMUCS_MODELS: tuple[str, ...] = ("htdemucs", "htdemucs_ft", "mdx_extra", "mdx_extra_q")
+DEMUCS_MODELS: tuple[str, ...] = tuple(s.model_id for s in list_specs(DemucsSpec))
 STEM_TARGETS:  tuple[str, ...] = ("vocals", "drums", "bass", "other")
 
 _MODEL_DESC: dict[str, str] = {
