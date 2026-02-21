@@ -1,22 +1,29 @@
-"""
-Demucs source-separation panel for StemForge.
+"""Demucs source-separation panel for StemForge.
 
 Provides a two-column layout: settings on the left (model selector,
 part checkboxes, Run button) and results on the right (progress bar,
-status, per-stem play/save controls).  The pipeline runs on a daemon
-thread so the render loop is never blocked.
+status, per-stem waveform previews and Show-file buttons).  The
+pipeline runs on a daemon thread so the render loop is never blocked.
+
+Result listeners
+----------------
+Callers may register callbacks via add_result_listener(cb).  After a
+successful run, every callback is invoked with the stem_paths dict so
+that the MIDI tab can be updated automatically.
 """
 
 import pathlib
 import logging
 import threading
 import traceback
+from typing import Callable
 
 import dearpygui.dearpygui as dpg
 
 from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig, DemucsResult
 from gui.state import app_state
 from gui.constants import _STEMS_DIR
+from gui.components.waveform_widget import WaveformWidget
 
 
 log = logging.getLogger("stemforge.gui.demucs_panel")
@@ -38,7 +45,7 @@ _STEM_LABEL: dict[str, str] = {
     "other":  "Everything else",
 }
 
-_P = "demucs"   # tag namespace
+_P = "demucs"
 
 
 def _t(name: str) -> str:
@@ -53,6 +60,11 @@ class DemucsPanel:
         self._current_model: str | None = None
         self._thread: threading.Thread | None = None
         self._stem_paths: dict[str, pathlib.Path] = {}
+        self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
+        # Pre-create one WaveformWidget per stem
+        self._stem_waveforms: dict[str, WaveformWidget] = {
+            stem: WaveformWidget(f"stem_{stem}") for stem in STEM_TARGETS
+        }
 
     # ------------------------------------------------------------------
     # UI construction  (call inside the target dpg parent context)
@@ -115,7 +127,14 @@ class DemucsPanel:
                     width=-1,
                     height=18,
                 )
-                dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    _st = _t("status")
+                    dpg.add_button(
+                        label="Copy",
+                        callback=lambda s, a, u, _k=_st: dpg.set_clipboard_text(dpg.get_value(_k)),
+                        width=50,
+                    )
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -123,32 +142,34 @@ class DemucsPanel:
                 dpg.add_spacer(height=4)
 
                 for stem in STEM_TARGETS:
-                    with dpg.group(
-                        horizontal=True,
-                        tag=_t(f"row_{stem}"),
-                        show=False,
-                    ):
-                        dpg.add_text(
-                            _STEM_LABEL[stem],
-                            tag=_t(f"label_{stem}"),
-                            color=(220, 220, 220, 255),
-                        )
-                        dpg.add_button(
-                            label="▶ Play",
-                            tag=_t(f"play_{stem}"),
-                            callback=self._make_play_cb(stem),
-                            width=70,
-                        )
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(f"Preview the separated {_STEM_LABEL[stem].lower()} track.")
-                        dpg.add_button(
-                            label="Show file",
-                            tag=_t(f"open_{stem}"),
-                            callback=self._make_open_cb(stem),
-                            width=80,
-                        )
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text("Reveal this file in your file manager.")
+                    with dpg.group(tag=_t(f"row_{stem}"), show=False):
+                        # Label + Show-file button on one line
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                _STEM_LABEL[stem],
+                                color=(220, 220, 220, 255),
+                            )
+                            dpg.add_button(
+                                label="Show file",
+                                tag=_t(f"open_{stem}"),
+                                callback=self._make_open_cb(stem),
+                                width=80,
+                            )
+                            with dpg.tooltip(dpg.last_item()):
+                                dpg.add_text("Reveal this file in your file manager.")
+                        # Per-stem waveform preview below
+                        self._stem_waveforms[stem].build_ui()
+                        dpg.add_spacer(height=6)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def add_result_listener(
+        self, callback: Callable[[dict[str, pathlib.Path]], None]
+    ) -> None:
+        """Register a callback invoked with stem_paths after a successful run."""
+        self._result_listeners.append(callback)
 
     # ------------------------------------------------------------------
     # Callbacks
@@ -162,11 +183,6 @@ class DemucsPanel:
             return
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-
-    def _make_play_cb(self, stem: str):
-        def _cb(s, a, u):
-            self._play_stem(stem)
-        return _cb
 
     def _make_open_cb(self, stem: str):
         def _cb(s, a, u):
@@ -195,7 +211,6 @@ class DemucsPanel:
 
             model_name = dpg.get_value(_t("model"))
 
-            # Evict stale model weights when the user switches variants.
             if self._current_model != model_name:
                 if self._current_model is not None:
                     dpg.set_value(_t("status"), "Unloading previous model…")
@@ -233,7 +248,19 @@ class DemucsPanel:
             )
 
             for stem_name in STEM_TARGETS:
-                dpg.configure_item(_t(f"row_{stem_name}"), show=stem_name in result.stem_paths)
+                show = stem_name in result.stem_paths
+                dpg.configure_item(_t(f"row_{stem_name}"), show=show)
+                if show:
+                    self._stem_waveforms[stem_name].load_async(
+                        result.stem_paths[stem_name]
+                    )
+
+            # Notify any registered listeners (e.g. BasicPitchPanel)
+            for cb in self._result_listeners:
+                try:
+                    cb(result.stem_paths)
+                except Exception as exc:
+                    log.error("DemucsPanel result listener error: %s", exc)
 
         except Exception as exc:
             traceback.print_exc()
@@ -243,24 +270,8 @@ class DemucsPanel:
             dpg.configure_item(_t("run_btn"), enabled=True)
 
     # ------------------------------------------------------------------
-    # Audio playback helpers
+    # File reveal helper
     # ------------------------------------------------------------------
-
-    def _play_stem(self, stem: str) -> None:
-        path = self._stem_paths.get(stem)
-        if not path or not path.exists():
-            return
-
-        def _play() -> None:
-            try:
-                import sounddevice as sd
-                from utils.audio_io import read_audio
-                waveform, sr = read_audio(path)
-                sd.play(waveform.T, samplerate=sr)
-            except Exception as exc:
-                log.error("Playback error for '%s': %s", stem, exc)
-
-        threading.Thread(target=_play, daemon=True).start()
 
     def _open_stem(self, stem: str) -> None:
         path = self._stem_paths.get(stem)
@@ -300,7 +311,4 @@ class DemucsPanel:
         pass
 
     def _on_error(self, exc: Exception) -> None:
-        pass
-
-    def add_result_listener(self, callback) -> None:
         pass

@@ -2,16 +2,16 @@
 StemForge — main DearPyGUI application.
 
 Creates a single primary window containing:
-  · A persistent loader bar at the top (file browse, path display, clear).
-  · A Stop audio button to interrupt any in-progress playback.
+  · A persistent loader bar at the top (file browse, waveform preview, clear).
   · A tabbed workspace: Separate · MIDI · Generate · Export.
 
-All panel singletons are created here, their UIs are built inside the
-correct DearPyGUI parent contexts, and top-level file dialogs are
-registered before the render loop starts.
+Each panel owns its own Play/Stop controls via WaveformWidget; there is no
+global Stop button.  The manual render loop calls tick_all() every frame so
+waveform cursors animate smoothly.
 """
 
 import logging
+import pathlib
 
 import dearpygui.dearpygui as dpg
 
@@ -21,6 +21,7 @@ from gui.components.demucs_panel import DemucsPanel
 from gui.components.basicpitch_panel import BasicPitchPanel
 from gui.components.musicgen_panel import MusicGenPanel
 from gui.components.export_panel import ExportPanel
+from gui.components.waveform_widget import tick_all
 
 
 log = logging.getLogger("stemforge.gui.app")
@@ -30,11 +31,42 @@ _VP_HEIGHT = 820
 
 
 # ---------------------------------------------------------------------------
+# Font setup
+# ---------------------------------------------------------------------------
+
+_FONT_CANDIDATES = [
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+]
+
+
+def _setup_fonts() -> None:
+    """Load DejaVuSans at 18 px and bind it as the global default font."""
+    font_path: pathlib.Path | None = None
+    for candidate in _FONT_CANDIDATES:
+        p = pathlib.Path(candidate)
+        if p.exists():
+            font_path = p
+            break
+
+    if font_path is None:
+        log.warning("DejaVuSans.ttf not found — using DearPyGUI built-in font size")
+        return
+
+    with dpg.font_registry():
+        default_font = dpg.add_font(str(font_path), 18)
+    dpg.bind_font(default_font)
+    log.info("Loaded font: %s", font_path)
+
+
+# ---------------------------------------------------------------------------
 # Theme
 # ---------------------------------------------------------------------------
 
 def _build_theme() -> int:
-    """Return a custom dark-blue theme tag."""
+    """Return a custom dark-blue 3D-styled theme tag."""
     with dpg.theme() as theme_id:
         with dpg.theme_component(dpg.mvAll):
             # Background palette
@@ -43,14 +75,17 @@ def _build_theme() -> int:
             dpg.add_theme_color(dpg.mvThemeCol_PopupBg,         ( 28,  28,  38, 255))
             dpg.add_theme_color(dpg.mvThemeCol_TitleBg,         ( 30,  30,  45, 255))
             dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive,   ( 50,  50,  90, 255))
-            # Tabs
-            dpg.add_theme_color(dpg.mvThemeCol_Tab,             ( 38,  38,  58, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_TabHovered,      ( 70,  70, 130, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_TabActive,       ( 90,  90, 160, 255))
-            # Buttons
-            dpg.add_theme_color(dpg.mvThemeCol_Button,          ( 60,  60, 120, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,   ( 80,  80, 150, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,    (100, 100, 180, 255))
+            # 3D border effect
+            dpg.add_theme_color(dpg.mvThemeCol_Border,          ( 80,  80, 120, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_BorderShadow,    ( 10,  10,  15, 255))
+            # Tabs — strong contrast between inactive/active
+            dpg.add_theme_color(dpg.mvThemeCol_Tab,             ( 22,  22,  38, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabHovered,      ( 60,  60, 120, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabActive,       (110, 110, 200, 255))
+            # Buttons — more depth
+            dpg.add_theme_color(dpg.mvThemeCol_Button,          ( 50,  50, 110, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,   ( 75,  75, 150, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,    (110, 110, 190, 255))
             # Input fields
             dpg.add_theme_color(dpg.mvThemeCol_FrameBg,         ( 38,  38,  55, 255))
             dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  ( 55,  55,  80, 255))
@@ -63,13 +98,14 @@ def _build_theme() -> int:
             dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive,(150, 150, 240, 255))
             # Checkboxes
             dpg.add_theme_color(dpg.mvThemeCol_CheckMark,       (150, 150, 240, 255))
-            # Progress bars (rendered using the histogram colour)
+            # Progress bars
             dpg.add_theme_color(dpg.mvThemeCol_PlotHistogram,   (100, 100, 200, 255))
             # Text
             dpg.add_theme_color(dpg.mvThemeCol_Text,            (220, 220, 230, 255))
             dpg.add_theme_color(dpg.mvThemeCol_TextDisabled,    ( 90,  90, 100, 255))
             dpg.add_theme_color(dpg.mvThemeCol_Separator,       ( 60,  60,  80, 255))
-            # Rounding
+            # Shape / rounding
+            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1)
             dpg.add_theme_style(dpg.mvStyleVar_FrameRounding,   6)
             dpg.add_theme_style(dpg.mvStyleVar_WindowRounding,  8)
             dpg.add_theme_style(dpg.mvStyleVar_ChildRounding,   6)
@@ -81,24 +117,11 @@ def _build_theme() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Stop-audio helper
-# ---------------------------------------------------------------------------
-
-def _stop_audio(sender, app_data, user_data) -> None:
-    """Stop any audio currently playing via sounddevice."""
-    try:
-        import sounddevice as sd
-        sd.stop()
-    except Exception as exc:
-        log.debug("Stop audio: %s", exc)
-
-
-# ---------------------------------------------------------------------------
 # Application entry point
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    """Create the DearPyGUI viewport and run the event loop."""
+    """Create the DearPyGUI viewport and run the manual render loop."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(name)s: %(message)s",
@@ -106,6 +129,8 @@ def main() -> None:
 
     # ---- DearPyGUI setup -----------------------------------------------
     dpg.create_context()
+
+    _setup_fonts()
 
     theme = _build_theme()
     dpg.bind_theme(theme)
@@ -121,8 +146,11 @@ def main() -> None:
     _musicgen   = MusicGenPanel()
     _export     = ExportPanel()
 
-    # ---- Top-level file dialogs (must live outside all windows) --------
-    _loader.build_file_dialog()
+    # ---- Inter-panel wiring --------------------------------------------
+    _demucs.add_result_listener(_basicpitch.notify_stems_ready)
+
+    # ---- Top-level dialogs / browser (must live outside all windows) ---
+    _loader.build_file_browser()
     _basicpitch.build_save_dialog()
     _musicgen.build_save_dialog()
     _export.build_dir_dialog()
@@ -139,19 +167,8 @@ def main() -> None:
         dpg.add_separator()
         dpg.add_spacer(height=6)
 
-        # Loader bar + stop button on the same row
-        with dpg.group(horizontal=False):
-            _loader.build_ui()
-            dpg.add_spacer(height=4)
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="■  Stop audio",
-                    callback=_stop_audio,
-                    width=110,
-                    height=26,
-                )
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("Stop any audio that is currently playing.")
+        # Loader bar (Browse + path display + Clear + waveform preview)
+        _loader.build_ui()
 
         dpg.add_spacer(height=8)
         dpg.add_separator()
@@ -183,7 +200,12 @@ def main() -> None:
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("primary_window", True)
-    dpg.start_dearpygui()
+
+    # Manual render loop so tick_all() can animate waveform cursors each frame
+    while dpg.is_dearpygui_running():
+        tick_all()
+        dpg.render_dearpygui_frame()
+
     dpg.destroy_context()
 
 

@@ -1,10 +1,9 @@
-"""
-File loader panel for StemForge.
+"""File loader panel for StemForge.
 
 Renders a compact header bar that sits above all tabs.  The user
-browses to an audio file via a DearPyGUI file dialog; on selection the
-file is validated, its metadata probed, and the path stored in the
-shared :data:`~gui.state.app_state`.
+browses to an audio file via a custom FileBrowser modal; on selection
+the file is validated, its metadata probed, a waveform preview is
+loaded, and the path is stored in the shared app_state.
 """
 
 import pathlib
@@ -15,6 +14,8 @@ import dearpygui.dearpygui as dpg
 
 from utils.audio_io import SUPPORTED_EXTENSIONS as _AUDIO_EXT, probe
 from gui.state import app_state
+from gui.components.waveform_widget import WaveformWidget
+from gui.components.file_browser import FileBrowser
 
 
 # Re-export as a sorted tuple for callers that need an ordered sequence.
@@ -25,7 +26,6 @@ log = logging.getLogger("stemforge.gui.loader")
 # DearPyGUI tag constants
 _TAG_PATH   = "loader_path"
 _TAG_INFO   = "loader_info"
-_TAG_DIALOG = "loader_file_dialog"
 
 
 class LoaderPanel:
@@ -35,6 +35,12 @@ class LoaderPanel:
 
     def __init__(self) -> None:
         self._on_load_callbacks = []
+        self._waveform = WaveformWidget("loader")
+        self._browser: FileBrowser = FileBrowser(
+            tag="loader_browser",
+            callback=self._on_file_selected,
+            extensions=_AUDIO_EXT,
+        )
 
     # ------------------------------------------------------------------
     # UI construction
@@ -44,7 +50,7 @@ class LoaderPanel:
         """Add widgets to the currently active DearPyGUI parent context."""
         with dpg.group(horizontal=True):
             dpg.add_button(
-                label="Browse…",
+                label="Browse",
                 callback=self._on_browse,
                 width=90,
                 height=32,
@@ -72,25 +78,21 @@ class LoaderPanel:
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text("Remove the loaded file and reset all pipeline results.")
 
-        dpg.add_text("", tag=_TAG_INFO, color=(160, 160, 160, 255))
-
-    def build_file_dialog(self) -> None:
-        """Create the file dialog at the top DearPyGUI level (outside windows)."""
-        with dpg.file_dialog(
-            directory_selector=False,
-            show=False,
-            callback=self._on_file_selected,
-            cancel_callback=lambda s, a: None,
-            tag=_TAG_DIALOG,
-            width=720,
-            height=440,
-            modal=True,
-        ):
-            dpg.add_file_extension(
-                "Audio files{.wav,.flac,.mp3,.ogg,.aiff,.aif}",
-                color=(100, 220, 100, 255),
+        with dpg.group(horizontal=True):
+            dpg.add_text("", tag=_TAG_INFO, color=(160, 160, 160, 255))
+            _info_tag = _TAG_INFO
+            dpg.add_button(
+                label="Copy",
+                callback=lambda s, a, u, _t=_info_tag: dpg.set_clipboard_text(dpg.get_value(_t)),
+                width=50,
             )
-            dpg.add_file_extension(".*")
+
+        # Waveform preview
+        self._waveform.build_ui()
+
+    def build_file_browser(self) -> None:
+        """Create the custom file browser modal at the top DearPyGUI level."""
+        self._browser.build()
 
     # ------------------------------------------------------------------
     # Public API
@@ -109,24 +111,20 @@ class LoaderPanel:
         app_state.clear()
         dpg.set_value(_TAG_PATH, "")
         dpg.set_value(_TAG_INFO, "")
+        self._waveform.clear()
 
     # ------------------------------------------------------------------
     # Callbacks (may be called from main thread only)
     # ------------------------------------------------------------------
 
     def _on_browse(self, sender, app_data, user_data) -> None:
-        dpg.configure_item(_TAG_DIALOG, show=True)
+        self._browser.show()
 
     def _on_clear(self, sender, app_data, user_data) -> None:
         self.reset()
 
-    def _on_file_selected(self, sender, app_data) -> None:
-        path_str = app_data.get("file_path_name", "")
-        if not path_str:
-            return
-
-        path = pathlib.Path(path_str)
-
+    def _on_file_selected(self, path: pathlib.Path) -> None:
+        """Receive a pathlib.Path from FileBrowser and validate it."""
         if path.suffix.lower() not in _AUDIO_EXT:
             dpg.set_value(
                 _TAG_INFO,
@@ -151,6 +149,8 @@ class LoaderPanel:
         )
 
         app_state.audio_path = path
+        self._waveform.load_async(path)
+
         for cb in self._on_load_callbacks:
             try:
                 cb(path)
@@ -158,7 +158,7 @@ class LoaderPanel:
                 log.error("LoaderPanel callback error: %s", exc)
 
     # ------------------------------------------------------------------
-    # Legacy stub methods (kept for compatibility with existing call sites)
+    # Compatibility stubs
     # ------------------------------------------------------------------
 
     def browse(self) -> None:
@@ -172,3 +172,7 @@ class LoaderPanel:
 
     def add_listener(self, callback: Callable[[pathlib.Path], None]) -> None:
         self.add_on_load_callback(callback)
+
+    def build_file_dialog(self) -> None:
+        """Compatibility shim — delegates to build_file_browser()."""
+        self.build_file_browser()

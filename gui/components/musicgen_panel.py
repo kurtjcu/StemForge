@@ -1,9 +1,9 @@
-"""
-MusicGen audio-generation panel for StemForge.
+"""MusicGen audio-generation panel for StemForge.
 
-Left column: text prompt, model selector, duration slider, creativity and
-variety knobs, optional melody-stem picker, and a Generate button.
-Right column: progress bar, status, result info, play and save buttons.
+Left column: text prompt, model selector, duration slider, creativity
+and variety knobs, optional melody-stem picker, and a Generate button.
+Right column: progress bar, status, result info, waveform preview, and
+a Save button.
 
 The pipeline runs on a daemon thread; all DearPyGUI updates are
 thread-safe calls to dpg.set_value / dpg.configure_item.
@@ -22,6 +22,8 @@ import dearpygui.dearpygui as dpg
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
 from gui.state import app_state
 from gui.constants import _MUSICGEN_DIR
+from gui.components.waveform_widget import WaveformWidget
+from gui.components.file_browser import FileBrowser
 
 
 log = logging.getLogger("stemforge.gui.musicgen_panel")
@@ -40,7 +42,7 @@ _MODEL_LABEL: dict[str, str] = {
     "facebook/musicgen-melody": "Melody  (text + melody guide)",
 }
 
-_P = "mg"   # tag namespace
+_P = "mg"
 
 
 def _t(name: str) -> str:
@@ -55,6 +57,13 @@ class MusicGenPanel:
         self._thread: threading.Thread | None = None
         self._result_path: pathlib.Path | None = None
         self._current_model: str | None = None
+        self._waveform = WaveformWidget("mg")
+        self._save_browser = FileBrowser(
+            tag="mg_save_browser",
+            callback=self._on_file_save_selected,
+            extensions=frozenset({".wav", ".flac", ".ogg"}),
+            mode="save",
+        )
 
     # ------------------------------------------------------------------
     # UI construction
@@ -117,7 +126,6 @@ class MusicGenPanel:
                 )
 
                 dpg.add_spacer(height=14)
-                # Knobs side-by-side
                 with dpg.group(horizontal=True):
                     with dpg.group():
                         dpg.add_text("Creativity", color=(175, 175, 255, 255))
@@ -200,7 +208,14 @@ class MusicGenPanel:
                     width=-1,
                     height=18,
                 )
-                dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    _st = _t("status")
+                    dpg.add_button(
+                        label="Copy",
+                        callback=lambda s, a, u, _k=_st: dpg.set_clipboard_text(dpg.get_value(_k)),
+                        width=50,
+                    )
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -209,42 +224,24 @@ class MusicGenPanel:
                 dpg.add_text("—", tag=_t("duration_info"), color=(220, 220, 220, 255))
                 dpg.add_text("—", tag=_t("audio_file"), color=(140, 140, 140, 255), wrap=350)
 
-                dpg.add_spacer(height=12)
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="▶ Play",
-                        tag=_t("play_btn"),
-                        callback=self._on_play_click,
-                        width=80,
-                        enabled=False,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Preview the generated audio.")
-                    dpg.add_button(
-                        label="  Save as…  ",
-                        tag=_t("save_btn"),
-                        callback=self._on_save_click,
-                        width=110,
-                        enabled=False,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Copy the generated file to a location you choose.")
+                dpg.add_spacer(height=8)
+                # Waveform preview replaces the old ▶ Play button
+                self._waveform.build_ui()
+
+                dpg.add_spacer(height=8)
+                dpg.add_button(
+                    label="  Save as  ",
+                    tag=_t("save_btn"),
+                    callback=self._on_save_click,
+                    width=110,
+                    enabled=False,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Copy the generated file to a location you choose.")
 
     def build_save_dialog(self) -> None:
-        """Create the Save As dialog at the top DearPyGUI level."""
-        with dpg.file_dialog(
-            directory_selector=False,
-            show=False,
-            callback=self._on_save_selected,
-            cancel_callback=lambda s, a: None,
-            tag=_t("save_dialog"),
-            width=720,
-            height=440,
-            modal=True,
-        ):
-            dpg.add_file_extension(".wav{.wav}", color=(100, 220, 100, 255))
-            dpg.add_file_extension(".flac{.flac}", color=(100, 180, 255, 255))
-            dpg.add_file_extension(".*")
+        """Create the custom Save browser at the top DearPyGUI level."""
+        self._save_browser.build()
 
     # ------------------------------------------------------------------
     # Callbacks
@@ -272,31 +269,12 @@ class MusicGenPanel:
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
-    def _on_play_click(self, sender, app_data, user_data) -> None:
-        if not self._result_path or not self._result_path.exists():
-            return
-
-        def _play() -> None:
-            try:
-                import sounddevice as sd
-                from utils.audio_io import read_audio
-                waveform, sr = read_audio(self._result_path)
-                sd.play(waveform.T, samplerate=sr)
-            except Exception as exc:
-                log.error("MusicGen playback error: %s", exc)
-
-        threading.Thread(target=_play, daemon=True).start()
-
     def _on_save_click(self, sender, app_data, user_data) -> None:
-        dpg.configure_item(_t("save_dialog"), show=True)
+        self._save_browser.show()
 
-    def _on_save_selected(self, sender, app_data) -> None:
+    def _on_file_save_selected(self, dest: pathlib.Path) -> None:
         if not self._result_path or not self._result_path.exists():
             return
-        dest_str = app_data.get("file_path_name", "")
-        if not dest_str:
-            return
-        dest = pathlib.Path(dest_str)
         if not dest.suffix:
             dest = dest.with_suffix(".wav")
         try:
@@ -313,7 +291,6 @@ class MusicGenPanel:
 
     def _run(self) -> None:
         dpg.configure_item(_t("run_btn"), enabled=False)
-        dpg.configure_item(_t("play_btn"), enabled=False)
         dpg.configure_item(_t("save_btn"), enabled=False)
         dpg.set_value(_t("progress"), 0.0)
 
@@ -329,7 +306,6 @@ class MusicGenPanel:
                 "facebook/musicgen-small",
             )
 
-            # Melody conditioning
             melody_path: pathlib.Path | None = None
             if model_id.endswith("-melody"):
                 melody_label = dpg.get_value(_t("melody"))
@@ -342,7 +318,6 @@ class MusicGenPanel:
                     if stem_key:
                         melody_path = app_state.stem_paths.get(stem_key)
 
-            # Evict stale model if variant changed
             if self._current_model and self._current_model != model_id:
                 dpg.set_value(_t("status"), "Unloading previous model…")
                 self._pipeline.clear()
@@ -386,8 +361,10 @@ class MusicGenPanel:
                 f"{result.duration_seconds:.1f} s · {result.sample_rate} Hz",
             )
             dpg.set_value(_t("audio_file"), str(result.audio_path))
-            dpg.configure_item(_t("play_btn"), enabled=True)
             dpg.configure_item(_t("save_btn"), enabled=True)
+
+            # Load waveform preview
+            self._waveform.load_async(result.audio_path)
 
         except Exception as exc:
             traceback.print_exc()

@@ -16,6 +16,7 @@ import dearpygui.dearpygui as dpg
 
 from utils.audio_io import read_audio, write_audio
 from gui.state import app_state
+from gui.components.file_browser import FileBrowser
 
 
 log = logging.getLogger("stemforge.gui.export_panel")
@@ -45,6 +46,11 @@ class ExportPanel:
     def __init__(self) -> None:
         self._thread: threading.Thread | None = None
         self._default_dir = pathlib.Path.home() / "Music" / "StemForge"
+        self._dir_browser = FileBrowser(
+            tag="exp_dir_browser",
+            callback=self._on_dir_selected,
+            mode="dir",
+        )
 
     # ------------------------------------------------------------------
     # UI construction
@@ -103,7 +109,7 @@ class ExportPanel:
                     width=-1,
                 )
                 dpg.add_button(
-                    label="Browse…",
+                    label="Browse",
                     tag=_t("browse_btn"),
                     callback=self._on_browse,
                     width=-1,
@@ -132,7 +138,14 @@ class ExportPanel:
                     width=-1,
                     height=18,
                 )
-                dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    _st = _t("status")
+                    dpg.add_button(
+                        label="Copy",
+                        callback=lambda s, a, u, _k=_st: dpg.set_clipboard_text(dpg.get_value(_k)),
+                        width=50,
+                    )
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -146,18 +159,8 @@ class ExportPanel:
                 )
 
     def build_dir_dialog(self) -> None:
-        """Create the folder-picker dialog at the top DearPyGUI level."""
-        with dpg.file_dialog(
-            directory_selector=True,
-            show=False,
-            callback=self._on_dir_selected,
-            cancel_callback=lambda s, a: None,
-            tag=_t("dir_dialog"),
-            width=720,
-            height=440,
-            modal=True,
-        ):
-            pass  # directory selector needs no extension filters
+        """Create the custom directory browser at the top DearPyGUI level."""
+        self._dir_browser.build()
 
     # ------------------------------------------------------------------
     # Callbacks
@@ -183,12 +186,10 @@ class ExportPanel:
         dpg.set_value(_t("chk_musicgen"), mg_ok)
 
     def _on_browse(self, sender, app_data, user_data) -> None:
-        dpg.configure_item(_t("dir_dialog"), show=True)
+        self._dir_browser.show()
 
-    def _on_dir_selected(self, sender, app_data) -> None:
-        folder = app_data.get("file_path_name", "")
-        if folder:
-            dpg.set_value(_t("outdir"), folder)
+    def _on_dir_selected(self, folder: pathlib.Path) -> None:
+        dpg.set_value(_t("outdir"), str(folder))
 
     def _on_export_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():

@@ -1,12 +1,27 @@
-"""
-BasicPitch MIDI-extraction panel for StemForge.
+"""BasicPitch MIDI-extraction panel for StemForge.
 
-Left column: stem selector, two rotary knobs (note sensitivity and note
-sustain), a duration slider for filtering short notes, and a Run button.
-Right column: progress bar, status, note count, and a Save MIDI button.
+Layout
+------
+Left column:
+  · "Settings mode"  ○ Global  ○ Per stem  (radio button)
+  · [Global controls] — Note sensitivity knob, Note sustain knob,
+                        Shortest note slider  (visible in Global mode)
+  · "Available stems" header + status text
+  · For each of 4 stems (pre-created, initially hidden):
+      [☑] Stem label
+      [Per-stem controls] — same 3 knobs/slider (visible in Per stem mode)
+  · [Extract MIDI] button
 
-The pipeline runs on a daemon thread; all DearPyGUI updates are
-thread-safe calls to dpg.set_value / dpg.configure_item.
+Right column:
+  · Progress bar + status
+  · Per-stem note counts
+  · Save MIDI button (saves last processed stem's MIDI)
+
+Inter-panel wiring
+------------------
+DemucsPanel calls notify_stems_ready(stem_paths) via the result-listener
+mechanism wired in gui/app.py.  This shows the stem rows and records
+which stems are available for extraction.
 """
 
 import pathlib
@@ -20,24 +35,63 @@ from pipelines.basicpitch_pipeline import BasicPitchPipeline, BasicPitchConfig, 
 from gui.state import app_state
 from gui.constants import _MIDI_DIR
 from gui.components.demucs_panel import STEM_TARGETS, _STEM_LABEL
+from gui.components.file_browser import FileBrowser
 
 
 log = logging.getLogger("stemforge.gui.basicpitch_panel")
 
-_P = "bp"   # tag namespace
+_P = "bp"
 
 
 def _t(name: str) -> str:
     return f"{_P}_{name}"
 
 
+def _knob_pair(tag_a: str, label_a: str, tip_a: str,
+               tag_b: str, label_b: str, tip_b: str,
+               default_a: float = 0.5, default_b: float = 0.3) -> None:
+    """Render two knobs side by side with labels and tooltips."""
+    with dpg.group(horizontal=True):
+        with dpg.group():
+            dpg.add_text(label_a, color=(175, 175, 255, 255))
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text(tip_a)
+            dpg.add_knob_float(
+                tag=tag_a,
+                min_value=0.0,
+                max_value=1.0,
+                default_value=default_a,
+            )
+
+        dpg.add_spacer(width=16)
+
+        with dpg.group():
+            dpg.add_text(label_b, color=(175, 175, 255, 255))
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text(tip_b)
+            dpg.add_knob_float(
+                tag=tag_b,
+                min_value=0.0,
+                max_value=1.0,
+                default_value=default_b,
+            )
+
+
 class BasicPitchPanel:
-    """BasicPitch MIDI-extraction panel."""
+    """BasicPitch MIDI-extraction panel with per-stem or global settings."""
 
     def __init__(self) -> None:
         self._pipeline = BasicPitchPipeline()
         self._thread: threading.Thread | None = None
         self._midi_path: pathlib.Path | None = None
+        self._midi_paths: dict[str, pathlib.Path] = {}
+        self._available_stems: dict[str, pathlib.Path] = {}
+        self._save_browser = FileBrowser(
+            tag="bp_save_browser",
+            callback=self._on_file_save_selected,
+            extensions=frozenset({".mid", ".midi"}),
+            mode="save",
+        )
 
     # ------------------------------------------------------------------
     # UI construction
@@ -47,77 +101,96 @@ class BasicPitchPanel:
         with dpg.group(horizontal=True):
 
             # ---- Left column: settings --------------------------------
-            with dpg.child_window(width=320, height=-1, border=False):
+            with dpg.child_window(width=340, height=-1, border=False):
 
-                dpg.add_text("Source part", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Which separated part to convert to MIDI.\n"
-                        "Run the Separate step first."
-                    )
-                dpg.add_combo(
-                    items=[_STEM_LABEL[s] for s in STEM_TARGETS],
-                    default_value=_STEM_LABEL["vocals"],
-                    tag=_t("stem"),
-                    width=-1,
+                # Mode selector
+                dpg.add_text("Settings mode", color=(175, 175, 255, 255))
+                dpg.add_radio_button(
+                    items=["Global", "Per stem"],
+                    default_value="Global",
+                    tag=_t("mode"),
+                    callback=self._on_mode_change,
+                    horizontal=True,
                 )
 
-                dpg.add_spacer(height=18)
+                dpg.add_spacer(height=12)
 
-                # Two knobs side by side
-                with dpg.group(horizontal=True):
-                    with dpg.group():
-                        dpg.add_text("Note\nsensitivity", color=(175, 175, 255, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How confident the AI must be before it recognises\n"
-                                "the start of a note.\n\n"
-                                "Turn up  →  fewer false notes detected.\n"
-                                "Turn down →  catches quiet or soft notes."
-                            )
-                        dpg.add_knob_float(
-                            tag=_t("onset"),
-                            min_value=0.0,
-                            max_value=1.0,
-                            default_value=0.5,
+                # Global controls (visible in Global mode)
+                with dpg.group(tag=_t("global_controls"), show=True):
+                    _knob_pair(
+                        _t("global_onset"), "Note\nsensitivity",
+                        "How confident the AI must be before it recognises\n"
+                        "the start of a note.\n\n"
+                        "Turn up  →  fewer false notes detected.\n"
+                        "Turn down →  catches quiet or soft notes.",
+                        _t("global_frame"), "Note\nsustain",
+                        "How confident the AI must be that a note is still\n"
+                        "ringing on each audio frame.\n\n"
+                        "Turn up  →  only clearly audible notes are kept.\n"
+                        "Turn down →  picks up quiet, fading notes.",
+                        default_a=0.5, default_b=0.3,
+                    )
+                    dpg.add_spacer(height=8)
+                    dpg.add_text("Shortest note", color=(175, 175, 255, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Notes shorter than this are thrown away.\n\n"
+                            "Slide right →  removes noise and ghost notes.\n"
+                            "Slide left  →  keeps fast ornaments and trills."
                         )
-
-                    dpg.add_spacer(width=20)
-
-                    with dpg.group():
-                        dpg.add_text("Note\nsustain", color=(175, 175, 255, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How confident the AI must be that a note is still\n"
-                                "ringing on each audio frame.\n\n"
-                                "Turn up  →  only clearly audible notes are kept.\n"
-                                "Turn down →  picks up quiet, fading notes."
-                            )
-                        dpg.add_knob_float(
-                            tag=_t("frame"),
-                            min_value=0.0,
-                            max_value=1.0,
-                            default_value=0.3,
-                        )
+                    dpg.add_slider_float(
+                        tag=_t("global_min_note"),
+                        min_value=20.0,
+                        max_value=500.0,
+                        default_value=58.0,
+                        width=-1,
+                        format="%.0f ms",
+                    )
 
                 dpg.add_spacer(height=14)
-                dpg.add_text("Shortest note", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Notes shorter than this are thrown away.\n\n"
-                        "Slide right →  removes noise and ghost notes.\n"
-                        "Slide left  →  keeps fast ornaments and trills."
-                    )
-                dpg.add_slider_float(
-                    tag=_t("min_note"),
-                    min_value=20.0,
-                    max_value=500.0,
-                    default_value=58.0,
-                    width=-1,
-                    format="%.0f ms",
+                dpg.add_separator()
+                dpg.add_text("Available stems", color=(175, 175, 255, 255))
+                dpg.add_text(
+                    "Run Separate first",
+                    tag=_t("stems_status"),
+                    color=(160, 160, 160, 255),
                 )
+                dpg.add_spacer(height=6)
 
-                dpg.add_spacer(height=20)
+                # Per-stem rows (initially hidden, shown by notify_stems_ready)
+                for stem in STEM_TARGETS:
+                    with dpg.group(tag=_t(f"stem_{stem}_group"), show=False):
+                        dpg.add_checkbox(
+                            label=_STEM_LABEL[stem],
+                            tag=_t(f"stem_{stem}_check"),
+                            default_value=True,
+                        )
+                        # Per-stem controls (visible in Per stem mode)
+                        with dpg.group(
+                            tag=_t(f"stem_{stem}_per_controls"),
+                            show=False,
+                        ):
+                            with dpg.group(horizontal=True):
+                                dpg.add_spacer(width=16)
+                                with dpg.group():
+                                    _knob_pair(
+                                        _t(f"stem_{stem}_onset"), "Sensitivity",
+                                        "Note onset sensitivity for this stem.",
+                                        _t(f"stem_{stem}_frame"), "Sustain",
+                                        "Note sustain threshold for this stem.",
+                                        default_a=0.5, default_b=0.3,
+                                    )
+                                    dpg.add_slider_float(
+                                        tag=_t(f"stem_{stem}_min_note"),
+                                        min_value=20.0,
+                                        max_value=500.0,
+                                        default_value=58.0,
+                                        width=-1,
+                                        format="%.0f ms",
+                                    )
+                        dpg.add_spacer(height=4)
+
+                dpg.add_spacer(height=14)
                 dpg.add_button(
                     label="  Extract MIDI  ",
                     tag=_t("run_btn"),
@@ -127,8 +200,8 @@ class BasicPitchPanel:
                 )
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "Convert the selected part to a MIDI file.\n"
-                        "The BasicPitch model will be loaded on first run."
+                        "Convert selected stem(s) to MIDI files.\n"
+                        "The BasicPitch model is loaded on the first run."
                     )
 
             # ---- Right column: results --------------------------------
@@ -141,43 +214,86 @@ class BasicPitchPanel:
                     width=-1,
                     height=18,
                 )
-                dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Idle", tag=_t("status"), color=(160, 160, 160, 255))
+                    _st = _t("status")
+                    dpg.add_button(
+                        label="Copy",
+                        callback=lambda s, a, u, _k=_st: dpg.set_clipboard_text(dpg.get_value(_k)),
+                        width=50,
+                    )
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
-                dpg.add_text("Result", color=(175, 175, 255, 255))
+                dpg.add_text("Results", color=(175, 175, 255, 255))
                 dpg.add_spacer(height=4)
-                dpg.add_text("—", tag=_t("note_count"), color=(220, 220, 220, 255))
+
+                # Per-stem note counts
+                for stem in STEM_TARGETS:
+                    dpg.add_text(
+                        "—",
+                        tag=_t(f"result_{stem}"),
+                        color=(220, 220, 220, 255),
+                    )
+
+                dpg.add_spacer(height=4)
                 dpg.add_text("—", tag=_t("midi_file"), color=(140, 140, 140, 255), wrap=350)
 
                 dpg.add_spacer(height=12)
                 dpg.add_button(
-                    label="  Save MIDI as…  ",
+                    label="  Save MIDI as  ",
                     tag=_t("save_btn"),
                     callback=self._on_save_click,
                     width=160,
                     enabled=False,
                 )
                 with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("Copy the MIDI file to a location you choose.")
+                    dpg.add_text("Copy the last MIDI file to a location you choose.")
 
     def build_save_dialog(self) -> None:
-        """Create the Save As file dialog at the top DearPyGUI level."""
-        with dpg.file_dialog(
-            directory_selector=False,
-            show=False,
-            callback=self._on_save_selected,
-            cancel_callback=lambda s, a: None,
-            tag=_t("save_dialog"),
-            width=720,
-            height=440,
-            modal=True,
-        ):
-            dpg.add_file_extension(".mid{.mid}", color=(100, 180, 255, 255))
-            dpg.add_file_extension(".*")
+        """Create the custom Save browser at the top DearPyGUI level."""
+        self._save_browser.build()
 
     # ------------------------------------------------------------------
-    # Callbacks
+    # Inter-panel wiring
+    # ------------------------------------------------------------------
+
+    def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
+        """Called by DemucsPanel after a successful separation run.
+
+        Shows stem rows for available stems, hides the rest, and updates
+        the status line.
+        """
+        self._available_stems = stem_paths
+
+        for stem in STEM_TARGETS:
+            available = stem in stem_paths
+            if dpg.does_item_exist(_t(f"stem_{stem}_group")):
+                dpg.configure_item(_t(f"stem_{stem}_group"), show=available)
+
+        count = len(stem_paths)
+        status = (
+            f"{count} stem(s) available" if count
+            else "Run Separate first"
+        )
+        if dpg.does_item_exist(_t("stems_status")):
+            dpg.set_value(_t("stems_status"), status)
+
+    # ------------------------------------------------------------------
+    # Mode toggle
+    # ------------------------------------------------------------------
+
+    def _on_mode_change(self, sender, app_data, user_data) -> None:
+        is_global = app_data == "Global"
+        if dpg.does_item_exist(_t("global_controls")):
+            dpg.configure_item(_t("global_controls"), show=is_global)
+        for stem in STEM_TARGETS:
+            tag = _t(f"stem_{stem}_per_controls")
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=not is_global)
+
+    # ------------------------------------------------------------------
+    # Run callback
     # ------------------------------------------------------------------
 
     def _on_run_click(self, sender, app_data, user_data) -> None:
@@ -187,15 +303,11 @@ class BasicPitchPanel:
         self._thread.start()
 
     def _on_save_click(self, sender, app_data, user_data) -> None:
-        dpg.configure_item(_t("save_dialog"), show=True)
+        self._save_browser.show()
 
-    def _on_save_selected(self, sender, app_data) -> None:
+    def _on_file_save_selected(self, dest: pathlib.Path) -> None:
         if not self._midi_path or not self._midi_path.exists():
             return
-        dest_str = app_data.get("file_path_name", "")
-        if not dest_str:
-            return
-        dest = pathlib.Path(dest_str)
         if not dest.suffix:
             dest = dest.with_suffix(".mid")
         try:
@@ -214,56 +326,80 @@ class BasicPitchPanel:
         dpg.configure_item(_t("run_btn"), enabled=False)
         dpg.configure_item(_t("save_btn"), enabled=False)
         dpg.set_value(_t("progress"), 0.0)
+        # Clear previous per-stem results
+        for stem in STEM_TARGETS:
+            if dpg.does_item_exist(_t(f"result_{stem}")):
+                dpg.set_value(_t(f"result_{stem}"), "—")
+        dpg.set_value(_t("midi_file"), "—")
 
         try:
-            stem_label = dpg.get_value(_t("stem"))
-            # Reverse-map friendly label → stem key
-            stem_key = next(
-                (k for k, v in _STEM_LABEL.items() if v == stem_label),
-                "vocals",
-            )
-            stem_paths = app_state.stem_paths
-            stem_path = stem_paths.get(stem_key)
+            # Collect stems that are checked AND available
+            mode = dpg.get_value(_t("mode"))
+            checked = [
+                s for s in STEM_TARGETS
+                if s in self._available_stems
+                and dpg.does_item_exist(_t(f"stem_{s}_check"))
+                and dpg.get_value(_t(f"stem_{s}_check"))
+            ]
 
-            if stem_path is None:
+            if not checked:
                 dpg.set_value(
                     _t("status"),
-                    f"'{stem_label}' not available.  Run Separate first.",
+                    "No stems selected.  Run Separate first, then tick stems above.",
                 )
                 return
 
-            config = BasicPitchConfig(
-                onset_threshold=dpg.get_value(_t("onset")),
-                frame_threshold=dpg.get_value(_t("frame")),
-                minimum_note_length=dpg.get_value(_t("min_note")),
-                output_dir=_MIDI_DIR,
-            )
-            self._pipeline.configure(config)
-
             if not self._pipeline.is_loaded:
-                dpg.set_value(
-                    _t("status"),
-                    "Loading model — first run may take a moment…",
-                )
+                dpg.set_value(_t("status"), "Loading model — first run may take a moment…")
                 self._pipeline.load_model()
 
-            def _progress(pct: float) -> None:
-                dpg.set_value(_t("progress"), pct / 100.0)
-                dpg.set_value(_t("status"), "Transcribing…")
+            total = len(checked)
+            self._midi_paths = {}
 
-            self._pipeline.set_progress_callback(_progress)
-            result = self._pipeline.run(stem_path)
+            for i, stem in enumerate(checked):
+                stem_path = self._available_stems[stem]
 
-            self._midi_path = result.midi_path
-            app_state.midi_path = result.midi_path
+                if mode == "Global":
+                    config = BasicPitchConfig(
+                        onset_threshold=dpg.get_value(_t("global_onset")),
+                        frame_threshold=dpg.get_value(_t("global_frame")),
+                        minimum_note_length=dpg.get_value(_t("global_min_note")),
+                        output_dir=_MIDI_DIR,
+                    )
+                else:
+                    config = BasicPitchConfig(
+                        onset_threshold=dpg.get_value(_t(f"stem_{stem}_onset")),
+                        frame_threshold=dpg.get_value(_t(f"stem_{stem}_frame")),
+                        minimum_note_length=dpg.get_value(_t(f"stem_{stem}_min_note")),
+                        output_dir=_MIDI_DIR,
+                    )
+
+                self._pipeline.configure(config)
+
+                base_frac = i / total
+
+                def _progress(pct: float, _base=base_frac, _total=total) -> None:
+                    overall = _base + (pct / 100.0) / _total
+                    dpg.set_value(_t("progress"), overall)
+                    dpg.set_value(_t("status"), f"Processing {stem}… {pct:.0f}%")
+
+                self._pipeline.set_progress_callback(_progress)
+                result = self._pipeline.run(stem_path)
+
+                self._midi_paths[stem] = result.midi_path
+                self._midi_path = result.midi_path
+                app_state.midi_path = result.midi_path
+
+                note_count = len(result.note_events)
+                if dpg.does_item_exist(_t(f"result_{stem}")):
+                    dpg.set_value(
+                        _t(f"result_{stem}"),
+                        f"{_STEM_LABEL[stem]}: {note_count} notes",
+                    )
 
             dpg.set_value(_t("progress"), 1.0)
-            dpg.set_value(
-                _t("status"),
-                f"Done — {len(result.note_events)} notes found",
-            )
-            dpg.set_value(_t("note_count"), f"{len(result.note_events)} notes")
-            dpg.set_value(_t("midi_file"), str(result.midi_path))
+            dpg.set_value(_t("status"), f"Done — {total} stem(s) processed")
+            dpg.set_value(_t("midi_file"), str(self._midi_path))
             dpg.configure_item(_t("save_btn"), enabled=True)
 
         except Exception as exc:
@@ -278,16 +414,16 @@ class BasicPitchPanel:
     # ------------------------------------------------------------------
 
     def set_stem_paths(self, stem_paths: dict) -> None:
-        pass
+        self.notify_stems_ready(stem_paths)
 
     def get_selected_stem(self):
         return None
 
     def get_onset_threshold(self) -> float:
-        return dpg.get_value(_t("onset")) if dpg.does_item_exist(_t("onset")) else 0.5
+        return dpg.get_value(_t("global_onset")) if dpg.does_item_exist(_t("global_onset")) else 0.5
 
     def get_frame_threshold(self) -> float:
-        return dpg.get_value(_t("frame")) if dpg.does_item_exist(_t("frame")) else 0.3
+        return dpg.get_value(_t("global_frame")) if dpg.does_item_exist(_t("global_frame")) else 0.3
 
     def run(self) -> None:
         self._on_run_click(None, None, None)
