@@ -40,12 +40,16 @@ import datetime
 
 import dearpygui.dearpygui as dpg
 
+from gui.icons import get_icon_tag, ICON_SIZE
+
 log = logging.getLogger("stemforge.gui.file_browser")
 
-_ICON_DIR   = "▶ "
-_ICON_AUDIO = "♪ "
-_ICON_MIDI  = "♩ "
-_ICON_OTHER = "· "
+# Text extensions that use the file-text icon
+_TEXT_EXTS = frozenset({
+    ".txt", ".md", ".json", ".toml", ".yaml", ".yml",
+    ".csv", ".xml", ".ini", ".cfg", ".py", ".js", ".ts",
+    ".html", ".htm", ".css",
+})
 
 _DOUBLE_CLICK_INTERVAL = 0.35  # seconds
 
@@ -366,32 +370,56 @@ class FileBrowser:
         files.sort(key=_key, reverse=not self._sort_asc)
 
         for entry in dirs + files:
-            is_dir  = entry.is_dir()
-            ext     = entry.suffix.lower()
+            is_dir   = entry.is_dir()
+            ext      = entry.suffix.lower()
             is_audio = ext in self._extensions
             is_midi  = ext in (".mid", ".midi")
+            is_text  = ext in _TEXT_EXTS
 
+            # Pick colour theme for the filename selectable
             if is_dir:
-                icon, theme = _ICON_DIR, _theme_dir
+                theme = _theme_dir
             elif is_audio:
-                icon, theme = _ICON_AUDIO, _theme_audio
+                theme = _theme_audio
             elif is_midi:
-                icon, theme = _ICON_MIDI, _theme_midi
+                theme = _theme_midi
             else:
-                icon, theme = _ICON_OTHER, _theme_other
+                theme = _theme_other
 
-            # Build a row: name + mtime + suffix
+            # Pick icon kind
+            if is_dir:
+                icon_kind = "folder"
+            elif is_audio:
+                icon_kind = "audio"
+            elif is_midi:
+                icon_kind = "midi"
+            elif is_text:
+                icon_kind = "text"
+            else:
+                icon_kind = "file"
+
+            icon_tex = get_icon_tag(icon_kind)
+
+            # Build a row: [icon | name selectable | mtime | type]
             mtime_str = _fmt_mtime(entry)
             type_str  = entry.suffix.upper().lstrip(".") if not is_dir else "Folder"
 
             sel_tag = f"{self._t('sel')}_{id(entry)}"
             with dpg.group(horizontal=True, parent=self._t("listing")):
+                # Fixed-width icon column (18 px) — spacer keeps alignment when
+                # the texture is unavailable.
+                if icon_tex is not None:
+                    dpg.add_image(icon_tex, width=ICON_SIZE, height=ICON_SIZE)
+                else:
+                    dpg.add_spacer(width=ICON_SIZE)
+
+                # Name selectable: width = Name-header (300) − icon (18) − spacing (8)
                 dpg.add_selectable(
-                    label=f"{icon}{entry.name}",
+                    label=entry.name,
                     tag=sel_tag,
                     callback=self._on_item_click,
                     user_data={"path": entry, "is_dir": is_dir},
-                    width=298,
+                    width=274,
                 )
                 if theme is not None:
                     dpg.bind_item_theme(sel_tag, theme)

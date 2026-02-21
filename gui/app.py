@@ -22,6 +22,7 @@ from gui.components.basicpitch_panel import BasicPitchPanel
 from gui.components.musicgen_panel import MusicGenPanel
 from gui.components.export_panel import ExportPanel
 from gui.components.waveform_widget import tick_all
+from gui.icons import load_icons
 
 
 log = logging.getLogger("stemforge.gui.app")
@@ -131,6 +132,9 @@ def main() -> None:
     dpg.create_context()
 
     _setup_fonts()
+
+    with dpg.texture_registry(tag="stemforge_textures"):
+        load_icons()
 
     theme = _build_theme()
     dpg.bind_theme(theme)
