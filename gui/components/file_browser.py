@@ -53,6 +53,11 @@ _TEXT_EXTS = frozenset({
 
 _DOUBLE_CLICK_INTERVAL = 0.35  # seconds
 
+# Last directory where a file was successfully opened or saved.
+# Shared across all FileBrowser instances so any dialog picks up where the
+# last one left off.
+_last_successful_dir: pathlib.Path | None = None
+
 # Four shared colour themes — created lazily once per process
 _theme_dir:   int | None = None
 _theme_audio: int | None = None
@@ -259,6 +264,9 @@ class FileBrowser:
     # ------------------------------------------------------------------
 
     def show(self) -> None:
+        global _last_successful_dir
+        if _last_successful_dir is not None and _last_successful_dir.is_dir():
+            self._cwd = _last_successful_dir
         self._selected = None
         self._refresh_list()
         if dpg.does_item_exist(self._t("sel_label")):
@@ -461,6 +469,8 @@ class FileBrowser:
                 dpg.set_value(self._t("sel_label"), path.name)
             if self._mode == "save" and dpg.does_item_exist(self._t("filename")):
                 dpg.set_value(self._t("filename"), path.name)
+            if is_double and self._mode == "open":
+                self._on_ok(None, None, None)
 
     # ------------------------------------------------------------------
     # OK / Save / Cancel
@@ -490,6 +500,8 @@ class FileBrowser:
         if result is not None and self._callback is not None:
             try:
                 self._callback(result)
+                global _last_successful_dir
+                _last_successful_dir = self._cwd
             except Exception as exc:
                 log.error("FileBrowser callback error: %s", exc)
 
