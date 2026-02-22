@@ -131,7 +131,7 @@ class MidiPanel:
     def __init__(self) -> None:
         self._pipeline = MidiPipeline()
         self._thread: threading.Thread | None = None
-        self._midi_path: pathlib.Path | None = None
+        self._merged_midi_data: Any = None   # PrettyMIDI; only written on explicit Save
         # Stems populated by notify_stems_ready() — internal name → path.
         self._available_stems: dict[str, pathlib.Path] = {}
         # Manually loaded extra stems — display label → path.
@@ -441,15 +441,25 @@ class MidiPanel:
                 dpg.add_text("", tag=_t("result_extra"), color=(220, 220, 220, 255))
 
                 dpg.add_spacer(height=8)
-                dpg.add_text("MIDI file:", color=(140, 140, 180, 255))
+                dpg.add_text("Merged MIDI:", color=(140, 140, 180, 255))
                 dpg.add_text("", tag=_t("midi_file"), color=(140, 140, 140, 255), wrap=350)
 
-                dpg.add_spacer(height=8)
-                dpg.add_button(
-                    label="Copy path",
-                    callback=make_copy_callback(_t("midi_file")),
-                    width=90,
-                )
+                dpg.add_spacer(height=6)
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Copy path",
+                        callback=make_copy_callback(_t("midi_file")),
+                        width=90,
+                    )
+                    dpg.add_button(
+                        label="Save merged",
+                        tag=_t("save_merged_btn"),
+                        callback=self._on_save_merged_click,
+                        width=100,
+                        enabled=False,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Save the merged multi-track MIDI to a file.")
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
@@ -760,6 +770,14 @@ class MidiPanel:
         except Exception as exc:
             log.error("MidiPanel save MIDI error: %s", exc)
 
+    def _on_save_merged_click(self, sender, app_data, user_data) -> None:
+        """Show the save browser to write the merged multi-track MIDI."""
+        if self._merged_midi_data is None:
+            return
+        self._save_midi_data = self._merged_midi_data
+        if self._save_midi_browser:
+            self._save_midi_browser.show()
+
     # ------------------------------------------------------------------
     # Background pipeline execution
     # ------------------------------------------------------------------
@@ -851,8 +869,7 @@ class MidiPanel:
             result = self._pipeline.run(stems)
 
             # ---- Update state and results ------------------------------
-            self._midi_path = result.midi_path
-            app_state.midi_path = result.midi_path
+            self._merged_midi_data = result.merged_midi_data
 
             for stem in STEM_TARGETS:
                 display = _STEM_LABEL[stem]
@@ -868,7 +885,9 @@ class MidiPanel:
             if extra_lines and dpg.does_item_exist(_t("result_extra")):
                 dpg.set_value(_t("result_extra"), "\n".join(extra_lines))
 
-            set_widget_text(_t("midi_file"), str(result.midi_path))
+            set_widget_text(_t("midi_file"), "(not saved — click Save merged to write)")
+            if dpg.does_item_exist(_t("save_merged_btn")):
+                dpg.configure_item(_t("save_merged_btn"), enabled=True)
             dpg.set_value(_t("progress"), 1.0)
             set_widget_text(
                 _t("status"),
@@ -882,7 +901,7 @@ class MidiPanel:
             # Notify downstream panels (e.g. Mix, Generate, Export).
             for cb in self._result_listeners:
                 try:
-                    cb(result.midi_path, result.stem_midi_data)
+                    cb(result.merged_midi_data, result.stem_midi_data)
                 except Exception:
                     log.exception("MidiPanel result listener raised")
 

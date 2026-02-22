@@ -133,12 +133,13 @@ class MidiResult:
 
     Parameters
     ----------
-    midi_path:
-        Absolute path of the merged multi-track MIDI file.
+    merged_midi_data:
+        In-memory PrettyMIDI object containing all tracks merged.  Not
+        written to disk automatically; call write_stem_midi() to save.
     stem_midi_data:
         Per-stem PrettyMIDI objects ``{display_label: PrettyMIDI}``.
         Empty when operating in text-only mode.  Files are NOT written
-        automatically; call write_midi() on individual objects to save.
+        automatically; call write_stem_midi() on individual objects to save.
     note_counts:
         Number of notes detected (or generated) per track
         ``{stem_name: count}``.
@@ -146,19 +147,19 @@ class MidiResult:
         Sum of all per-track note counts.
     """
 
-    midi_path: pathlib.Path
+    merged_midi_data: Any
     stem_midi_data: dict[str, Any]
     note_counts: dict[str, int]
     total_notes: int
 
     def __init__(
         self,
-        midi_path: pathlib.Path,
+        merged_midi_data: Any,
         stem_midi_data: dict[str, Any],
         note_counts: dict[str, int],
         total_notes: int,
     ) -> None:
-        self.midi_path = pathlib.Path(midi_path)
+        self.merged_midi_data = merged_midi_data
         self.stem_midi_data = dict(stem_midi_data)
         self.note_counts = dict(note_counts)
         self.total_notes = int(total_notes)
@@ -365,25 +366,16 @@ class MidiPipeline:
             track_lyrics=track_lyrics or None,
         )
 
-        output_path = self._resolve_output_path(cfg)
-        try:
-            write_midi(merged, output_path)
-        except Exception as exc:
-            raise AudioProcessingError(
-                f"Failed to write merged MIDI to {output_path}: {exc}",
-                path=str(output_path),
-            ) from exc
-
         note_counts = {name: len(notes) for name, notes in track_notes.items()}
         total_notes = sum(note_counts.values())
 
         self._report(100.0)
         log.info(
-            "MidiPipeline: %d track(s), %d notes total → %s",
-            len(track_notes), total_notes, output_path,
+            "MidiPipeline: %d track(s), %d notes total (in memory)",
+            len(track_notes), total_notes,
         )
         return MidiResult(
-            midi_path=output_path.resolve(),
+            merged_midi_data=merged,
             stem_midi_data=stem_midi_data,
             note_counts=note_counts,
             total_notes=total_notes,
@@ -461,10 +453,3 @@ class MidiPipeline:
             ) from exc
         return path.resolve()
 
-    def _resolve_output_path(self, cfg: MidiConfig) -> pathlib.Path:
-        """Return a unique timestamped output path for the merged MIDI."""
-        out_dir = cfg.output_dir
-        if out_dir is None:
-            out_dir = pathlib.Path.home() / ".local/share/stemforge/output/midi"
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return out_dir / f"merged_{int(time.time())}.mid"

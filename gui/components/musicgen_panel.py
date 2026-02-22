@@ -24,7 +24,7 @@ import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
 from gui.state import app_state, set_widget_text, make_copy_callback
-from gui.constants import _MUSICGEN_DIR
+from gui.constants import _MUSICGEN_DIR, _MIDI_DIR
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
 from gui.components.demucs_panel import _STEM_LABEL
@@ -56,7 +56,7 @@ class MusicGenPanel:
         self._stem_paths: dict[str, pathlib.Path] = {}
         # MIDI paths produced by the MIDI tab: label → path
         # "All stems" is always the merged file; per-stem entries follow.
-        self._tab_midi_path: pathlib.Path | None = None
+        self._tab_merged_midi_obj: "Any | None" = None   # in-memory PrettyMIDI
         self._tab_midi_paths: dict[str, pathlib.Path] = {}
         # Manually loaded paths
         self._loaded_audio_path: pathlib.Path | None = None
@@ -373,9 +373,8 @@ class MusicGenPanel:
         stem_midi_data: dict,
     ) -> None:
         """Called by MidiPanel after a successful MIDI extraction run."""
-        self._tab_midi_path = midi_path
-        # Per-stem MIDIs are kept in memory (no files); only the merged file is available.
-        self._tab_midi_paths = {"All stems": midi_path}
+        self._tab_merged_midi_obj = midi_path   # first arg is now a PrettyMIDI object
+        self._tab_midi_paths = {"All stems": None}  # placeholder for radio items
         labels = list(self._tab_midi_paths.keys())
         if dpg.does_item_exist(_t("midi_radio")):
             dpg.configure_item(_t("midi_radio"), items=labels, enabled=True)
@@ -427,10 +426,14 @@ class MusicGenPanel:
             self._set_duration_from_path(self._stem_paths[key])
 
     def _on_midi_radio_change(self, sender, app_data, user_data) -> None:
-        label = app_data
-        path = self._tab_midi_paths.get(label)
-        if path:
-            self._set_duration_from_midi(path)
+        if self._tab_merged_midi_obj is not None:
+            try:
+                secs = int(round(self._tab_merged_midi_obj.get_end_time()))
+                secs = max(5, min(600, secs))
+                if dpg.does_item_exist(_t("duration")):
+                    dpg.set_value(_t("duration"), secs)
+            except Exception:
+                pass
 
     def _set_duration_from_path(self, path: pathlib.Path) -> None:
         """Read audio duration from *path* metadata and update the duration slider."""
@@ -469,10 +472,14 @@ class MusicGenPanel:
             return
         midi_src = dpg.get_value(_t("midi_src"))
         if midi_src == "From MIDI tab":
-            label = dpg.get_value(_t("midi_radio"))
-            path = self._tab_midi_paths.get(label)
-            if path:
-                self._set_duration_from_midi(path)
+            if self._tab_merged_midi_obj is not None:
+                try:
+                    secs = int(round(self._tab_merged_midi_obj.get_end_time()))
+                    secs = max(5, min(600, secs))
+                    if dpg.does_item_exist(_t("duration")):
+                        dpg.set_value(_t("duration"), secs)
+                except Exception:
+                    pass
         elif midi_src == "Load MIDI file" and self._loaded_midi_path:
             self._set_duration_from_midi(self._loaded_midi_path)
 
@@ -560,8 +567,11 @@ class MusicGenPanel:
             midi_src = dpg.get_value(_t("midi_src"))
             midi_path: pathlib.Path | None = None
             if midi_src == "From MIDI tab":
-                label = dpg.get_value(_t("midi_radio"))
-                midi_path = self._tab_midi_paths.get(label)
+                if self._tab_merged_midi_obj is not None:
+                    import time as _time
+                    _MIDI_DIR.mkdir(parents=True, exist_ok=True)
+                    midi_path = _MIDI_DIR / f"merged_tmp_{int(_time.time())}.mid"
+                    self._tab_merged_midi_obj.write(str(midi_path))
             elif midi_src == "Load MIDI file":
                 midi_path = self._loaded_midi_path
 

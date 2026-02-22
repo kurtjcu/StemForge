@@ -266,6 +266,9 @@ class MixPanel:
         _pf = _get_plot_font()
         if _pf is not None:
             dpg.bind_item_font(_t("master_plot"), _pf)
+        # Initialise axis so the plot shows 0 at the left (not centred at 0)
+        dpg.set_axis_limits(_t("master_xaxis"), 0.0, 1.0)
+        dpg.set_axis_limits(_t("master_yaxis"), -1.0, 1.0)
 
         dpg.add_spacer(height=4)
         with dpg.group(horizontal=True):
@@ -578,7 +581,7 @@ class MixPanel:
 
             with dpg.group(tag=_t(f"track_{safe}_group"), parent=group_tag):
 
-                # --- Row 1: ON/OFF · label · Play · Stop · × close ----
+                # --- Row 1: ON/OFF · label · Play · Stop · knob -------
                 with dpg.group(horizontal=True):
                     toggle_tag = _t(f"track_{safe}_toggle")
                     dpg.add_button(
@@ -623,21 +626,19 @@ class MixPanel:
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text("Stop solo preview (or master playback).")
                     dpg.add_spacer(width=8)
-                    dpg.add_button(
-                        label="x",
-                        tag=_t(f"track_{safe}_close_btn"),
-                        callback=self._on_track_close,
+                    dpg.add_knob_float(
+                        label="Vol",
+                        tag=_t(f"track_{safe}_vol"),
+                        default_value=state.volume * 10.0,
+                        min_value=0.0,
+                        max_value=10.0,
+                        callback=self._on_track_volume,
                         user_data=tid,
-                        width=26,
                     )
                     with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "Remove this track from the list.\n"
-                            "It will not reappear until you rerun\n"
-                            "Separate / Extract MIDI."
-                        )
+                        dpg.add_text("Volume: 0 – 10")
 
-                # --- Row 2: instrument (MIDI) + volume slider ----------
+                # --- Row 2: instrument (MIDI) · × close at far right ---
                 with dpg.group(horizontal=True):
                     if source == "midi" and not state.is_drum:
                         default_name = (
@@ -649,26 +650,35 @@ class MixPanel:
                             items=_GM_INSTRUMENTS,
                             default_value=default_name,
                             tag=_t(f"track_{safe}_program"),
-                            width=210,
+                            width=-56,
                             callback=self._on_track_program,
                             user_data=tid,
                         )
                     elif source == "midi" and state.is_drum:
-                        dpg.add_text("Standard Drums", color=(140, 140, 180, 255))
+                        dpg.add_input_text(
+                            default_value="Standard Drums",
+                            readonly=True,
+                            width=-56,
+                        )
                     else:
-                        dpg.add_text("(audio stem)", color=(80, 140, 80, 255))
-
-                    dpg.add_spacer(width=8)
-                    dpg.add_slider_int(
-                        label="Vol%",
-                        tag=_t(f"track_{safe}_vol"),
-                        default_value=int(state.volume * 100),
-                        min_value=0,
-                        max_value=100,
-                        width=150,
-                        callback=self._on_track_volume,
+                        dpg.add_input_text(
+                            default_value="audio stem",
+                            readonly=True,
+                            width=-56,
+                        )
+                    dpg.add_button(
+                        label="x",
+                        tag=_t(f"track_{safe}_close_btn"),
+                        callback=self._on_track_close,
                         user_data=tid,
+                        width=50,
                     )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Remove this track from the list.\n"
+                            "It will not reappear until you rerun\n"
+                            "Separate / Extract MIDI."
+                        )
 
                 # --- Row 3: waveform (audio) or time bar (MIDI) -------
                 if source == "audio":
@@ -765,7 +775,7 @@ class MixPanel:
     def _on_track_volume(self, sender, app_data, user_data) -> None:
         tid = user_data
         if tid in self._track_states:
-            self._track_states[tid].volume = int(app_data) / 100.0
+            self._track_states[tid].volume = float(app_data) / 10.0
         self._master_audio = None
 
     def _on_track_program(self, sender, app_data, user_data) -> None:

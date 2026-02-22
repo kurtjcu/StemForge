@@ -186,23 +186,21 @@ def main() -> None:
         # App title
         dpg.add_text("StemForge", color=(175, 175, 255, 255))
         dpg.add_text(
-            "Stem separation  |  MIDI extraction  |  Music generation",
+            "Stem separation  |  MIDI extraction  |  Mix  |  Generation",
             color=(100, 100, 120, 255),
         )
         dpg.add_separator()
-        dpg.add_spacer(height=6)
-
-        # Loader bar (Browse + path display + Clear + waveform preview)
-        _loader.build_ui()
-
-        dpg.add_spacer(height=8)
-        dpg.add_separator()
-        dpg.add_spacer(height=6)
+        dpg.add_spacer(height=4)
 
         # Tab bar
         with dpg.tab_bar():
 
             with dpg.tab(label="  Separate  "):
+                # File loader lives only in this tab — other tabs have their own loaders
+                _loader.build_ui()
+                dpg.add_spacer(height=8)
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
                 _demucs.build_ui()
 
             with dpg.tab(label="  MIDI  "):
