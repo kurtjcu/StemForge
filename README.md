@@ -26,12 +26,32 @@ Everything runs locally with deterministic environments via uv.
 
 ## Requirements
 
-### Python
-- Python 3.11
+### uv
+StemForge uses [uv](https://docs.astral.sh/uv/) to manage the Python version and all dependencies.
+Install it once and `uv sync` takes care of the rest.
 
-If missing:
+Ubuntu / Debian:
 
-    uv python install 3.11
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Fedora / RHEL / CentOS:
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Arch / Manjaro:
+
+    sudo pacman -S uv
+
+openSUSE:
+
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+Any distro (pipx fallback):
+
+    pipx install uv
+
+After installing, open a new terminal (or run `source $HOME/.local/bin/env`) so the `uv`
+command is on your PATH.
 
 ### FFmpeg ≥ 5.1 (with development headers)
 Required for audio decoding.

@@ -41,6 +41,7 @@ import logging
 import threading
 from typing import Callable
 
+import soundfile as sf
 import dearpygui.dearpygui as dpg
 
 from pipelines.midi_pipeline import MidiPipeline, MidiConfig
@@ -246,7 +247,7 @@ class MidiPanel:
                     tag=_t("duration"),
                     default_value=30.0,
                     min_value=1.0,
-                    max_value=120.0,
+                    max_value=600.0,
                     format="%.0f s",
                     width=-1,
                 )
@@ -448,6 +449,10 @@ class MidiPanel:
         if dpg.does_item_exist(_t("stems_status")):
             dpg.set_value(_t("stems_status"), status)
 
+        # Auto-set duration from the first available stem.
+        if stem_paths:
+            self._set_duration_from_path(next(iter(stem_paths.values())))
+
         # Pre-fill musical parameters from an Ace-Step JSON sidecar if present.
         if (src := app_state.audio_path) and (meta := _load_acestep_meta(src)):
             self.apply_acestep_meta(meta)
@@ -476,7 +481,7 @@ class MidiPanel:
             dur = float(duration)
             if dpg.does_item_exist(_t("duration")):
                 # Expand the slider ceiling to fit the actual file length.
-                dpg.configure_item(_t("duration"), max_value=max(120.0, dur))
+                dpg.configure_item(_t("duration"), max_value=max(600.0, dur))
                 dpg.set_value(_t("duration"), dur)
 
         # Caption → prompt only if the prompt field is currently blank.
@@ -499,6 +504,18 @@ class MidiPanel:
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
+
+    def _set_duration_from_path(self, path: pathlib.Path) -> None:
+        """Read *path* duration via metadata and update the duration slider."""
+        try:
+            info = sf.info(str(path))
+            seconds = info.frames / info.samplerate
+            seconds = max(1.0, min(600.0, seconds))
+            if dpg.does_item_exist(_t("duration")):
+                dpg.configure_item(_t("duration"), max_value=max(600.0, seconds))
+                dpg.set_value(_t("duration"), seconds)
+        except Exception:
+            pass
 
     def _on_onset_knob(self, sender, app_data, user_data) -> None:
         if dpg.does_item_exist(_t("onset_val")):
@@ -543,6 +560,8 @@ class MidiPanel:
         """
         label = path.stem
         self._manual_stems[label] = path
+
+        self._set_duration_from_path(path)
 
         if meta := _load_acestep_meta(path):
             self.apply_acestep_meta(meta)
