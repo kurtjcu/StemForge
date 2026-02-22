@@ -100,6 +100,7 @@ class DemucsPanel:
         self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
         self._save_stem_name: str = ""
         self._last_recommendation: Recommendation | None = None
+        self._recommend_thread: threading.Thread | None = None
 
         # One WaveformWidget per stem (covers all possible stems across all engines)
         self._stem_waveforms: dict[str, WaveformWidget] = {
@@ -663,18 +664,17 @@ class DemucsPanel:
         if app_state.audio_path is None:
             set_widget_text(_t("status"), "Load an audio file first.")
             return
-        if self._thread and self._thread.is_alive():
-            set_widget_text(_t("status"), "Wait for the current operation to finish.")
-            return
+        if self._recommend_thread and self._recommend_thread.is_alive():
+            return  # already analyzing — ignore double-click
         dpg.configure_item(_t("recommend_btn"), enabled=False)
         dpg.configure_item(_t("recommend_group"), show=False)
         set_widget_text(_t("status"), "Analyzing audio...")
-        self._thread = threading.Thread(
+        self._recommend_thread = threading.Thread(
             target=self._run_recommend,
             args=(app_state.audio_path,),
             daemon=True,
         )
-        self._thread.start()
+        self._recommend_thread.start()
 
     def _run_recommend(self, path: pathlib.Path) -> None:
         """Background thread: profile audio and display recommendation."""
