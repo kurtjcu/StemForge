@@ -1,23 +1,22 @@
 """Multi-track mixer panel for StemForge.
 
-Combines audio stems (from Separate tab) with MIDI-rendered accompaniment
-(from MIDI tab), providing per-track On/Off muting, instrument selection,
-and volume.  Two playback modes:
+Each audio stem and each extracted MIDI file appears as a SEPARATE track
+row, so the user can mix, e.g., the original bass audio OFF and a MIDI
+bass with acoustic-bass instrument ON.
 
-  • Master Play — premixes all ON tracks in memory and plays the result.
-  • Solo Preview — plays a single track while advancing the time cursor on
-    every other track display, so the user can hear one track in context.
+Track IDs (keys in _track_states)
+----------------------------------
+  "{label}:audio"   — audio stem from Separate tab or manual load
+  "{label}:midi"    — MIDI file from MIDI tab or manual load
 
-Both share a single master clock; all per-track waveform displays and MIDI
-time bars are advanced from that clock each frame by tick().
-
-Render Mix saves the current ON tracks as a FLAC file and makes it
-available on the Export panel via app_state.mix_path.
+Tracks can be closed (removed from list) via the × button.  Closed tracks
+are remembered in _dismissed_tracks so they don't reappear on rebuild.
 
 Inter-panel wiring (set up in gui/app.py)
 -----------------------------------------
     _demucs.add_result_listener(_mix.notify_stems_ready)
     _midi.add_result_listener(_mix.notify_midi_ready)
+    _mix.add_result_listener(_export.notify_mix_ready)
 """
 
 from __future__ import annotations
@@ -63,20 +62,26 @@ def _t(name: str) -> str:
     return f"{_P}_{name}"
 
 
-def _safe(label: str) -> str:
-    """Sanitise a display label for use in a DPG tag."""
+def _safe(s: str) -> str:
+    """Sanitise a string for use as part of a DPG tag."""
     return (
-        label.replace(" ", "_")
-             .replace("&", "and")
-             .replace("/", "_")
-             .replace(".", "_")
-             .replace("(", "")
-             .replace(")", "")
+        s.replace(" ", "_")
+         .replace("&", "and")
+         .replace("/", "_")
+         .replace(".", "_")
+         .replace("(", "")
+         .replace(")", "")
+         .replace(":", "_")
     )
 
 
+def _label_from_tid(tid: str) -> str:
+    """Return the display label portion of a track ID (strip ':audio'/':midi')."""
+    return tid.rsplit(":", 1)[0]
+
+
 # ---------------------------------------------------------------------------
-# ON / OFF toggle button themes  (lazy-initialised the first time build_ui runs)
+# ON / OFF toggle button themes  (lazy-initialised in build_ui)
 # ---------------------------------------------------------------------------
 
 _TOGGLE_ON_THEME: int | None = None
@@ -89,15 +94,15 @@ def _get_toggle_themes() -> tuple[int, int]:
     if _TOGGLE_ON_THEME is None:
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Button,        (35, 110, 35, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,  (55, 150, 55, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,   (75, 180, 75, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_Button,       (35, 110, 35, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (55, 150, 55, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (75, 180, 75, 255))
         _TOGGLE_ON_THEME = t
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Button,        (55, 55, 65, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,  (75, 75, 90, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,   (65, 65, 80, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_Button,       (55, 55, 65, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (75, 75, 90, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (65, 65, 80, 255))
         _TOGGLE_OFF_THEME = t
     return _TOGGLE_ON_THEME, _TOGGLE_OFF_THEME
 
@@ -114,7 +119,6 @@ class TrackState:
     volume: float = 1.0      # 0.0 – 1.0
     program: int = 0         # GM program number (MIDI tracks only)
     is_drum: bool = False
-    # For manually-loaded tracks, store the path here.
     manual_path: pathlib.Path | None = None
 
 
@@ -134,16 +138,19 @@ class MixPanel:
         self._manual_audio: dict[str, pathlib.Path] = {}  # display_label → path
         self._manual_midi: dict[str, pathlib.Path] = {}   # display_label → path
 
-        # Per-track state (display_label → TrackState)
+        # Per-track state  key = track ID, e.g. "Bass:audio" or "Bass:midi"
         self._track_states: dict[str, TrackState] = {}
+
+        # Closed tracks — not re-added on rebuild until explicitly cleared.
+        self._dismissed_tracks: set[str] = set()
 
         # Per-track rendered audio cache: cache_key → (2, samples) float32
         self._track_audio_cache: dict[str, np.ndarray] = {}
 
-        # Per-track WaveformWidget instances (audio tracks only)
+        # Per-track WaveformWidget instances (audio tracks only), keyed by tid
         self._track_waveforms: dict[str, WaveformWidget] = {}
 
-        # Master clock — used by both "Play All" and "Solo Preview"
+        # Master clock — drives "Play All" and per-track waveform cursors
         self._master_playing: bool = False
         self._master_start: float = 0.0
         self._master_offset: float = 0.0
@@ -151,14 +158,14 @@ class MixPanel:
         self._master_audio: np.ndarray | None = None
         self._master_sr: int = 44100
 
-        # Solo preview — single track plays; master clock still advances
+        # Solo preview — single track plays while master cursor advances
         self._solo_playing: bool = False
-        self._solo_label: str = ""
+        self._solo_tid: str = ""
         self._solo_start: float = 0.0
         self._solo_offset: float = 0.0
         self._solo_duration: float = 0.0
 
-        # Rendered mix (for Save As, different from master_audio which is not saved)
+        # Rendered mix saved to disk (distinct from master_audio which is not saved)
         self._rendered_mix: np.ndarray | None = None
         self._mix_duration: float = 0.0
         self._mix_path: pathlib.Path | None = None
@@ -167,12 +174,12 @@ class MixPanel:
         # Soundfont
         self._sf2_path: pathlib.Path | None = find_soundfont()
 
+        # Result listeners — called with (mix_path,) after successful render
+        self._result_listeners: list[Callable[[pathlib.Path], None]] = []
+
         # Background threads
         self._render_thread: threading.Thread | None = None
         self._preview_thread: threading.Thread | None = None
-
-        # Result listeners — called with (mix_path,) after a successful render.
-        self._result_listeners: list[Callable[[pathlib.Path], None]] = []
 
         # File browsers (built later at top DPG level)
         self._sf2_browser: FileBrowser | None = None
@@ -180,8 +187,8 @@ class MixPanel:
         self._add_audio_browser: FileBrowser | None = None
         self._add_midi_browser: FileBrowser | None = None
 
-        # Register in the duck-typed MIDI/mix player list so stop_all_midi()
-        # and tick_all_midi() include this panel.
+        # Register in the duck-typed MIDI/mix list so stop_all_midi() /
+        # tick_all_midi() include this panel alongside MidiPlayerWidget.
         _ALL_MIDI_PLAYERS.append(self)
 
     # ------------------------------------------------------------------
@@ -191,8 +198,8 @@ class MixPanel:
     def build_ui(self) -> None:
         with dpg.group(horizontal=True):
 
-            # ---- Left column: soundfont + track list ------------------
-            with dpg.child_window(width=450, height=-1, border=False):
+            # ---- Left column: soundfont + track list (wide) -----------
+            with dpg.child_window(width=820, height=-1, border=False):
 
                 # Soundfont picker
                 dpg.add_text("Soundfont", color=(175, 175, 255, 255))
@@ -209,10 +216,10 @@ class MixPanel:
                 dpg.add_button(
                     label="  Browse soundfont  ",
                     callback=self._on_sf2_browse,
-                    height=28,
+                    height=26,
                 )
 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=8)
                 dpg.add_separator()
                 dpg.add_spacer(height=6)
 
@@ -241,81 +248,73 @@ class MixPanel:
                     "Run Separate and/or Extract MIDI first, or load files above.",
                     tag=_t("tracks_empty"),
                     color=(120, 120, 140, 255),
-                    wrap=420,
+                    wrap=780,
                 )
 
-                # Scrollable track list area
+                # Scrollable track list
                 with dpg.child_window(
                     tag=_t("tracks_scroll"),
                     height=-1,
                     border=False,
-                    no_scrollbar=False,
                 ):
                     with dpg.group(tag=_t("tracks_group")):
                         pass
 
-            # ---- Right column: master controls + render ---------------
+            # ---- Right column: master controls + render (narrow) ------
             with dpg.child_window(width=-1, height=-1, border=False):
 
                 dpg.add_text("Master Playback", color=(175, 175, 255, 255))
                 dpg.add_spacer(height=4)
 
-                # Master transport buttons
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Play All",
                         tag=_t("master_play_btn"),
                         callback=self._on_master_play,
-                        width=90,
-                        height=34,
+                        width=82,
+                        height=32,
                     )
                     with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "Premix all ON tracks and play the result.\n"
-                            "Per-track audio is cached — MIDI is only re-rendered\n"
-                            "when you change the instrument."
-                        )
+                        dpg.add_text("Premix all ON tracks and play.")
                     dpg.add_button(
                         label="Stop All",
                         tag=_t("master_stop_btn"),
                         callback=self._on_master_stop,
-                        width=90,
-                        height=34,
+                        width=82,
+                        height=32,
                     )
                     dpg.add_button(
                         label="<<",
                         tag=_t("master_rewind_btn"),
                         callback=self._on_master_rewind,
-                        width=50,
-                        height=34,
+                        width=44,
+                        height=32,
                     )
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text("Rewind all tracks to start")
-                    dpg.add_text("", tag=_t("master_time"), color=(160, 160, 160, 255))
 
-                dpg.add_spacer(height=6)
+                dpg.add_text("", tag=_t("master_time"), color=(160, 160, 160, 255))
                 dpg.add_progress_bar(
                     tag=_t("master_progress"),
                     default_value=0.0,
                     width=-1,
-                    height=16,
+                    height=14,
                 )
-                dpg.add_spacer(height=6)
-
+                dpg.add_spacer(height=4)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Copy",
                         callback=make_copy_callback(_t("status")),
-                        width=50,
+                        width=46,
                     )
                     dpg.add_text(
                         "Ready",
                         tag=_t("status"),
                         color=(160, 160, 160, 255),
-                        wrap=380,
+                        wrap=240,
                     )
 
-                dpg.add_spacer(height=14)
+                dpg.add_spacer(height=12)
                 dpg.add_separator()
                 dpg.add_spacer(height=8)
 
@@ -323,48 +322,47 @@ class MixPanel:
                 dpg.add_spacer(height=4)
 
                 dpg.add_button(
-                    label="  Render Mix to FLAC  ",
+                    label="Render Mix to FLAC",
                     tag=_t("render_btn"),
                     callback=self._on_render_click,
-                    height=34,
+                    width=-1,
+                    height=32,
                 )
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
                         "Mix all ON tracks and save as a FLAC file.\n"
-                        "The result is also available on the Export tab."
+                        "Also available on the Export tab."
                     )
 
-                dpg.add_spacer(height=10)
+                dpg.add_spacer(height=8)
                 dpg.add_text("", tag=_t("result_duration"), color=(220, 220, 220, 255))
                 dpg.add_text("File:", color=(140, 140, 180, 255))
                 dpg.add_text(
                     "(none)",
                     tag=_t("result_file"),
                     color=(140, 140, 140, 255),
-                    wrap=450,
+                    wrap=240,
                 )
-
-                dpg.add_spacer(height=8)
+                dpg.add_spacer(height=6)
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="Copy path",
                         callback=make_copy_callback(_t("result_file")),
-                        width=90,
+                        width=80,
                     )
-                    dpg.add_spacer(width=8)
                     dpg.add_button(
                         label="Save as",
                         tag=_t("save_btn"),
                         callback=self._on_save_as,
-                        width=90,
+                        width=80,
                         enabled=False,
                     )
 
-                dpg.add_spacer(height=14)
+                dpg.add_spacer(height=12)
                 dpg.add_text(
-                    "Note: vocal MIDI uses GM choir sounds — no lyrics.",
+                    "Note: vocal MIDI uses GM choir — no lyrics.",
                     color=(100, 100, 120, 255),
-                    wrap=420,
+                    wrap=240,
                 )
 
     def build_save_dialog(self) -> None:
@@ -462,36 +460,40 @@ class MixPanel:
         return result
 
     def _rebuild_tracks(self) -> None:
-        """Recompute the track list and refresh the UI."""
+        """Recompute the track list and refresh the UI.
+
+        Each audio file and each MIDI file become a SEPARATE track row with
+        its own track ID ("{label}:audio" or "{label}:midi").  This lets the
+        user keep both the original bass audio and a MIDI bass side-by-side.
+        """
         all_audio = self._all_audio()
         all_midi = self._all_midi()
 
-        all_labels: set[str] = set(all_audio) | set(all_midi)
+        # Build wanted track IDs in display order (audio first, then MIDI)
+        wanted_tids: list[str] = []
+        for label in all_audio:
+            wanted_tids.append(f"{label}:audio")
+        for label in all_midi:
+            wanted_tids.append(f"{label}:midi")
 
+        # Build new_states: preserve existing settings, create defaults for new.
         new_states: dict[str, TrackState] = {}
-        for label in all_labels:
-            if label in self._track_states:
-                # Preserve existing user settings.
-                new_states[label] = self._track_states[label]
+        for tid in wanted_tids:
+            if tid in self._dismissed_tracks:
+                continue
+            if tid in self._track_states:
+                new_states[tid] = self._track_states[tid]
             else:
-                has_audio = label in all_audio
-                has_midi = label in all_midi
-                is_vocal = label in ("Singing voice", "vocals")
-
-                if has_audio and (is_vocal or not has_midi):
-                    source = "audio"
-                elif has_midi:
-                    source = "midi"
-                else:
-                    source = "audio"
+                label = _label_from_tid(tid)
+                source = tid.rsplit(":", 1)[1]  # "audio" or "midi"
 
                 manual_path: pathlib.Path | None = None
-                if label in self._manual_audio:
+                if source == "audio" and label in self._manual_audio:
                     manual_path = self._manual_audio[label]
-                elif label in self._manual_midi:
+                elif source == "midi" and label in self._manual_midi:
                     manual_path = self._manual_midi[label]
 
-                new_states[label] = TrackState(
+                new_states[tid] = TrackState(
                     source=source,
                     enabled=True,
                     volume=1.0,
@@ -524,9 +526,8 @@ class MixPanel:
         empty_tag = _t("tracks_empty")
 
         if not dpg.does_item_exist(group_tag):
-            return  # build_ui() not called yet
+            return  # build_ui() not yet called
 
-        # Remove stale WaveformWidgets before deleting their DPG items.
         self._clear_track_waveforms()
         dpg.delete_item(group_tag, children_only=True)
 
@@ -536,20 +537,21 @@ class MixPanel:
 
         on_theme, off_theme = _get_toggle_themes()
 
-        for label, state in self._track_states.items():
-            safe = _safe(label)
-            source_hint = "audio" if state.source == "audio" else "midi"
+        for tid, state in self._track_states.items():
+            label = _label_from_tid(tid)
+            source = state.source
+            safe = _safe(tid)
 
             with dpg.group(tag=_t(f"track_{safe}_group"), parent=group_tag):
 
-                # --- Row 1: ON/OFF toggle · label · Play · Stop -------
+                # --- Row 1: ON/OFF · label · Play · Stop · × close ----
                 with dpg.group(horizontal=True):
                     toggle_tag = _t(f"track_{safe}_toggle")
                     dpg.add_button(
                         label="ON" if state.enabled else "OFF",
                         tag=toggle_tag,
                         callback=self._on_track_toggle,
-                        user_data=label,
+                        user_data=tid,
                         width=44,
                     )
                     dpg.bind_item_theme(
@@ -557,38 +559,53 @@ class MixPanel:
                         on_theme if state.enabled else off_theme,
                     )
                     with dpg.tooltip(toggle_tag):
-                        dpg.add_text("Toggle mute. ON = included in playback/render.")
+                        dpg.add_text("ON = included in playback / render.")
 
+                    src_color = (100, 150, 100, 255) if source == "audio" else (130, 130, 200, 255)
                     dpg.add_text(
-                        f"  {label}  ({source_hint})",
-                        color=(210, 210, 230, 255),
+                        f"  {label}  ({source})",
+                        color=src_color,
                     )
                     dpg.add_spacer(width=6)
                     dpg.add_button(
                         label="Play",
                         tag=_t(f"track_{safe}_preview_btn"),
                         callback=self._on_track_preview,
-                        user_data=label,
-                        width=52,
+                        user_data=tid,
+                        width=50,
                     )
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text(
                             "Solo preview: plays only this track while\n"
-                            "advancing the time cursor on all tracks."
+                            "advancing time cursor on all other tracks."
                         )
                     dpg.add_button(
                         label="Stop",
                         tag=_t(f"track_{safe}_stop_btn"),
                         callback=self._on_track_stop,
-                        user_data=label,
-                        width=52,
+                        user_data=tid,
+                        width=50,
                     )
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text("Stop solo preview (or master playback).")
+                    dpg.add_spacer(width=8)
+                    dpg.add_button(
+                        label="x",
+                        tag=_t(f"track_{safe}_close_btn"),
+                        callback=self._on_track_close,
+                        user_data=tid,
+                        width=26,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Remove this track from the list.\n"
+                            "It will not reappear until you rerun\n"
+                            "Separate / Extract MIDI."
+                        )
 
                 # --- Row 2: instrument (MIDI) + volume slider ----------
                 with dpg.group(horizontal=True):
-                    if state.source == "midi" and not state.is_drum:
+                    if source == "midi" and not state.is_drum:
                         default_name = (
                             _GM_INSTRUMENTS[state.program]
                             if 0 <= state.program < len(_GM_INSTRUMENTS)
@@ -598,14 +615,14 @@ class MixPanel:
                             items=_GM_INSTRUMENTS,
                             default_value=default_name,
                             tag=_t(f"track_{safe}_program"),
-                            width=185,
+                            width=210,
                             callback=self._on_track_program,
-                            user_data=label,
+                            user_data=tid,
                         )
-                    elif state.source == "midi" and state.is_drum:
+                    elif source == "midi" and state.is_drum:
                         dpg.add_text("Standard Drums", color=(140, 140, 180, 255))
                     else:
-                        dpg.add_text("(audio stem)", color=(100, 150, 100, 255))
+                        dpg.add_text("(audio stem)", color=(80, 140, 80, 255))
 
                     dpg.add_spacer(width=8)
                     dpg.add_slider_int(
@@ -614,24 +631,23 @@ class MixPanel:
                         default_value=int(state.volume * 100),
                         min_value=0,
                         max_value=100,
-                        width=120,
+                        width=150,
                         callback=self._on_track_volume,
-                        user_data=label,
+                        user_data=tid,
                     )
 
                 # --- Row 3: waveform (audio) or time bar (MIDI) -------
-                if state.source == "audio":
+                if source == "audio":
                     wf = WaveformWidget(
                         tag_prefix=f"mix_{safe}",
                         on_seek_callback=self._on_waveform_seek,
                     )
-                    self._track_waveforms[label] = wf
-                    wf.build_ui(show_controls=False, plot_height=55)
+                    self._track_waveforms[tid] = wf
+                    wf.build_ui(show_controls=False, plot_height=50)
                     path = self._get_audio_path(label, state)
                     if path:
                         wf.load_async(path)
                 else:
-                    # MIDI track: simple progress bar + time text
                     dpg.add_progress_bar(
                         tag=_t(f"track_{safe}_timebar"),
                         default_value=0.0,
@@ -653,46 +669,43 @@ class MixPanel:
     # ------------------------------------------------------------------
 
     def _on_track_toggle(self, sender, app_data, user_data) -> None:
-        label = user_data
-        state = self._track_states.get(label)
+        tid = user_data
+        state = self._track_states.get(tid)
         if not state:
             return
         state.enabled = not state.enabled
         on_theme, off_theme = _get_toggle_themes()
-        safe = _safe(label)
-        toggle_tag = _t(f"track_{safe}_toggle")
+        toggle_tag = _t(f"track_{_safe(tid)}_toggle")
         if dpg.does_item_exist(toggle_tag):
             dpg.configure_item(toggle_tag, label="ON" if state.enabled else "OFF")
             dpg.bind_item_theme(toggle_tag, on_theme if state.enabled else off_theme)
-        # Invalidate master_audio — it no longer reflects the new track set.
-        self._master_audio = None
+        self._master_audio = None  # stale — track set changed
 
     def _on_track_volume(self, sender, app_data, user_data) -> None:
-        label = user_data
-        if label in self._track_states:
-            self._track_states[label].volume = int(app_data) / 100.0
-        # Master audio is stale if volume changed.
+        tid = user_data
+        if tid in self._track_states:
+            self._track_states[tid].volume = int(app_data) / 100.0
         self._master_audio = None
 
     def _on_track_program(self, sender, app_data, user_data) -> None:
-        label = user_data
-        if label in self._track_states and app_data in _GM_INSTRUMENTS:
-            self._track_states[label].program = _GM_INSTRUMENTS.index(app_data)
-        # Invalidate cached render for this MIDI track.
-        stale = [k for k in self._track_audio_cache if k.startswith(f"{label}:")]
+        tid = user_data
+        if tid in self._track_states and app_data in _GM_INSTRUMENTS:
+            self._track_states[tid].program = _GM_INSTRUMENTS.index(app_data)
+        # Invalidate MIDI cache for this track.
+        stale = [k for k in self._track_audio_cache if k.startswith(f"{tid}:")]
         for k in stale:
             del self._track_audio_cache[k]
         self._master_audio = None
 
     def _on_track_preview(self, sender, app_data, user_data) -> None:
-        """Solo-preview a single track."""
-        label = user_data
-        state = self._track_states.get(label)
+        """Start solo preview of a single track."""
+        tid = user_data
+        state = self._track_states.get(tid)
         if not state:
             return
         self._preview_thread = threading.Thread(
             target=self._do_solo_preview,
-            args=(label, state),
+            args=(tid, state),
             daemon=True,
         )
         self._preview_thread.start()
@@ -702,6 +715,32 @@ class MixPanel:
         self._stop_solo()
         self._stop_master()
         self._set_status("Stopped")
+
+    def _on_track_close(self, sender, app_data, user_data) -> None:
+        """Remove this track from the list and remember the dismissal."""
+        tid = user_data
+        self._dismissed_tracks.add(tid)
+
+        # Remove state
+        self._track_states.pop(tid, None)
+
+        # Remove waveform widget if present
+        wf = self._track_waveforms.pop(tid, None)
+        if wf and wf in _ALL_WIDGETS:
+            _ALL_WIDGETS.remove(wf)
+
+        # Invalidate master audio
+        self._master_audio = None
+
+        # Delete the DPG group for this track row
+        group_tag = _t(f"track_{_safe(tid)}_group")
+        if dpg.does_item_exist(group_tag):
+            dpg.delete_item(group_tag)
+
+        # Update empty-track hint visibility
+        empty_tag = _t("tracks_empty")
+        if dpg.does_item_exist(empty_tag):
+            dpg.configure_item(empty_tag, show=not bool(self._track_states))
 
     # ------------------------------------------------------------------
     # Callbacks — master transport
@@ -736,25 +775,27 @@ class MixPanel:
             self._start_master_play(0.0)
 
     # ------------------------------------------------------------------
-    # Waveform click-to-seek (called from WaveformWidget.tick)
+    # Waveform click-to-seek
     # ------------------------------------------------------------------
 
     def _on_waveform_seek(self, pos: float) -> None:
-        """Seek the master clock; called when user clicks a track waveform."""
-        was_playing_master = self._master_playing
+        """Seek master clock when user clicks a track waveform."""
+        if self._master_duration > 0:
+            pos = min(pos, self._master_duration)
+        was_playing = self._master_playing
         self._stop_master()
         self._stop_solo()
         self._master_offset = pos
         self._update_all_cursors(pos, self._master_duration)
-        if was_playing_master and self._master_audio is not None:
+        if was_playing and self._master_audio is not None:
             self._start_master_play(pos)
 
     # ------------------------------------------------------------------
     # Solo preview
     # ------------------------------------------------------------------
 
-    def _do_solo_preview(self, label: str, state: TrackState) -> None:
-        """Background worker: render (if needed) and solo-play one track."""
+    def _do_solo_preview(self, tid: str, state: TrackState) -> None:
+        """Background worker: render (if needed) then solo-play one track."""
         self._stop_master()
         self._stop_solo()
 
@@ -767,11 +808,8 @@ class MixPanel:
                 except Exception:
                     pass
 
-        cache_key = (
-            f"{label}:{state.program}:{state.is_drum}"
-            if state.source == "midi"
-            else label
-        )
+        label = _label_from_tid(tid)
+        cache_key = self._make_cache_key(tid, state)
         if cache_key not in self._track_audio_cache:
             self._set_status(f"Rendering: {label}…")
             audio = self._render_single_track(label, state)
@@ -783,16 +821,15 @@ class MixPanel:
         audio = self._track_audio_cache[cache_key]
         duration = audio.shape[1] / self._mix_sr
 
-        # Set master duration if not yet set (so cursors have a reference)
         if self._master_duration == 0.0:
             self._master_duration = duration
 
-        self._solo_label = label
+        self._solo_tid = tid
         self._solo_duration = duration
         self._solo_offset = 0.0
         self._solo_start = time.time()
         self._solo_playing = True
-        self._set_status(f"Solo: {label}")
+        self._set_status(f"Solo: {label} ({state.source})")
 
         try:
             import sounddevice as sd
@@ -830,7 +867,7 @@ class MixPanel:
                 except Exception:
                     pass
 
-        enabled = {k: v for k, v in self._track_states.items() if v.enabled}
+        enabled = {tid: s for tid, s in self._track_states.items() if s.enabled}
         if not enabled:
             self._set_status("No ON tracks to play.")
             return
@@ -840,13 +877,10 @@ class MixPanel:
         volumes: list[float] = []
         n = len(enabled)
 
-        for i, (label, state) in enumerate(enabled.items()):
-            self._set_status(f"Loading {i + 1}/{n}: {label}")
-            cache_key = (
-                f"{label}:{state.program}:{state.is_drum}"
-                if state.source == "midi"
-                else label
-            )
+        for i, (tid, state) in enumerate(enabled.items()):
+            label = _label_from_tid(tid)
+            self._set_status(f"Loading {i + 1}/{n}: {label} ({state.source})")
+            cache_key = self._make_cache_key(tid, state)
             if cache_key not in self._track_audio_cache:
                 audio = self._render_single_track(label, state)
                 if audio is None:
@@ -860,11 +894,8 @@ class MixPanel:
             return
 
         max_len = max(t.shape[1] for t in tracks)
-        padded = []
-        for t, vol in zip(tracks, volumes):
-            pad = max_len - t.shape[1]
-            padded.append(np.pad(t, ((0, 0), (0, pad))) * vol)
-
+        padded = [np.pad(t, ((0, 0), (0, max_len - t.shape[1]))) * v
+                  for t, v in zip(tracks, volumes)]
         mix = np.sum(padded, axis=0).astype(np.float32)
         peak = float(np.max(np.abs(mix)))
         if peak > 1e-6:
@@ -872,7 +903,6 @@ class MixPanel:
 
         self._master_audio = mix
         self._master_duration = max_len / self._master_sr
-
         self._start_master_play(0.0)
 
     def _start_master_play(self, offset: float = 0.0) -> None:
@@ -899,9 +929,7 @@ class MixPanel:
     def _stop_master(self) -> None:
         if self._master_playing:
             elapsed = time.time() - self._master_start
-            self._master_offset = min(
-                self._master_offset + elapsed, self._master_duration
-            )
+            self._master_offset = min(self._master_offset + elapsed, self._master_duration)
             self._master_playing = False
             try:
                 import sounddevice as sd
@@ -927,21 +955,17 @@ class MixPanel:
         try:
             import soundfile as sf
 
-            enabled = {k: v for k, v in self._track_states.items() if v.enabled}
+            enabled = {tid: s for tid, s in self._track_states.items() if s.enabled}
             if not enabled:
                 self._set_status("No ON tracks to render.")
                 return
 
             tracks: list[np.ndarray] = []
             volumes: list[float] = []
-            n = len(enabled)
 
-            for i, (label, state) in enumerate(enabled.items()):
-                cache_key = (
-                    f"{label}:{state.program}:{state.is_drum}"
-                    if state.source == "midi"
-                    else label
-                )
+            for tid, state in enabled.items():
+                label = _label_from_tid(tid)
+                cache_key = self._make_cache_key(tid, state)
                 if cache_key not in self._track_audio_cache:
                     audio = self._render_single_track(label, state)
                     if audio is None:
@@ -955,11 +979,8 @@ class MixPanel:
                 return
 
             max_len = max(t.shape[1] for t in tracks)
-            padded = []
-            for t, vol in zip(tracks, volumes):
-                pad = max_len - t.shape[1]
-                padded.append(np.pad(t, ((0, 0), (0, pad))) * vol)
-
+            padded = [np.pad(t, ((0, 0), (0, max_len - t.shape[1]))) * v
+                      for t, v in zip(tracks, volumes)]
             mix = np.sum(padded, axis=0).astype(np.float32)
             peak = float(np.max(np.abs(mix)))
             if peak > 1e-6:
@@ -968,7 +989,6 @@ class MixPanel:
             self._rendered_mix = mix
             self._mix_duration = max_len / 44100
 
-            # Save as FLAC
             _MIX_DIR.mkdir(parents=True, exist_ok=True)
             src_name = app_state.audio_path.stem if app_state.audio_path else "mix"
             out_path = _MIX_DIR / f"{src_name}_mix.flac"
@@ -1006,12 +1026,18 @@ class MixPanel:
     # Render a single track to (2, samples) float32
     # ------------------------------------------------------------------
 
+    def _make_cache_key(self, tid: str, state: TrackState) -> str:
+        """Return a stable cache key for this track's current settings."""
+        if state.source == "midi":
+            return f"{tid}:{state.program}:{state.is_drum}"
+        return tid  # audio: file doesn't change, so tid alone is sufficient
+
     def _render_single_track(
         self,
         label: str,
         state: TrackState,
     ) -> "np.ndarray | None":
-        all_audio = self._all_audio()
+        """Render a single track to a (2, samples) float32 stereo array."""
         all_midi = self._all_midi()
 
         if state.source == "midi" and label in all_midi:
@@ -1066,7 +1092,7 @@ class MixPanel:
 
     def _on_sf2_selected(self, path: pathlib.Path) -> None:
         self._sf2_path = path
-        self._track_audio_cache.clear()  # Invalidate all MIDI caches.
+        self._track_audio_cache.clear()
         self._master_audio = None
         if dpg.does_item_exist(_t("sf2_path")):
             dpg.set_value(_t("sf2_path"), str(path))
@@ -1081,7 +1107,6 @@ class MixPanel:
         try:
             import soundfile as sf
             path.parent.mkdir(parents=True, exist_ok=True)
-            # Detect format from extension; default FLAC.
             fmt = path.suffix.lstrip(".").upper() or "FLAC"
             subtype = "PCM_24" if fmt == "FLAC" else None
             sf.write(str(path), self._rendered_mix.T, self._mix_sr,
@@ -1110,11 +1135,10 @@ class MixPanel:
 
         elif self._solo_playing:
             pos = self._solo_offset + (time.time() - self._solo_start)
-            if pos >= self._solo_duration:
+            duration = self._solo_duration
+            if pos >= duration:
                 self._stop_solo()
                 pos = 0.0
-            # Use solo duration as the reference for the progress fraction
-            duration = self._solo_duration
 
         if pos is not None:
             self._update_all_cursors(pos, duration)
@@ -1137,9 +1161,9 @@ class MixPanel:
             wf.set_cursor(pos)
 
         # Per-track MIDI time bars
-        for label, state in self._track_states.items():
+        for tid, state in self._track_states.items():
             if state.source == "midi":
-                safe = _safe(label)
+                safe = _safe(tid)
                 bar_tag = _t(f"track_{safe}_timebar")
                 if dpg.does_item_exist(bar_tag):
                     dpg.set_value(bar_tag, frac)
@@ -1152,7 +1176,7 @@ class MixPanel:
     # ------------------------------------------------------------------
 
     def _stop(self) -> None:
-        """Stop all Mix panel playback (called by stop_all_midi)."""
+        """Stop all Mix panel playback."""
         self._stop_master()
         self._stop_solo()
 
