@@ -15,13 +15,15 @@ import pathlib
 
 import dearpygui.dearpygui as dpg
 
-from gui.constants import _STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _EXPORT_DIR
+from gui.constants import _STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _MIX_DIR, _EXPORT_DIR
 from gui.components.loader import LoaderPanel
 from gui.components.demucs_panel import DemucsPanel
 from gui.components.midi_panel import MidiPanel
+from gui.components.mix_panel import MixPanel
 from gui.components.musicgen_panel import MusicGenPanel
 from gui.components.export_panel import ExportPanel
 from gui.components.waveform_widget import tick_all
+from gui.components.midi_player_widget import tick_all_midi
 from gui.icons import load_icons
 
 
@@ -140,20 +142,23 @@ def main() -> None:
     dpg.bind_theme(theme)
 
     # Pre-create output directories so pipelines never have to.
-    for d in (_STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _EXPORT_DIR):
+    for d in (_STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _MIX_DIR, _EXPORT_DIR):
         d.mkdir(parents=True, exist_ok=True)
 
     # ---- Panel singletons ----------------------------------------------
     _loader   = LoaderPanel()
     _demucs   = DemucsPanel()
     _midi     = MidiPanel()
+    _mix      = MixPanel()
     _musicgen = MusicGenPanel()
     _export   = ExportPanel()
 
     # ---- Inter-panel wiring --------------------------------------------
     _demucs.add_result_listener(_midi.notify_stems_ready)
+    _demucs.add_result_listener(_mix.notify_stems_ready)
     _demucs.add_result_listener(_musicgen.notify_stems_ready)
     _demucs.add_result_listener(_export.notify_stems_ready)
+    _midi.add_result_listener(_mix.notify_midi_ready)
     _midi.add_result_listener(_musicgen.notify_midi_ready)
     _midi.add_result_listener(_export.notify_midi_ready)
     _musicgen.add_result_listener(_export.notify_musicgen_ready)
@@ -164,6 +169,7 @@ def main() -> None:
     _loader.build_file_browser()
     _demucs.build_save_dialog()
     _midi.build_browsers()
+    _mix.build_save_dialog()
     _musicgen.build_save_dialog()
     _export.build_dir_dialog()
 
@@ -195,6 +201,9 @@ def main() -> None:
             with dpg.tab(label="  MIDI  "):
                 _midi.build_ui()
 
+            with dpg.tab(label="  Mix  "):
+                _mix.build_ui()
+
             with dpg.tab(label="  Generate  "):
                 _musicgen.build_ui()
 
@@ -213,9 +222,10 @@ def main() -> None:
     dpg.show_viewport()
     dpg.set_primary_window("primary_window", True)
 
-    # Manual render loop so tick_all() can animate waveform cursors each frame
+    # Manual render loop so tick_all() / tick_all_midi() animate cursors each frame
     while dpg.is_dearpygui_running():
         tick_all()
+        tick_all_midi()
         dpg.render_dearpygui_frame()
 
     dpg.destroy_context()

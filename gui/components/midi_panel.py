@@ -50,6 +50,7 @@ from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIDI_DIR
 from gui.components.demucs_panel import STEM_TARGETS, _STEM_LABEL
 from gui.components.file_browser import FileBrowser
+from gui.components.midi_player_widget import MidiPlayerWidget
 
 _BP_ONSET_DEFAULT: float = BASICPITCH.default_onset
 _BP_FRAME_DEFAULT: float = BASICPITCH.default_frame
@@ -127,6 +128,8 @@ class MidiPanel:
         self._result_listeners: list[
             Callable[[pathlib.Path, dict[str, pathlib.Path]], None]
         ] = []
+
+        self._midi_player = MidiPlayerWidget("midi_preview")
 
         self._stem_browser = FileBrowser(
             tag="midi_stem_browser",
@@ -248,7 +251,7 @@ class MidiPanel:
                         )
                     dpg.add_spacer(width=8)
                     dpg.add_button(
-                        label="Match to audio",
+                        label="Match duration of input",
                         callback=self._on_match_duration,
                         height=20,
                     )
@@ -429,6 +432,11 @@ class MidiPanel:
                     callback=make_copy_callback(_t("midi_file")),
                     width=90,
                 )
+
+                dpg.add_spacer(height=14)
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
+                self._midi_player.build_ui()
 
     def build_browsers(self) -> None:
         """Create the stem file browser at the top DearPyGUI level."""
@@ -761,6 +769,9 @@ class MidiPanel:
                 f"Done - {result.total_notes} notes, "
                 f"{len(result.note_counts)} track(s)",
             )
+
+            # Load merged MIDI into the preview player.
+            self._midi_player.load(result.midi_path)
 
             # Notify downstream panels (e.g. Generate).
             for cb in self._result_listeners:

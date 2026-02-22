@@ -11,4 +11,5 @@ _OUTPUT_BASE  = pathlib.Path.home() / ".local" / "share" / "stemforge" / "output
 _STEMS_DIR    = _OUTPUT_BASE / "stems"
 _MIDI_DIR     = pathlib.Path.home() / "Music" / "StemForge"
 _MUSICGEN_DIR = _OUTPUT_BASE / "musicgen"
+_MIX_DIR      = _OUTPUT_BASE / "mix"
 _EXPORT_DIR   = _OUTPUT_BASE / "exports"

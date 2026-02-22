@@ -270,6 +270,11 @@ class WaveformWidget:
 
     def _start_play(self, offset: float = 0.0) -> None:
         global _active_widget
+
+        # Stop any MIDI / mix playback (lazy import avoids circular dependency).
+        from gui.components.midi_player_widget import stop_all_midi
+        stop_all_midi()
+
         # Stop whichever widget is currently playing (exclusive)
         if _active_widget is not None and _active_widget is not self:
             _active_widget._stop()

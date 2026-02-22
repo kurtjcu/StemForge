@@ -26,6 +26,7 @@ class AppState:
         self._midi_path: Optional[pathlib.Path] = None
         self._midi_paths: dict[str, pathlib.Path] = {}
         self._musicgen_path: Optional[pathlib.Path] = None
+        self._mix_path: Optional[pathlib.Path] = None
 
     # ------------------------------------------------------------------
     # audio_path
@@ -98,6 +99,20 @@ class AppState:
             self._musicgen_path = value
 
     # ------------------------------------------------------------------
+    # mix_path
+    # ------------------------------------------------------------------
+
+    @property
+    def mix_path(self) -> Optional[pathlib.Path]:
+        with self._lock:
+            return self._mix_path
+
+    @mix_path.setter
+    def mix_path(self, value: Optional[pathlib.Path]) -> None:
+        with self._lock:
+            self._mix_path = value
+
+    # ------------------------------------------------------------------
     # helpers
     # ------------------------------------------------------------------
 
@@ -108,6 +123,7 @@ class AppState:
             self._midi_path = None
             self._midi_paths = {}
             self._musicgen_path = None
+            self._mix_path = None
 
 
 # Module-level singleton — import this from every panel and callback.

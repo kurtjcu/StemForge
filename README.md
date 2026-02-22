@@ -79,6 +79,24 @@ Other distros:
 - Ensure ffmpeg ≥ 5.1
 - Ensure development headers are installed
 
+### FluidSynth + GM Soundfont (required for MIDI preview and Mix tab)
+
+Fedora:
+
+    sudo dnf install fluidsynth fluidsynth-devel fluid-soundfont-gm
+
+Ubuntu / Debian:
+
+    sudo apt install libfluidsynth3 libfluidsynth-dev fluid-soundfont-gm
+
+Arch / Manjaro:
+
+    sudo pacman -S fluidsynth soundfont-fluid
+
+The GM soundfont is auto-discovered at startup.  On Fedora it installs to
+`/usr/share/soundfonts/FluidR3_GM.sf2`; use the Browse button on the Mix tab
+to point StemForge at a different `.sf2` file if needed.
+
 ### GPU (optional)
 - NVIDIA driver supporting CUDA 12.9+
 - PyTorch 2.10.0+cu130 (pinned) will use the GPU automatically
