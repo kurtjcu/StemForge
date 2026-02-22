@@ -39,6 +39,7 @@ from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
 from gui.components.waveform_widget import WaveformWidget, stop_all as _stop_all_audio
 from gui.components.file_browser import FileBrowser
+from utils.audio_profile import profile_audio, recommend_separator, Recommendation
 
 
 log = logging.getLogger("stemforge.gui.demucs_panel")
@@ -98,6 +99,7 @@ class DemucsPanel:
         self._stem_paths: dict[str, pathlib.Path] = {}
         self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
         self._save_stem_name: str = ""
+        self._last_recommendation: Recommendation | None = None
 
         # One WaveformWidget per stem (covers all possible stems across all engines)
         self._stem_waveforms: dict[str, WaveformWidget] = {
@@ -140,6 +142,45 @@ class DemucsPanel:
                     color=(140, 140, 140, 255),
                     wrap=280,
                 )
+
+                dpg.add_spacer(height=10)
+                dpg.add_button(
+                    label="  Help me choose  ",
+                    tag=_t("recommend_btn"),
+                    callback=self._on_recommend_click,
+                    width=-1,
+                    height=32,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Analyze the loaded audio and suggest the\n"
+                        "best separation engine and model.\n"
+                        "Takes less than a second."
+                    )
+                # Recommendation result (initially hidden)
+                with dpg.group(tag=_t("recommend_group"), show=False):
+                    dpg.add_spacer(height=4)
+                    dpg.add_text(
+                        "",
+                        tag=_t("recommend_text"),
+                        color=(120, 200, 120, 255),
+                        wrap=280,
+                    )
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(
+                            label="Apply",
+                            tag=_t("recommend_apply_btn"),
+                            callback=self._on_recommend_apply,
+                            width=80,
+                        )
+                        with dpg.tooltip(dpg.last_item()):
+                            dpg.add_text("Switch to the recommended engine and model.")
+                        dpg.add_button(
+                            label="Dismiss",
+                            tag=_t("recommend_dismiss_btn"),
+                            callback=self._on_recommend_dismiss,
+                            width=80,
+                        )
 
                 dpg.add_spacer(height=14)
 
@@ -613,6 +654,81 @@ class DemucsPanel:
             subprocess.Popen(["open", "-R", str(path)])
         else:
             subprocess.Popen(["explorer", "/select,", str(path)])
+
+    # ------------------------------------------------------------------
+    # "Help me choose" recommendation callbacks
+    # ------------------------------------------------------------------
+
+    def _on_recommend_click(self, sender, app_data, user_data) -> None:
+        if app_state.audio_path is None:
+            set_widget_text(_t("status"), "Load an audio file first.")
+            return
+        if self._thread and self._thread.is_alive():
+            set_widget_text(_t("status"), "Wait for the current operation to finish.")
+            return
+        dpg.configure_item(_t("recommend_btn"), enabled=False)
+        dpg.configure_item(_t("recommend_group"), show=False)
+        set_widget_text(_t("status"), "Analyzing audio...")
+        self._thread = threading.Thread(
+            target=self._run_recommend,
+            args=(app_state.audio_path,),
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run_recommend(self, path: pathlib.Path) -> None:
+        """Background thread: profile audio and display recommendation."""
+        try:
+            profile = profile_audio(path)
+            rec = recommend_separator(profile)
+            self._last_recommendation = rec
+
+            _CONF_COLOR = {
+                "high":     (100, 210, 100, 255),   # green
+                "moderate": (210, 190,  80, 255),   # yellow
+                "low":      (210, 140,  60, 255),   # orange
+            }
+            color = _CONF_COLOR.get(rec.confidence, (160, 160, 160, 255))
+
+            lines = [
+                f"Recommendation: {rec.engine} / {rec.model_id}",
+                f"Confidence: {rec.confidence.capitalize()}",
+                "",
+                rec.reason,
+            ]
+            if profile.analysis_note:
+                lines.append("")
+                lines.append(profile.analysis_note)
+
+            dpg.set_value(_t("recommend_text"), "\n".join(lines))
+            dpg.configure_item(_t("recommend_text"), color=color)
+            dpg.configure_item(_t("recommend_group"), show=True)
+            set_widget_text(_t("status"), "Analysis complete.")
+        except Exception as exc:
+            log.error("Recommendation failed: %s", exc)
+            set_widget_text(_t("status"), f"Analysis error: {exc}")
+        finally:
+            dpg.configure_item(_t("recommend_btn"), enabled=True)
+
+    def _on_recommend_apply(self, sender, app_data, user_data) -> None:
+        rec = self._last_recommendation
+        if rec is None:
+            return
+        # Switch engine combo and fire the engine-change callback
+        dpg.set_value(_t("engine"), rec.engine)
+        self._on_engine_change(None, rec.engine, None)
+        # Switch model combo and fire the model-change callback
+        dpg.set_value(_t("model"), rec.model_id)
+        self._on_model_change(None, rec.model_id, None)
+        set_widget_text(
+            _t("status"),
+            f"Applied: {rec.engine} / {rec.model_id}. Ready to separate.",
+        )
+        dpg.configure_item(_t("recommend_group"), show=False)
+
+    def _on_recommend_dismiss(self, sender, app_data, user_data) -> None:
+        dpg.configure_item(_t("recommend_group"), show=False)
+        set_widget_text(_t("status"), "")
 
     # ------------------------------------------------------------------
     # Legacy stubs
