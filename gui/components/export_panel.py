@@ -11,11 +11,12 @@ import logging
 import shutil
 import threading
 import traceback
+from typing import Callable
 
 import dearpygui.dearpygui as dpg
 
 from utils.audio_io import read_audio, write_audio
-from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
+from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.components.file_browser import FileBrowser
 
 
@@ -31,9 +32,13 @@ _ARTEFACT_DEFS: tuple[tuple[str, str], ...] = (
     ("drums",    "Drums & percussion stem"),
     ("bass",     "Bass stem"),
     ("other",    "Everything else stem"),
+    ("guitar",   "Guitar stem"),
+    ("piano",    "Piano stem"),
     ("midi",     "MIDI transcription"),
     ("musicgen", "Generated audio"),
 )
+
+_STEM_KEYS: tuple[str, ...] = ("vocals", "drums", "bass", "other", "guitar", "piano")
 
 
 def _t(name: str) -> str:
@@ -170,7 +175,7 @@ class ExportPanel:
         midi_path  = app_state.midi_path
         mg_path    = app_state.musicgen_path
 
-        for key in ("vocals", "drums", "bass", "other"):
+        for key in _STEM_KEYS:
             src = stem_paths.get(key)
             ok  = src is not None and src.exists()
             dpg.configure_item(_t(f"chk_{key}"), enabled=ok)
@@ -183,6 +188,26 @@ class ExportPanel:
         mg_ok = mg_path is not None and mg_path.exists()
         dpg.configure_item(_t("chk_musicgen"), enabled=mg_ok)
         dpg.set_value(_t("chk_musicgen"), mg_ok)
+
+    # ------------------------------------------------------------------
+    # Notification hooks (called by other panels after a successful run)
+    # ------------------------------------------------------------------
+
+    def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
+        """Called by DemucsPanel after a successful separation run."""
+        self._on_refresh(None, None, None)
+
+    def notify_midi_ready(
+        self,
+        midi_path: pathlib.Path,
+        stem_midi_paths: dict[str, pathlib.Path],
+    ) -> None:
+        """Called by MidiPanel after a successful MIDI extraction run."""
+        self._on_refresh(None, None, None)
+
+    def notify_musicgen_ready(self, path: pathlib.Path) -> None:
+        """Called by MusicGenPanel after a successful generation run."""
+        self._on_refresh(None, None, None)
 
     def _on_browse(self, sender, app_data, user_data) -> None:
         self._dir_browser.show()
@@ -222,7 +247,7 @@ class ExportPanel:
             # Collect (source, dest_name, is_audio)
             tasks: list[tuple[pathlib.Path, str, bool]] = []
 
-            for key in ("vocals", "drums", "bass", "other"):
+            for key in _STEM_KEYS:
                 if dpg.get_value(_t(f"chk_{key}")):
                     src = stem_paths.get(key)
                     if src and src.exists():
@@ -247,7 +272,7 @@ class ExportPanel:
                 dest = out / dest_name
                 src_ext = src.suffix.lower().lstrip(".")
                 if is_audio and src_ext != fmt:
-                    waveform, sr = read_audio(src)
+                    waveform, sr = read_audio(src, mono=False)
                     write_audio(waveform, sr, dest)
                 else:
                     shutil.copy2(src, dest)
@@ -264,31 +289,3 @@ class ExportPanel:
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)
 
-    # ------------------------------------------------------------------
-    # Legacy stub methods
-    # ------------------------------------------------------------------
-
-    def add_artefact(self, label: str, path: pathlib.Path) -> None:
-        pass
-
-    def remove_artefact(self, label: str) -> None:
-        pass
-
-    def get_selected_artefacts(self) -> list[pathlib.Path]:
-        return []
-
-    def get_output_directory(self) -> pathlib.Path | None:
-        val = dpg.get_value(_t("outdir")) if dpg.does_item_exist(_t("outdir")) else ""
-        return pathlib.Path(val) if val else None
-
-    def get_export_format(self) -> str:
-        return dpg.get_value(_t("format")) if dpg.does_item_exist(_t("format")) else "wav"
-
-    def browse_output_directory(self) -> None:
-        pass
-
-    def export(self) -> None:
-        self._on_export_click(None, None, None)
-
-    def reset(self) -> None:
-        pass

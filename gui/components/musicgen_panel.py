@@ -16,6 +16,7 @@ import logging
 import pathlib
 import shutil
 import threading
+from typing import Callable
 
 import dearpygui.dearpygui as dpg
 
@@ -61,6 +62,9 @@ class MusicGenPanel:
         self._save_browser: FileBrowser | None = None
         self._audio_browser: FileBrowser | None = None
         self._midi_browser: FileBrowser | None = None
+
+        # Listeners notified with (audio_path,) after a successful run
+        self._result_listeners: list[Callable[[pathlib.Path], None]] = []
 
     # ------------------------------------------------------------------
     # UI construction
@@ -348,6 +352,14 @@ class MusicGenPanel:
                 dpg.set_value(_t("midi_src"), "From MIDI tab")
                 self._on_midi_source_change(None, "From MIDI tab", None)
 
+    def add_result_listener(
+        self,
+        callback: Callable[[pathlib.Path], None],
+    ) -> None:
+        """Register *callback* invoked with the output audio path after a successful run."""
+        self._result_listeners.append(callback)
+
+
     # ------------------------------------------------------------------
     # Callbacks — audio conditioning
     # ------------------------------------------------------------------
@@ -485,6 +497,11 @@ class MusicGenPanel:
             self._waveform.load_async(result.audio_path)
             dpg.configure_item(_t("save_btn"), enabled=True)
             _progress(100.0, f"Done — {result.duration_seconds:.1f} s")
+            for cb in self._result_listeners:
+                try:
+                    cb(result.audio_path)
+                except Exception:
+                    pass
 
         except Exception as exc:
             log.exception("Generation failed")
