@@ -151,7 +151,7 @@ class ExportPanel:
                 dpg.add_text("Exported files", color=(175, 175, 255, 255))
                 dpg.add_spacer(height=4)
                 dpg.add_text(
-                    "—",
+                    "-",
                     tag=_t("result_list"),
                     color=(140, 140, 140, 255),
                     wrap=350,
@@ -237,13 +237,13 @@ class ExportPanel:
                     tasks.append((mg_path, f"generated.{fmt}", True))
 
             if not tasks:
-                set_widget_text(_t("status"),"Nothing ticked — check at least one file.")
+                set_widget_text(_t("status"),"Nothing ticked - check at least one file.")
                 return
 
             written: list[str] = []
             for i, (src, dest_name, is_audio) in enumerate(tasks):
                 dpg.set_value(_t("progress"), i / len(tasks))
-                set_widget_text(_t("status"),f"Writing {dest_name}…")
+                set_widget_text(_t("status"),f"Writing {dest_name}...")
                 dest = out / dest_name
                 src_ext = src.suffix.lower().lstrip(".")
                 if is_audio and src_ext != fmt:
@@ -254,7 +254,7 @@ class ExportPanel:
                 written.append(str(dest))
 
             dpg.set_value(_t("progress"), 1.0)
-            set_widget_text(_t("status"),f"Done — {len(written)} file(s) exported")
+            set_widget_text(_t("status"),f"Done - {len(written)} file(s) exported")
             dpg.set_value(_t("result_list"), "\n".join(written))
 
         except Exception as exc:

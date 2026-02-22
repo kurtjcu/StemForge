@@ -144,7 +144,7 @@ class LoaderPanel:
         dpg.set_value(_TAG_PATH, str(path))
         set_widget_text(
             _TAG_INFO,
-            f"{path.name}   ·   {ch_label}   ·   {info.sample_rate / 1_000:.1f} kHz   ·   {mins}:{secs:02d}",
+            f"{path.name}   |   {ch_label}   |   {info.sample_rate / 1_000:.1f} kHz   |   {mins}:{secs:02d}",
         )
 
         app_state.audio_path = path

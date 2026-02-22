@@ -190,9 +190,9 @@ class MidiPanel:
                 dpg.add_text("Text prompt", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "Optional — describes the musical style.\n\n"
-                        "· With stems: used as conditioning metadata and key hint.\n"
-                        "· Without stems: generates a chord progression only."
+                        "Optional - describes the musical style.\n\n"
+                        "- With stems: used as conditioning metadata and key hint.\n"
+                        "- Without stems: generates a chord progression only."
                     )
                 dpg.add_input_text(
                     tag=_t("prompt"),
@@ -401,7 +401,7 @@ class MidiPanel:
                 count += 1
 
         status = (
-            f"{count} stem(s) ready — select and click Extract MIDI."
+            f"{count} stem(s) ready - select and click Extract MIDI."
             if count else "Run Separate first, or load a file below."
         )
         if dpg.does_item_exist(_t("stems_status")):
@@ -501,7 +501,7 @@ class MidiPanel:
             )
             dpg.set_value(
                 _t("stems_status"),
-                f"{total} stem(s) ready — select and click Extract MIDI.",
+                f"{total} stem(s) ready - select and click Extract MIDI.",
             )
 
     # ------------------------------------------------------------------
@@ -577,7 +577,7 @@ class MidiPanel:
             self._pipeline.configure(config)
 
             if not self._pipeline.is_loaded:
-                set_widget_text(_t("status"), "Loading model — first run may take a moment…")
+                set_widget_text(_t("status"), "Loading model - first run may take a moment...")
 
             self._pipeline.load_model()
 
@@ -591,7 +591,7 @@ class MidiPanel:
                 "text-only" if not stems else
                 "hybrid" if prompt else "stems"
             )
-            set_widget_text(_t("status"), f"Running ({mode_label} mode)…")
+            set_widget_text(_t("status"), f"Running ({mode_label} mode)...")
             result = self._pipeline.run(stems)
 
             # ---- Update state and results ------------------------------
@@ -617,7 +617,7 @@ class MidiPanel:
             dpg.set_value(_t("progress"), 1.0)
             set_widget_text(
                 _t("status"),
-                f"Done — {result.total_notes} notes, "
+                f"Done - {result.total_notes} notes, "
                 f"{len(result.note_counts)} track(s)",
             )
 

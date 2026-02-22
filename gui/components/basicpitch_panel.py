@@ -121,13 +121,13 @@ class BasicPitchPanel:
                         _t("global_onset"), "Note\nsensitivity",
                         "How confident the AI must be before it recognises\n"
                         "the start of a note.\n\n"
-                        "Turn up  →  fewer false notes detected.\n"
-                        "Turn down →  catches quiet or soft notes.",
+                        "Turn up  ->  fewer false notes detected.\n"
+                        "Turn down ->  catches quiet or soft notes.",
                         _t("global_frame"), "Note\nsustain",
                         "How confident the AI must be that a note is still\n"
                         "ringing on each audio frame.\n\n"
-                        "Turn up  →  only clearly audible notes are kept.\n"
-                        "Turn down →  picks up quiet, fading notes.",
+                        "Turn up  ->  only clearly audible notes are kept.\n"
+                        "Turn down ->  picks up quiet, fading notes.",
                         default_a=0.5, default_b=0.3,
                     )
                     dpg.add_spacer(height=8)
@@ -135,8 +135,8 @@ class BasicPitchPanel:
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text(
                             "Notes shorter than this are thrown away.\n\n"
-                            "Slide right →  removes noise and ghost notes.\n"
-                            "Slide left  →  keeps fast ornaments and trills."
+                            "Slide right ->  removes noise and ghost notes.\n"
+                            "Slide left  ->  keeps fast ornaments and trills."
                         )
                     dpg.add_slider_float(
                         tag=_t("global_min_note"),
@@ -230,13 +230,13 @@ class BasicPitchPanel:
                 # Per-stem note counts
                 for stem in STEM_TARGETS:
                     dpg.add_text(
-                        "—",
+                        "-",
                         tag=_t(f"result_{stem}"),
                         color=(220, 220, 220, 255),
                     )
 
                 dpg.add_spacer(height=4)
-                dpg.add_text("—", tag=_t("midi_file"), color=(140, 140, 140, 255), wrap=350)
+                dpg.add_text("-", tag=_t("midi_file"), color=(140, 140, 140, 255), wrap=350)
 
                 dpg.add_spacer(height=12)
                 dpg.add_button(
@@ -313,7 +313,7 @@ class BasicPitchPanel:
             import shutil
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self._midi_path, dest)
-            set_widget_text(_t("status"),f"Saved → {dest}")
+            set_widget_text(_t("status"),f"Saved -> {dest}")
         except Exception as exc:
             set_widget_text(_t("status"),f"Save failed: {exc}")
 
@@ -328,8 +328,8 @@ class BasicPitchPanel:
         # Clear previous per-stem results
         for stem in STEM_TARGETS:
             if dpg.does_item_exist(_t(f"result_{stem}")):
-                dpg.set_value(_t(f"result_{stem}"), "—")
-        dpg.set_value(_t("midi_file"), "—")
+                dpg.set_value(_t(f"result_{stem}"), "-")
+        dpg.set_value(_t("midi_file"), "-")
 
         try:
             # Collect stems that are checked AND available
@@ -349,7 +349,7 @@ class BasicPitchPanel:
                 return
 
             if not self._pipeline.is_loaded:
-                set_widget_text(_t("status"),"Loading model — first run may take a moment…")
+                set_widget_text(_t("status"),"Loading model - first run may take a moment...")
                 self._pipeline.load_model()
 
             total = len(checked)
@@ -380,7 +380,7 @@ class BasicPitchPanel:
                 def _progress(pct: float, _base=base_frac, _total=total) -> None:
                     overall = _base + (pct / 100.0) / _total
                     dpg.set_value(_t("progress"), overall)
-                    set_widget_text(_t("status"),f"Processing {stem}… {pct:.0f}%")
+                    set_widget_text(_t("status"),f"Processing {stem}... {pct:.0f}%")
 
                 self._pipeline.set_progress_callback(_progress)
                 result = self._pipeline.run(stem_path)
@@ -397,7 +397,7 @@ class BasicPitchPanel:
                     )
 
             dpg.set_value(_t("progress"), 1.0)
-            set_widget_text(_t("status"),f"Done — {total} stem(s) processed")
+            set_widget_text(_t("status"),f"Done - {total} stem(s) processed")
             dpg.set_value(_t("midi_file"), str(self._midi_path))
             dpg.configure_item(_t("save_btn"), enabled=True)
 

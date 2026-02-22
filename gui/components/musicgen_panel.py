@@ -30,7 +30,7 @@ log = logging.getLogger("stemforge.gui.musicgen_panel")
 # Model list — populated when Stable Audio Open integration is complete.
 MUSICGEN_MODELS: tuple[str, ...] = ()
 _MODEL_LABEL: dict[str, str] = {}
-_MODEL_PLACEHOLDER = "— not yet configured —"
+_MODEL_PLACEHOLDER = "(not yet configured)"
 
 _P = "mg"
 
@@ -71,9 +71,9 @@ class MusicGenPanel:
                         "Write a plain-English description of what you want.\n"
                         "Be specific about style, instruments, and mood.\n\n"
                         "Examples:\n"
-                        "  · upbeat jazz piano with walking bass\n"
-                        "  · slow ambient guitar, heavy reverb\n"
-                        "  · energetic lo-fi hip-hop drum loop"
+                        "  - upbeat jazz piano with walking bass\n"
+                        "  - slow ambient guitar, heavy reverb\n"
+                        "  - energetic lo-fi hip-hop drum loop"
                     )
                 dpg.add_input_text(
                     tag=_t("prompt"),
@@ -123,8 +123,8 @@ class MusicGenPanel:
                         with dpg.tooltip(dpg.last_item()):
                             dpg.add_text(
                                 "Controls how unpredictable the result is.\n\n"
-                                "Turn up  →  more varied, experimental output.\n"
-                                "Turn down →  safer, more predictable music."
+                                "Turn up  ->  more varied, experimental output.\n"
+                                "Turn down ->  safer, more predictable music."
                             )
                         dpg.add_knob_float(
                             tag=_t("temperature"),
@@ -140,8 +140,8 @@ class MusicGenPanel:
                         with dpg.tooltip(dpg.last_item()):
                             dpg.add_text(
                                 "Number of token choices at each generation step.\n\n"
-                                "Turn up  →  broader range of musical ideas.\n"
-                                "Turn down →  sticks to the most likely sounds."
+                                "Turn up  ->  broader range of musical ideas.\n"
+                                "Turn down ->  sticks to the most likely sounds."
                             )
                         dpg.add_knob_float(
                             tag=_t("topk"),
@@ -184,7 +184,7 @@ class MusicGenPanel:
                         "when the generation pipeline supports it."
                     )
                 dpg.add_text(
-                    "No MIDI available — run Extract MIDI first.",
+                    "No MIDI available - run Extract MIDI first.",
                     tag=_t("midi_status"),
                     color=(140, 140, 140, 255),
                     wrap=300,
@@ -226,8 +226,8 @@ class MusicGenPanel:
                 dpg.add_separator()
                 dpg.add_text("Result", color=(175, 175, 255, 255))
                 dpg.add_spacer(height=4)
-                dpg.add_text("—", tag=_t("duration_info"), color=(220, 220, 220, 255))
-                dpg.add_text("—", tag=_t("audio_file"), color=(140, 140, 140, 255), wrap=350)
+                dpg.add_text("-", tag=_t("duration_info"), color=(220, 220, 220, 255))
+                dpg.add_text("-", tag=_t("audio_file"), color=(140, 140, 140, 255), wrap=350)
 
                 dpg.add_spacer(height=8)
                 # Waveform preview replaces the old ▶ Play button
@@ -289,7 +289,7 @@ class MusicGenPanel:
             import shutil
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self._result_path, dest)
-            set_widget_text(_t("status"),f"Saved → {dest}")
+            set_widget_text(_t("status"),f"Saved -> {dest}")
         except Exception as exc:
             set_widget_text(_t("status"),f"Save failed: {exc}")
 

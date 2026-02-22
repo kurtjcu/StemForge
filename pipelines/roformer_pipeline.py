@@ -86,7 +86,7 @@ class RoformerPipeline:
         self._loader = RoformerModelLoader()
         self._progress_cb: Callable[[float, str], None] | None = None
         self._cancel: threading.Event = threading.Event()
-        self._last_device: str = "—"  # "GPU" or "CPU", updated during _infer
+        self._last_device: str = "?"  # "GPU" or "CPU", updated during _infer
 
     @property
     def last_device(self) -> str:
@@ -162,7 +162,7 @@ class RoformerPipeline:
         spec = get_spec(self._config.model_id)
         assert isinstance(spec, RoformerSpec)
 
-        self._report(10.0, "Reading audio…")
+        self._report(10.0, "Reading audio...")
         waveform, sr = read_audio(path, target_rate=self._config.sample_rate, mono=False)
         # waveform: (channels, samples) float32 numpy
         if waveform.ndim == 1:
@@ -188,7 +188,7 @@ class RoformerPipeline:
         if self._cancel.is_set():
             raise PipelineExecutionError("roformer", "Cancelled.")
 
-        self._report(90.0, "Writing stems…")
+        self._report(90.0, "Writing stems...")
         stem_paths: dict[str, pathlib.Path] = {}
         self._config.output_dir.mkdir(parents=True, exist_ok=True)
 

@@ -109,7 +109,7 @@ def _fmt_mtime(entry: pathlib.Path) -> str:
         dt = datetime.datetime.fromtimestamp(ts)
         return dt.strftime("%b %d, %Y")
     except OSError:
-        return "—"
+        return "-"
 
 
 # ---------------------------------------------------------------------------

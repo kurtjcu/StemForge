@@ -438,7 +438,7 @@ class DemucsPipeline:
                 "For GPU-accelerated separation use htdemucs or htdemucs_ft.",
                 type(exc).__name__,
             )
-            self._report(12.0, "GPU error — retrying on CPU (slower, may take several minutes)")
+            self._report(12.0, "GPU error - retrying on CPU (slower, may take several minutes)")
 
             self._model.cpu()  # moves weights in-place; frees VRAM
             try:

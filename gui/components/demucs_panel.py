@@ -240,7 +240,7 @@ class DemucsPanel:
                             with dpg.tooltip(dpg.last_item()):
                                 dpg.add_text(
                                     "Save this stem to a location of your choice.\n"
-                                    "Same format as the imported file — no conversion."
+                                    "Same format as the imported file - no conversion."
                                 )
                             dpg.add_button(
                                 label="Show file",
@@ -354,7 +354,7 @@ class DemucsPanel:
             model_name = dpg.get_value(_t("model"))
             if self._current_model != model_name:
                 if self._current_model is not None:
-                    set_widget_text(_t("status"), "Unloading previous model…")
+                    set_widget_text(_t("status"), "Unloading previous model...")
                     self._demucs_pipeline.clear()
                 self._current_model = model_name
 
@@ -362,7 +362,7 @@ class DemucsPanel:
             self._demucs_pipeline.configure(config)
 
             if not self._demucs_pipeline.is_loaded:
-                set_widget_text(_t("status"), "Loading model — first run may take a minute…")
+                set_widget_text(_t("status"), "Loading model - first run may take a minute...")
                 self._demucs_pipeline.load_model()
 
             def _progress(pct: float, stage: str) -> None:
@@ -379,7 +379,7 @@ class DemucsPanel:
             dpg.set_value(_t("progress"), 1.0)
             set_widget_text(
                 _t("status"),
-                f"Done — {len(result.stem_paths)} parts  ({result.duration_seconds:.1f} s)",
+                f"Done - {len(result.stem_paths)} parts  ({result.duration_seconds:.1f} s)",
             )
 
         except Exception as exc:
@@ -410,7 +410,7 @@ class DemucsPanel:
     def _auto_analyze(self, path: pathlib.Path) -> None:
         """Background thread: run Roformer, compute RMS, update UI."""
         dpg.set_value(_t("progress"), 0.0)
-        set_widget_text(_t("status"), "Starting analysis…")
+        set_widget_text(_t("status"), "Starting analysis...")
 
         try:
             model_id = dpg.get_value(_t("model"))
@@ -425,7 +425,7 @@ class DemucsPanel:
             self._roformer_pipeline.configure(config)
 
             if not self._roformer_pipeline.is_loaded:
-                set_widget_text(_t("status"), "Loading BS-Roformer model — first run downloads ~300 MB…")
+                set_widget_text(_t("status"), "Loading BS-Roformer model - first run downloads ~300 MB...")
 
             self._roformer_pipeline.load_model()
 
@@ -473,7 +473,7 @@ class DemucsPanel:
             dpg.set_value(_t("progress"), 1.0)
             set_widget_text(
                 _t("status"),
-                f"Done — {len(result.stem_paths)} stems  ({result.duration_seconds:.1f} s)",
+                f"Done - {len(result.stem_paths)} stems  ({result.duration_seconds:.1f} s)",
             )
 
         except Exception as exc:
@@ -511,7 +511,7 @@ class DemucsPanel:
                 rms = rms_map.get(stem_name, 0.0)
                 db = 20.0 * np.log10(rms + 1e-9)
                 tag_str = "active" if is_active else "below threshold"
-                dpg.set_value(_t(f"rms_{stem_name}"), f"RMS: {rms:.4f} ({db:.1f} dB) — {tag_str}")
+                dpg.set_value(_t(f"rms_{stem_name}"), f"RMS: {rms:.4f} ({db:.1f} dB) - {tag_str}")
             else:
                 dpg.set_value(_t(f"rms_{stem_name}"), "")
 
@@ -570,7 +570,7 @@ class DemucsPanel:
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, dest)
             log.info("Saved %s -> %s", stem, dest)
-            set_widget_text(_t("status"), f"Saved {stem} → {dest.name}")
+            set_widget_text(_t("status"), f"Saved {stem} -> {dest.name}")
         except Exception as exc:
             log.error("Save As failed: %s", exc)
             set_widget_text(_t("status"), f"Save failed: {exc}")
@@ -582,7 +582,7 @@ class DemucsPanel:
     def _tick_spinner(self, device: str = "") -> None:
         """Show a CPU warning when on CPU, nothing extra when on GPU."""
         if device == "CPU":
-            label = "GPU unavailable — using CPU fallback, this will run slowly..."
+            label = "GPU unavailable - using CPU fallback, this will run slowly..."
             color = _SPINNER_CPU_COLOR
         else:
             label = ""

@@ -169,7 +169,7 @@ def main() -> None:
         # App title
         dpg.add_text("StemForge", color=(175, 175, 255, 255))
         dpg.add_text(
-            "Stem separation  ·  MIDI extraction  ·  Music generation",
+            "Stem separation  |  MIDI extraction  |  Music generation",
             color=(100, 100, 120, 255),
         )
         dpg.add_separator()
