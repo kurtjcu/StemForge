@@ -163,7 +163,9 @@ class MidiPanel:
                         dpg.add_checkbox(
                             label=f"{display}{hint}",
                             tag=_t(f"stem_{stem}_check"),
-                            default_value=True,
+                            default_value=False,
+                            callback=self._on_stem_check,
+                            user_data=stem,
                         )
                         dpg.add_spacer(height=2)
 
@@ -517,36 +519,57 @@ class MidiPanel:
     # Callbacks
     # ------------------------------------------------------------------
 
-    def _on_match_duration(self, sender, app_data, user_data) -> None:
-        # Prefer a stem the user has ticked.
-        for stem in STEM_TARGETS:
-            check_tag = _t(f"stem_{stem}_check")
-            if (
-                stem in self._available_stems
-                and dpg.does_item_exist(check_tag)
-                and dpg.get_value(check_tag)
-            ):
+    def _on_stem_check(self, sender, app_data, user_data) -> None:
+        """Called when a separated-stem checkbox is toggled. app_data=new bool, user_data=stem key."""
+        if app_data:  # just checked — set duration to this stem's length
+            stem = user_data
+            if stem in self._available_stems:
                 self._set_duration_from_path(self._available_stems[stem])
-                return
-        # Fall back to first available separated stem.
-        if self._available_stems:
-            self._set_duration_from_path(next(iter(self._available_stems.values())))
-            return
-        # Fall back to first manually loaded stem.
-        if self._manual_stems:
-            self._set_duration_from_path(next(iter(self._manual_stems.values())))
 
-    def _set_duration_from_path(self, path: pathlib.Path) -> None:
-        """Read *path* duration via metadata and update the duration slider."""
+    def _on_match_duration(self, sender, app_data, user_data) -> None:
+        """Set duration to the longest of all checked stems and manual files."""
+        candidates: list[float] = []
+
+        for stem, path in self._available_stems.items():
+            check_tag = _t(f"stem_{stem}_check")
+            if dpg.does_item_exist(check_tag) and dpg.get_value(check_tag):
+                if (d := self._read_duration(path)) is not None:
+                    candidates.append(d)
+
+        for label, path in self._manual_stems.items():
+            check_tag = _t(f"manual_{label}_check")
+            if dpg.does_item_exist(check_tag) and dpg.get_value(check_tag):
+                if (d := self._read_duration(path)) is not None:
+                    candidates.append(d)
+
+        # Nothing checked — fall back to all available sources.
+        if not candidates:
+            for path in list(self._available_stems.values()) + list(self._manual_stems.values()):
+                if (d := self._read_duration(path)) is not None:
+                    candidates.append(d)
+
+        if candidates:
+            self._apply_duration(max(candidates))
+
+    def _read_duration(self, path: pathlib.Path) -> float | None:
+        """Return duration in seconds from audio file metadata, or None on error."""
         try:
             info = sf.info(str(path))
-            seconds = info.frames / info.samplerate
-            seconds = max(1.0, min(600.0, seconds))
-            if dpg.does_item_exist(_t("duration")):
-                dpg.configure_item(_t("duration"), max_value=max(600.0, seconds))
-                dpg.set_value(_t("duration"), seconds)
+            return info.frames / info.samplerate
         except Exception:
-            pass
+            return None
+
+    def _apply_duration(self, seconds: float) -> None:
+        """Write *seconds* to the duration slider, expanding the ceiling if needed."""
+        seconds = max(1.0, min(600.0, seconds))
+        if dpg.does_item_exist(_t("duration")):
+            dpg.configure_item(_t("duration"), max_value=max(600.0, seconds))
+            dpg.set_value(_t("duration"), seconds)
+
+    def _set_duration_from_path(self, path: pathlib.Path) -> None:
+        """Convenience: read duration from *path* and apply it to the slider."""
+        if (d := self._read_duration(path)) is not None:
+            self._apply_duration(d)
 
     def _on_onset_knob(self, sender, app_data, user_data) -> None:
         if dpg.does_item_exist(_t("onset_val")):
