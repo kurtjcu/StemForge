@@ -635,7 +635,7 @@ ROFORMER_VIPERX = _register(RoformerSpec(
     default_min_note_ms=0.0,
     capabilities=_ROFORMER_CAPS,
     cache_subdir="roformer",
-    description="BS-Roformer vocals (ViperX) — SDR 12.97, state-of-the-art.",
+    description="cleaner, smoother vocals with fewer artifacts, but sometimes leaves more bleed from drums or guitars",
     preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
     postprocessing="other = mix − vocals; write per-stem WAV files.",
     architecture="bs_roformer",
@@ -674,7 +674,7 @@ ROFORMER_KJ = _register(RoformerSpec(
     default_min_note_ms=0.0,
     capabilities=_ROFORMER_CAPS,
     cache_subdir="roformer",
-    description="MelBand-Roformer vocals (KimberleyJensen) — ~SDR 13.0.",
+    description="sharper, more isolated vocals, but can sound slightly brittle or over-filtered on certain material",
     preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
     postprocessing="other = mix − vocals; write per-stem WAV files.",
     architecture="mel_band_roformer",
@@ -683,8 +683,8 @@ ROFORMER_KJ = _register(RoformerSpec(
         "MelBandRoformer.ckpt"
     ),
     config_url=(
-        "https://huggingface.co/KimberleyJSN/melbandroformer/resolve/main/"
-        "config.yaml"
+        "https://raw.githubusercontent.com/ZFTurbo/Music-Source-Separation-Training/"
+        "main/configs/KimberleyJensen/config_vocals_mel_band_roformer_kj.yaml"
     ),
     target_instrument="vocals",
     other_fix=True,
