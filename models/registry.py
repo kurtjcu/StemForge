@@ -255,7 +255,7 @@ class RoformerSpec(ModelSpec):
     architecture: str
     checkpoint_url: str
     config_url: str
-    target_instrument: str
+    target_instrument: str | None
     other_fix: bool
     available_stems: tuple[str, ...]
     default_chunk_size: int
@@ -690,6 +690,82 @@ ROFORMER_KJ = _register(RoformerSpec(
     other_fix=True,
     available_stems=("vocals", "other"),
     default_chunk_size=352_800,
+    default_num_overlap=2,
+))
+
+ROFORMER_ZFTURBO_4STEM = _register(RoformerSpec(
+    model_id="roformer-zfturbo-4stem",
+    display_name="BS-Roformer 4-Stem (ZFTurbo, SDR 9.66)",
+    version="1.0",
+    source="ZFTurbo/Music-Source-Separation-Training",
+    device="auto",
+    gpu_capable=True,
+    device_fallback="cpu",
+    device_quirks="CUBLAS errors fall back to CPU per-chunk automatically.",
+    sample_rate=44_100,
+    hop_size=0,
+    chunk_size=485_100,
+    max_duration_seconds=0.0,
+    default_bpm=0.0,
+    default_key="",
+    default_time_signature="",
+    quantize_grid="none",
+    default_min_note_ms=0.0,
+    capabilities=_ROFORMER_CAPS,
+    cache_subdir="roformer",
+    description="separates all four standard stems at once — best option when you need drums, bass, or other alongside vocals",
+    preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
+    postprocessing="Write per-stem WAV files (drums, bass, other, vocals).",
+    architecture="bs_roformer",
+    checkpoint_url=(
+        "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/"
+        "v1.0.12/model_bs_roformer_ep_17_sdr_9.6568.ckpt"
+    ),
+    config_url=(
+        "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/"
+        "v1.0.12/config_bs_roformer_384_8_2_485100.yaml"
+    ),
+    target_instrument=None,
+    other_fix=False,
+    available_stems=("drums", "bass", "other", "vocals"),
+    default_chunk_size=485_100,
+    default_num_overlap=2,
+))
+
+ROFORMER_JARREDOU_6STEM = _register(RoformerSpec(
+    model_id="roformer-jarredou-6stem",
+    display_name="BS-Roformer 6-Stem (jarredou — bass/drums/other/vocals/guitar/piano)",
+    version="1.0",
+    source="jarredou/BS-ROFO-SW-Fixed",
+    device="auto",
+    gpu_capable=True,
+    device_fallback="cpu",
+    device_quirks="CUBLAS errors fall back to CPU per-chunk automatically.",
+    sample_rate=44_100,
+    hop_size=0,
+    chunk_size=588_800,
+    max_duration_seconds=0.0,
+    default_bpm=0.0,
+    default_key="",
+    default_time_signature="",
+    quantize_grid="none",
+    default_min_note_ms=0.0,
+    capabilities=_ROFORMER_CAPS,
+    cache_subdir="roformer",
+    description="separates six stems including guitar and piano — useful for mixed-instrument tracks, though guitar/piano quality varies by material",
+    preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
+    postprocessing="Write per-stem WAV files (bass, drums, other, vocals, guitar, piano).",
+    architecture="bs_roformer",
+    checkpoint_url=(
+        "https://huggingface.co/jarredou/BS-ROFO-SW-Fixed/resolve/main/BS-Rofo-SW-Fixed.ckpt"
+    ),
+    config_url=(
+        "https://huggingface.co/jarredou/BS-ROFO-SW-Fixed/resolve/main/BS-Rofo-SW-Fixed.yaml"
+    ),
+    target_instrument=None,
+    other_fix=False,
+    available_stems=("bass", "drums", "other", "vocals", "guitar", "piano"),
+    default_chunk_size=588_800,
     default_num_overlap=2,
 ))
 

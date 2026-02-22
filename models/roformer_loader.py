@@ -59,8 +59,13 @@ def _check_gpu_compatibility() -> None:
 
 _check_gpu_compatibility()
 
-# Keys not accepted by BSRoformer constructor (present in some community YAMLs)
-_INVALID_BS_KEYS = frozenset({"linear_transformer_depth"})
+# Keys present in some community YAMLs that are NOT valid constructor params for
+# either BSRoformer or MelBandRoformer (training/utility flags, not architecture).
+_INVALID_ROFORMER_KEYS = frozenset({
+    "linear_transformer_depth",  # not a constructor param in any released version
+    "use_torch_checkpoint",      # gradient-checkpointing training flag
+    "skip_connection",           # not present in all package versions
+})
 
 
 class RoformerModelLoader:
@@ -164,10 +169,11 @@ class RoformerModelLoader:
                     for k, v in value.items()
                 }
 
+        for bad_key in _INVALID_ROFORMER_KEYS:
+            model_kwargs.pop(bad_key, None)
+
         if spec.architecture == "bs_roformer" or "freqs_per_bands" in model_kwargs:
             from bs_roformer import BSRoformer  # type: ignore[import]
-            for bad_key in _INVALID_BS_KEYS:
-                model_kwargs.pop(bad_key, None)
             return BSRoformer(**model_kwargs)
         else:
             from bs_roformer import MelBandRoformer  # type: ignore[import]

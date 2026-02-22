@@ -34,7 +34,7 @@ import dearpygui.dearpygui as dpg
 
 from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig
 from pipelines.roformer_pipeline import RoformerPipeline, RoformerConfig
-from models.registry import list_specs, DemucsSpec, RoformerSpec
+from models.registry import list_specs, get_spec, DemucsSpec, RoformerSpec
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
 from gui.components.waveform_widget import WaveformWidget
@@ -54,13 +54,16 @@ _DEMUCS_DESC: dict[str, str] = {s.model_id: s.description for s in list_specs(De
 _ROFORMER_DESC: dict[str, str] = {s.model_id: s.description for s in list_specs(RoformerSpec)}
 
 STEM_TARGETS: tuple[str, ...] = ("vocals", "drums", "bass", "other")
-_ROFORMER_STEMS: tuple[str, ...] = ("vocals", "other")
+# All stems that can appear in any supported model (Demucs 4-stem + Roformer 6-stem)
+_ALL_STEM_TARGETS: tuple[str, ...] = ("vocals", "drums", "bass", "other", "guitar", "piano")
 
 _STEM_LABEL: dict[str, str] = {
     "vocals": "Singing voice",
     "drums":  "Drums & percussion",
     "bass":   "Bass",
     "other":  "Everything else",
+    "guitar": "Guitar",
+    "piano":  "Piano",
 }
 
 _ENGINES = ("Demucs", "BS-Roformer")
@@ -96,9 +99,9 @@ class DemucsPanel:
         self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
         self._save_stem_name: str = ""
 
-        # One WaveformWidget per stem (all four, Roformer only uses 2)
+        # One WaveformWidget per stem (covers all possible stems across all engines)
         self._stem_waveforms: dict[str, WaveformWidget] = {
-            stem: WaveformWidget(f"stem_{stem}") for stem in STEM_TARGETS
+            stem: WaveformWidget(f"stem_{stem}") for stem in _ALL_STEM_TARGETS
         }
 
         # Save-As file browser (created in build_save_dialog)
@@ -199,7 +202,7 @@ class DemucsPanel:
                 dpg.add_text("Separated parts", color=(175, 175, 255, 255))
                 dpg.add_spacer(height=4)
 
-                for stem in STEM_TARGETS:
+                for stem in _ALL_STEM_TARGETS:
                     with dpg.group(tag=_t(f"row_{stem}"), show=False):
                         with dpg.group(horizontal=True):
                             # Result checkbox — controls MIDI tab availability
@@ -398,9 +401,10 @@ class DemucsPanel:
 
         try:
             model_id = dpg.get_value(_t("model"))
+            roformer_spec = get_spec(model_id)
             config = RoformerConfig(
                 model_id=model_id,
-                stems=list(_ROFORMER_STEMS),
+                stems=list(roformer_spec.available_stems),
                 output_dir=_STEMS_DIR,
             )
             self._roformer_pipeline.configure(config)
@@ -479,7 +483,7 @@ class DemucsPanel:
         if active is None:
             active = stem_paths  # Demucs: all produced stems are active
 
-        for stem_name in STEM_TARGETS:
+        for stem_name in _ALL_STEM_TARGETS:
             in_result = stem_name in stem_paths
             dpg.configure_item(_t(f"row_{stem_name}"), show=in_result)
             if not in_result:
@@ -514,7 +518,7 @@ class DemucsPanel:
             # Rebuild active stems from all checked rows
             active: dict[str, pathlib.Path] = {
                 s: p
-                for s in STEM_TARGETS
+                for s in _ALL_STEM_TARGETS
                 if s in self._stem_paths and dpg.get_value(_t(f"result_chk_{s}"))
                 for p in [self._stem_paths[s]]
             }

@@ -173,7 +173,15 @@ class RoformerPipeline:
         duration = waveform.shape[1] / self._config.sample_rate
 
         try:
-            vocals_np = self._infer(waveform, spec)
+            if spec.target_instrument is None:
+                # Multi-stem model: all stems predicted simultaneously
+                stem_arrays = self._infer_multi(waveform, spec)
+            else:
+                # Single-target model: predict one stem, optionally derive other
+                target_np = self._infer(waveform, spec)
+                stem_arrays: dict[str, np.ndarray] = {spec.target_instrument: target_np}
+                if spec.other_fix:
+                    stem_arrays["other"] = np.clip(waveform - target_np, -1.0, 1.0)
         except Exception as exc:
             raise PipelineExecutionError("roformer", str(exc)) from exc
 
@@ -185,15 +193,9 @@ class RoformerPipeline:
         self._config.output_dir.mkdir(parents=True, exist_ok=True)
 
         base = path.stem
-        for stem_name in self._config.stems:
-            if stem_name == spec.target_instrument:
-                audio_np = vocals_np
-            elif spec.other_fix:
-                # other = mix - target, hard-clipped
-                audio_np = np.clip(waveform - vocals_np, -1.0, 1.0)
-            else:
+        for stem_name, audio_np in stem_arrays.items():
+            if stem_name not in self._config.stems:
                 continue
-
             out_path = self._config.output_dir / f"{base}_{stem_name}.wav"
             write_audio(audio_np, self._config.sample_rate, out_path)
             stem_paths[stem_name] = out_path
@@ -276,6 +278,76 @@ class RoformerPipeline:
         # Trim padding and clamp
         result = result_padded[:, :n_samples]
         return np.clip(result, -1.0, 1.0).astype(np.float32)
+
+    def _infer_multi(self, mix_np: np.ndarray, spec: RoformerSpec) -> dict[str, np.ndarray]:
+        """Chunked overlap-add for multi-stem models.
+
+        Returns
+        -------
+        dict mapping each stem name (from ``training.instruments`` in the YAML)
+        to a ``(2, T)`` float32 array.
+        """
+        chunk_size = self._config.chunk_size  # type: ignore[union-attr]
+        num_overlap = self._config.num_overlap  # type: ignore[union-attr]
+        step = chunk_size // num_overlap
+
+        instruments: list[str] = self._yaml_config["training"]["instruments"]  # type: ignore[index]
+        num_stems = len(instruments)
+
+        n_samples = mix_np.shape[1]
+        pad_right = (chunk_size - n_samples % chunk_size) % chunk_size
+        mix_padded = (
+            np.pad(mix_np, ((0, 0), (0, pad_right)), mode="reflect")
+            if pad_right > 0
+            else mix_np
+        )
+        total_padded = mix_padded.shape[1]
+
+        result_padded = np.zeros((num_stems, 2, total_padded), dtype=np.float32)
+        weight_padded = np.zeros(total_padded, dtype=np.float32)
+
+        window = np.linspace(0, 1, chunk_size // 2, endpoint=False)
+        window = np.concatenate([window, window[::-1]])
+        if window.shape[0] < chunk_size:
+            window = np.pad(window, (0, chunk_size - window.shape[0]), constant_values=window[-1])
+        window = window[:chunk_size].astype(np.float32)
+
+        device = self._select_device()
+        self._last_device = "GPU" if device.type == "cuda" else "CPU"
+        self._model.to(device)  # type: ignore[union-attr]
+
+        positions = list(range(0, total_padded - chunk_size + 1, step))
+        if not positions or positions[-1] + chunk_size < total_padded:
+            positions.append(total_padded - chunk_size)
+
+        for chunk_idx, pos in enumerate(positions):
+            if self._cancel.is_set():
+                break
+
+            pct = 10.0 + 78.0 * chunk_idx / max(len(positions), 1)
+            self._report(pct, f"chunk {chunk_idx + 1}/{len(positions)}")
+
+            chunk = mix_padded[:, pos: pos + chunk_size].copy()
+            chunk_t = torch.from_numpy(chunk).unsqueeze(0).to(device)  # (1, 2, T)
+
+            with torch.no_grad():
+                pred = self._model(chunk_t)  # type: ignore[union-attr]  # (1, num_stems, 2, T)
+
+            pred_np = pred.squeeze(0).cpu().numpy()  # (num_stems, 2, T)
+            pred_np = pred_np[:, :, :chunk_size]
+
+            result_padded[:, :, pos: pos + chunk_size] += (
+                pred_np * window[np.newaxis, np.newaxis, :]
+            )
+            weight_padded[pos: pos + chunk_size] += window
+
+        eps = 1e-8
+        weight_padded = np.maximum(weight_padded, eps)
+        result_padded /= weight_padded[np.newaxis, np.newaxis, :]
+
+        result = result_padded[:, :, :n_samples]
+        result = np.clip(result, -1.0, 1.0).astype(np.float32)
+        return {name: result[i] for i, name in enumerate(instruments)}
 
     # ------------------------------------------------------------------
     # Helpers
