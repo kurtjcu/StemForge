@@ -18,6 +18,7 @@ import shutil
 import threading
 from typing import Callable
 
+import mido
 import soundfile as sf
 import dearpygui.dearpygui as dpg
 
@@ -107,13 +108,26 @@ class MusicGenPanel:
                 )
 
                 dpg.add_spacer(height=12)
-                dpg.add_text("Duration", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "How many seconds of audio to generate.\n"
-                        "Model hard limit is 47 s at 44,100 Hz.\n"
-                        "Longer clips take more time and memory."
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Duration", color=(175, 175, 255, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "How many seconds of audio to generate.\n"
+                            "Model hard limit is 47 s at 44,100 Hz.\n"
+                            "Longer clips take more time and memory."
+                        )
+                    dpg.add_spacer(width=8)
+                    dpg.add_button(
+                        label="Match duration of input",
+                        tag=_t("match_duration_btn"),
+                        callback=self._on_match_duration,
+                        height=20,
                     )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Set duration to match the selected\n"
+                            "audio or MIDI conditioning input."
+                        )
                 dpg.add_slider_int(
                     tag=_t("duration"),
                     min_value=5,
@@ -240,6 +254,7 @@ class MusicGenPanel:
                         items=["All stems"],
                         default_value="All stems",
                         tag=_t("midi_radio"),
+                        callback=self._on_midi_radio_change,
                         enabled=False,
                     )
 
@@ -411,6 +426,12 @@ class MusicGenPanel:
         if key and key in self._stem_paths:
             self._set_duration_from_path(self._stem_paths[key])
 
+    def _on_midi_radio_change(self, sender, app_data, user_data) -> None:
+        label = app_data
+        path = self._tab_midi_paths.get(label)
+        if path:
+            self._set_duration_from_midi(path)
+
     def _set_duration_from_path(self, path: pathlib.Path) -> None:
         """Read audio duration from *path* metadata and update the duration slider."""
         try:
@@ -421,6 +442,39 @@ class MusicGenPanel:
                 dpg.set_value(_t("duration"), seconds)
         except Exception:
             pass
+
+    def _set_duration_from_midi(self, path: pathlib.Path) -> None:
+        """Read MIDI duration from *path* and update the duration slider."""
+        try:
+            mid = mido.MidiFile(str(path))
+            seconds = int(round(mid.length))
+            seconds = max(5, min(600, seconds))
+            if dpg.does_item_exist(_t("duration")):
+                dpg.set_value(_t("duration"), seconds)
+        except Exception:
+            pass
+
+    def _on_match_duration(self, sender, app_data, user_data) -> None:
+        """Set duration slider to match the active conditioning input."""
+        audio_src = dpg.get_value(_t("audio_src"))
+        if audio_src == "Stem from Separate tab":
+            label = dpg.get_value(_t("stem_radio"))
+            if label and label != "None":
+                key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
+                if key and key in self._stem_paths:
+                    self._set_duration_from_path(self._stem_paths[key])
+                    return
+        elif audio_src == "Load audio file" and self._loaded_audio_path:
+            self._set_duration_from_path(self._loaded_audio_path)
+            return
+        midi_src = dpg.get_value(_t("midi_src"))
+        if midi_src == "From MIDI tab":
+            label = dpg.get_value(_t("midi_radio"))
+            path = self._tab_midi_paths.get(label)
+            if path:
+                self._set_duration_from_midi(path)
+        elif midi_src == "Load MIDI file" and self._loaded_midi_path:
+            self._set_duration_from_midi(self._loaded_midi_path)
 
     def _on_browse_audio(self, sender, app_data, user_data) -> None:
         if self._audio_browser:
