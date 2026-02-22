@@ -2,24 +2,20 @@
 
 Combines audio stems (from DemucsPanel / RoformerPanel) with MIDI-rendered
 accompaniment (from MidiPanel), offering per-track instrument selection,
-volume, and mute controls, then exports the result to a single WAV file.
+volume, mute, and per-track solo-preview controls, then exports the
+result to a single WAV file.
+
+Sources
+-------
+Tracks can come from three places:
+  1. notify_stems_ready()   — audio stems passed from Separate tab
+  2. notify_midi_ready()    — per-stem MIDI files passed from MIDI tab
+  3. Manual load (buttons)  — user browses for additional audio or MIDI files
 
 Inter-panel wiring (set up in gui/app.py)
 -----------------------------------------
     _demucs.add_result_listener(_mix.notify_stems_ready)
     _midi.add_result_listener(_mix.notify_midi_ready)
-
-Layout
-------
-Left column (~380 px):
-  · Soundfont path + Browse button
-  · Dynamic track list: checkbox, label, instrument combo (MIDI), volume
-  · Note about vocal MIDI limitation
-
-Right column:
-  · Render Mix button + Play / Stop / Rewind + time display
-  · Progress bar + status
-  · Result: duration, file path, Copy path, Save As
 """
 
 from __future__ import annotations
@@ -64,7 +60,7 @@ def _t(name: str) -> str:
 
 
 def _safe(label: str) -> str:
-    """Sanitise a display label for use in a DPG tag (no spaces or symbols)."""
+    """Sanitise a display label for use in a DPG tag."""
     return (
         label.replace(" ", "_")
              .replace("&", "and")
@@ -83,6 +79,8 @@ class TrackState:
     volume: float = 1.0      # 0.0 – 1.0
     program: int = 0         # GM program number (MIDI tracks only)
     is_drum: bool = False
+    # For manual-load tracks, store the path here instead of looking it up via label.
+    manual_path: pathlib.Path | None = None
 
 
 class MixPanel:
@@ -93,8 +91,15 @@ class MixPanel:
         self._audio_stems: dict[str, pathlib.Path] = {}   # internal_name → path
         self._midi_stems: dict[str, pathlib.Path] = {}     # display_label → path
 
+        # Manually loaded additional tracks
+        self._manual_audio: dict[str, pathlib.Path] = {}  # display_label → path
+        self._manual_midi: dict[str, pathlib.Path] = {}   # display_label → path
+
         # Per-track state (display_label → TrackState)
         self._track_states: dict[str, TrackState] = {}
+
+        # Per-track rendered audio cache: "{label}:{program}" or "{label}" → (2, samples)
+        self._track_audio_cache: dict[str, np.ndarray] = {}
 
         # Rendered mix result
         self._rendered_mix: np.ndarray | None = None  # (2, samples) float32
@@ -105,17 +110,20 @@ class MixPanel:
         # Soundfont
         self._sf2_path: pathlib.Path | None = find_soundfont()
 
-        # Playback state
+        # Playback state (for the full rendered mix)
         self._playing: bool = False
         self._play_start: float = 0.0
         self._play_offset: float = 0.0
 
-        # Background render thread
-        self._thread: threading.Thread | None = None
+        # Background threads
+        self._render_thread: threading.Thread | None = None
+        self._preview_thread: threading.Thread | None = None
 
         # File browsers (built later at top DPG level)
         self._sf2_browser: FileBrowser | None = None
         self._save_browser: FileBrowser | None = None
+        self._add_audio_browser: FileBrowser | None = None
+        self._add_midi_browser: FileBrowser | None = None
 
         # Register in the global MIDI player list so tick_all_midi() /
         # stop_all_midi() handle this panel alongside MidiPlayerWidget.
@@ -129,11 +137,11 @@ class MixPanel:
         with dpg.group(horizontal=True):
 
             # ---- Left column: soundfont + track list ------------------
-            with dpg.child_window(width=390, height=-1, border=False):
+            with dpg.child_window(width=400, height=-1, border=False):
 
                 # Soundfont
                 dpg.add_text("Soundfont", color=(175, 175, 255, 255))
-                sf2_str = str(self._sf2_path) if self._sf2_path else "(none found — install fluid-soundfont-gm)"
+                sf2_str = str(self._sf2_path) if self._sf2_path else "(none — install fluid-soundfont-gm)"
                 dpg.add_input_text(
                     tag=_t("sf2_path"),
                     default_value=sf2_str,
@@ -149,14 +157,32 @@ class MixPanel:
                 dpg.add_spacer(height=12)
                 dpg.add_separator()
 
-                # Track list
-                dpg.add_text("Tracks", color=(175, 175, 255, 255))
+                # Track list header + add-file buttons
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Tracks", color=(175, 175, 255, 255))
+                    dpg.add_spacer(width=12)
+                    dpg.add_button(
+                        label="+ Audio file",
+                        callback=self._on_add_audio_click,
+                        height=22,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Load an audio file (wav/flac/mp3) as an additional track.")
+                    dpg.add_spacer(width=4)
+                    dpg.add_button(
+                        label="+ MIDI file",
+                        callback=self._on_add_midi_click,
+                        height=22,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Load a MIDI file as an additional track.")
+
                 dpg.add_spacer(height=4)
                 dpg.add_text(
-                    "Run Separate and Extract MIDI first.",
+                    "Run Separate and/or Extract MIDI first, or load files above.",
                     tag=_t("tracks_empty"),
                     color=(120, 120, 140, 255),
-                    wrap=370,
+                    wrap=380,
                 )
 
                 # Track rows are appended here dynamically.
@@ -167,13 +193,13 @@ class MixPanel:
                 dpg.add_text(
                     "Note: vocal MIDI uses GM choir sounds — no lyrics.",
                     color=(100, 100, 120, 255),
-                    wrap=370,
+                    wrap=380,
                 )
 
             # ---- Right column: controls + result ----------------------
             with dpg.child_window(width=-1, height=-1, border=False):
 
-                # Render + playback controls
+                # Render + full-mix playback controls
                 with dpg.group(horizontal=True):
                     dpg.add_button(
                         label="  Render Mix  ",
@@ -183,9 +209,9 @@ class MixPanel:
                     )
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text(
-                            "Mix all enabled tracks and save to a WAV file.\n"
+                            "Mix all enabled tracks into a single WAV file.\n"
                             "MIDI tracks are rendered via FluidSynth.\n"
-                            "Audio tracks are loaded directly from the stems."
+                            "Audio tracks are loaded directly from disk."
                         )
                     dpg.add_spacer(width=10)
                     dpg.add_button(
@@ -265,7 +291,7 @@ class MixPanel:
                     )
 
     def build_save_dialog(self) -> None:
-        """Create file browsers at the top DPG level (outside all windows)."""
+        """Create all file browsers at the top DPG level (outside all windows)."""
         self._sf2_browser = FileBrowser(
             tag="mix_sf2_browser",
             callback=self._on_sf2_selected,
@@ -282,15 +308,28 @@ class MixPanel:
         )
         self._save_browser.build()
 
+        self._add_audio_browser = FileBrowser(
+            tag="mix_add_audio_browser",
+            callback=self._on_audio_file_selected,
+            extensions=frozenset({".wav", ".flac", ".mp3", ".ogg", ".aiff", ".aif"}),
+            mode="open",
+        )
+        self._add_audio_browser.build()
+
+        self._add_midi_browser = FileBrowser(
+            tag="mix_add_midi_browser",
+            callback=self._on_midi_file_selected,
+            extensions=frozenset({".mid", ".midi"}),
+            mode="open",
+        )
+        self._add_midi_browser.build()
+
     # ------------------------------------------------------------------
     # Inter-panel notifications
     # ------------------------------------------------------------------
 
     def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
-        """Called by DemucsPanel / RoformerPanel after successful separation.
-
-        *stem_paths* uses internal Demucs names ("vocals", "drums", …).
-        """
+        """Called by DemucsPanel / RoformerPanel after successful separation."""
         self._audio_stems = dict(stem_paths)
         self._rebuild_tracks()
 
@@ -299,34 +338,66 @@ class MixPanel:
         midi_path: pathlib.Path,
         stem_midi_paths: dict[str, pathlib.Path],
     ) -> None:
-        """Called by MidiPanel after successful MIDI extraction.
-
-        *stem_midi_paths* keys are display labels ("Singing voice", "Bass", …).
-        """
+        """Called by MidiPanel after successful MIDI extraction."""
         self._midi_stems = dict(stem_midi_paths)
+        self._rebuild_tracks()
+
+    # ------------------------------------------------------------------
+    # Manual file loading
+    # ------------------------------------------------------------------
+
+    def _on_add_audio_click(self, sender, app_data, user_data) -> None:
+        if self._add_audio_browser:
+            self._add_audio_browser.show()
+
+    def _on_add_midi_click(self, sender, app_data, user_data) -> None:
+        if self._add_midi_browser:
+            self._add_midi_browser.show()
+
+    def _on_audio_file_selected(self, path: pathlib.Path) -> None:
+        label = path.stem
+        self._manual_audio[label] = path
+        self._rebuild_tracks()
+
+    def _on_midi_file_selected(self, path: pathlib.Path) -> None:
+        label = path.stem
+        self._manual_midi[label] = path
         self._rebuild_tracks()
 
     # ------------------------------------------------------------------
     # Track list management
     # ------------------------------------------------------------------
 
+    def _all_audio(self) -> dict[str, pathlib.Path]:
+        """Merged audio sources: pipeline stems + manual loads."""
+        result: dict[str, pathlib.Path] = {}
+        for internal, path in self._audio_stems.items():
+            result[_STEM_LABEL.get(internal, internal)] = path
+        result.update(self._manual_audio)
+        return result
+
+    def _all_midi(self) -> dict[str, pathlib.Path]:
+        """Merged MIDI sources: pipeline extractions + manual loads."""
+        result = dict(self._midi_stems)
+        result.update(self._manual_midi)
+        return result
+
     def _rebuild_tracks(self) -> None:
         """Recompute the track list and refresh the UI."""
-        # Build the unified set of display labels.
-        all_labels: set[str] = set()
-        for internal in self._audio_stems:
-            all_labels.add(_STEM_LABEL.get(internal, internal))
-        all_labels.update(self._midi_stems.keys())
+        all_audio = self._all_audio()
+        all_midi = self._all_midi()
 
-        # Update _track_states — preserve existing user settings.
+        # Build the unified set of display labels.
+        all_labels: set[str] = set(all_audio) | set(all_midi)
+
+        # Update _track_states — preserve existing user settings for known labels.
         new_states: dict[str, TrackState] = {}
         for label in all_labels:
             if label in self._track_states:
                 new_states[label] = self._track_states[label]
             else:
-                internal = _REVERSE_STEM_LABEL.get(label)
-                has_audio = internal is not None and internal in self._audio_stems
-                has_midi = label in self._midi_stems
+                has_audio = label in all_audio
+                has_midi = label in all_midi
                 is_vocal = label in ("Singing voice", "vocals")
 
                 # Vocal defaults to audio; others default to MIDI when available.
@@ -337,12 +408,20 @@ class MixPanel:
                 else:
                     source = "audio"
 
+                # For manually loaded tracks, store the path in TrackState.
+                manual_path: pathlib.Path | None = None
+                if label in self._manual_audio:
+                    manual_path = self._manual_audio[label]
+                elif label in self._manual_midi:
+                    manual_path = self._manual_midi[label]
+
                 new_states[label] = TrackState(
                     source=source,
                     enabled=True,
                     volume=1.0,
                     program=_STEM_DEFAULT_PROGRAM.get(label, 0),
                     is_drum=_STEM_IS_DRUM.get(label, False),
+                    manual_path=manual_path,
                 )
 
         self._track_states = new_states
@@ -362,20 +441,33 @@ class MixPanel:
         if dpg.does_item_exist(empty_tag):
             dpg.configure_item(empty_tag, show=not has_tracks)
 
+        all_audio = self._all_audio()
+        all_midi = self._all_midi()
+
         for label, state in self._track_states.items():
             safe = _safe(label)
             source_hint = "audio" if state.source == "audio" else "midi"
 
             with dpg.group(tag=_t(f"track_{safe}_group"), parent=group_tag):
 
-                # Row 1: enable checkbox + label
-                dpg.add_checkbox(
-                    label=f"{label}  ({source_hint})",
-                    tag=_t(f"track_{safe}_check"),
-                    default_value=state.enabled,
-                    callback=self._on_track_check,
-                    user_data=label,
-                )
+                # Row 1: ▶ preview | enable checkbox
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="▶",
+                        tag=_t(f"track_{safe}_preview_btn"),
+                        callback=self._on_track_preview,
+                        user_data=label,
+                        width=28,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(f"Preview this track alone ({source_hint}).")
+                    dpg.add_checkbox(
+                        label=f"{label}  ({source_hint})",
+                        tag=_t(f"track_{safe}_check"),
+                        default_value=state.enabled,
+                        callback=self._on_track_check,
+                        user_data=label,
+                    )
 
                 # Row 2: instrument selector (MIDI only) + volume
                 with dpg.group(horizontal=True):
@@ -389,15 +481,12 @@ class MixPanel:
                             items=_GM_INSTRUMENTS,
                             default_value=default_name,
                             tag=_t(f"track_{safe}_program"),
-                            width=195,
+                            width=185,
                             callback=self._on_track_program,
                             user_data=label,
                         )
                     elif state.source == "midi" and state.is_drum:
-                        dpg.add_text(
-                            "Standard Drums",
-                            color=(140, 140, 180, 255),
-                        )
+                        dpg.add_text("Standard Drums", color=(140, 140, 180, 255))
                     else:
                         dpg.add_text("(audio stem)", color=(100, 150, 100, 255))
 
@@ -434,16 +523,131 @@ class MixPanel:
         label = user_data
         if label in self._track_states and app_data in _GM_INSTRUMENTS:
             self._track_states[label].program = _GM_INSTRUMENTS.index(app_data)
+            # Invalidate cached render for this track.
+            stale = [k for k in self._track_audio_cache if k.startswith(f"{label}:")]
+            for k in stale:
+                del self._track_audio_cache[k]
+
+    def _on_track_preview(self, sender, app_data, user_data) -> None:
+        """Preview a single track in isolation."""
+        label = user_data
+        state = self._track_states.get(label)
+        if not state:
+            return
+        # Kill any in-progress preview thread (best-effort).
+        self._preview_thread = threading.Thread(
+            target=self._preview_single_track,
+            args=(label, state),
+            daemon=True,
+        )
+        self._preview_thread.start()
+
+    # ------------------------------------------------------------------
+    # Per-track preview
+    # ------------------------------------------------------------------
+
+    def _preview_single_track(self, label: str, state: TrackState) -> None:
+        cache_key = (
+            f"{label}:{state.program}:{state.is_drum}"
+            if state.source == "midi"
+            else label
+        )
+
+        if cache_key not in self._track_audio_cache:
+            self._set_status(f"Rendering preview: {label}…")
+            audio = self._render_single_track(label, state)
+            if audio is None:
+                self._set_status(f"Preview failed: {label}")
+                return
+            self._track_audio_cache[cache_key] = audio
+
+        audio = self._track_audio_cache[cache_key]
+
+        # Stop everything else.
+        from gui.components.waveform_widget import stop_all as stop_all_waveforms
+        stop_all_waveforms()
+        for w in _ALL_MIDI_PLAYERS:
+            if w is not self:
+                try:
+                    w._stop()
+                except Exception:
+                    pass
+
+        try:
+            import sounddevice as sd
+            # audio is (2, samples) stereo
+            sd.play(audio.T, samplerate=self._mix_sr)
+            self._set_status(f"Previewing: {label}")
+        except Exception as exc:
+            log.error("MixPanel preview playback error: %s", exc)
+            self._set_status(f"Preview error: {exc}")
+
+    def _render_single_track(
+        self,
+        label: str,
+        state: TrackState,
+    ) -> "np.ndarray | None":
+        """Render a single track to a (2, samples) float32 stereo array."""
+        all_audio = self._all_audio()
+        all_midi = self._all_midi()
+
+        if state.source == "midi" and label in all_midi:
+            if self._sf2_path is None:
+                self._set_status("No soundfont — install fluid-soundfont-gm.")
+                return None
+            try:
+                import pretty_midi
+                midi_obj = pretty_midi.PrettyMIDI(str(all_midi[label]))
+                for inst in midi_obj.instruments:
+                    if state.is_drum:
+                        inst.is_drum = True
+                    elif not inst.is_drum:
+                        inst.program = state.program
+                audio_mono = midi_obj.fluidsynth(
+                    fs=self._mix_sr, sf2_path=str(self._sf2_path)
+                )
+                return np.stack([audio_mono, audio_mono])
+            except Exception as exc:
+                log.error("MixPanel single-track MIDI render error: %s", exc)
+                return None
+
+        if state.source == "audio":
+            from utils.audio_io import read_audio
+            # Try pipeline stem first, then manual audio.
+            internal = _REVERSE_STEM_LABEL.get(label)
+            path: pathlib.Path | None = None
+            if internal and internal in self._audio_stems:
+                path = self._audio_stems[internal]
+            elif label in all_audio:
+                path = all_audio[label]
+            if path is None:
+                return None
+            try:
+                waveform, sr = read_audio(path, mono=False)
+                if sr != self._mix_sr:
+                    import librosa
+                    waveform = np.stack([
+                        librosa.resample(waveform[c], orig_sr=sr, target_sr=self._mix_sr)
+                        for c in range(waveform.shape[0])
+                    ])
+                if waveform.shape[0] == 1:
+                    waveform = np.concatenate([waveform, waveform], axis=0)
+                return waveform
+            except Exception as exc:
+                log.error("MixPanel single-track audio read error: %s", exc)
+                return None
+
+        return None
 
     # ------------------------------------------------------------------
     # Callbacks — buttons
     # ------------------------------------------------------------------
 
     def _on_render_click(self, sender, app_data, user_data) -> None:
-        if self._thread and self._thread.is_alive():
+        if self._render_thread and self._render_thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._render_mix, daemon=True)
-        self._thread.start()
+        self._render_thread = threading.Thread(target=self._render_mix, daemon=True)
+        self._render_thread.start()
 
     def _on_play(self, sender, app_data, user_data) -> None:
         self._start_play(self._play_offset)
@@ -466,6 +670,8 @@ class MixPanel:
 
     def _on_sf2_selected(self, path: pathlib.Path) -> None:
         self._sf2_path = path
+        # Invalidate all MIDI track caches since the soundfont changed.
+        self._track_audio_cache.clear()
         if dpg.does_item_exist(_t("sf2_path")):
             dpg.set_value(_t("sf2_path"), str(path))
 
@@ -487,76 +693,36 @@ class MixPanel:
             self._set_status(f"Save error: {exc}")
 
     # ------------------------------------------------------------------
-    # Background render
+    # Background render (full mix)
     # ------------------------------------------------------------------
 
     def _render_mix(self) -> None:
         if dpg.does_item_exist(_t("render_btn")):
             dpg.configure_item(_t("render_btn"), enabled=False)
         dpg.set_value(_t("progress"), 0.0)
-        self._set_status("Rendering...")
+        self._set_status("Rendering…")
 
         try:
-            import pretty_midi
             import soundfile as sf
-            from utils.audio_io import read_audio
 
             enabled = {k: v for k, v in self._track_states.items() if v.enabled}
             if not enabled:
                 self._set_status("No enabled tracks.")
                 return
 
-            tracks: list[np.ndarray] = []   # each (2, samples) float32
+            tracks: list[np.ndarray] = []
             volumes: list[float] = []
             n = len(enabled)
 
             for i, (label, state) in enumerate(enabled.items()):
-                if state.source == "midi" and label in self._midi_stems:
-                    if self._sf2_path is None:
-                        self._set_status(
-                            "Error: no soundfont found. "
-                            "Install fluid-soundfont-gm."
-                        )
-                        return
-
-                    midi_obj = pretty_midi.PrettyMIDI(str(self._midi_stems[label]))
-                    for inst in midi_obj.instruments:
-                        if state.is_drum:
-                            inst.is_drum = True
-                        elif not inst.is_drum:
-                            inst.program = state.program
-
-                    audio_mono = midi_obj.fluidsynth(
-                        fs=44100,
-                        sf2_path=str(self._sf2_path),
-                    )
-                    # pretty_midi returns (samples,) mono — convert to (2, samples)
-                    audio = np.stack([audio_mono, audio_mono])
+                audio = self._render_single_track(label, state)
+                if audio is not None:
                     tracks.append(audio)
                     volumes.append(state.volume)
-
-                elif state.source == "audio":
-                    internal = _REVERSE_STEM_LABEL.get(label)
-                    if internal and internal in self._audio_stems:
-                        waveform, sr = read_audio(self._audio_stems[internal], mono=False)
-                        if sr != 44100:
-                            import librosa
-                            waveform = np.stack([
-                                librosa.resample(
-                                    waveform[c], orig_sr=sr, target_sr=44100,
-                                )
-                                for c in range(waveform.shape[0])
-                            ])
-                        # Ensure stereo
-                        if waveform.shape[0] == 1:
-                            waveform = np.concatenate([waveform, waveform], axis=0)
-                        tracks.append(waveform)
-                        volumes.append(state.volume)
-
                 dpg.set_value(_t("progress"), (i + 1) / n * 0.9)
 
             if not tracks:
-                self._set_status("No tracks could be rendered (check stems/MIDI).")
+                self._set_status("No tracks could be rendered (check stems / MIDI).")
                 return
 
             # Pad all tracks to the length of the longest one.
@@ -568,14 +734,12 @@ class MixPanel:
                     t = np.pad(t, ((0, 0), (0, pad)))
                 padded.append(t * vol)
 
-            mix = np.sum(padded, axis=0)  # (2, max_len)
+            mix = np.sum(padded, axis=0).astype(np.float32)
 
             # Normalise to prevent clipping.
             peak = float(np.max(np.abs(mix)))
             if peak > 1e-6:
-                mix = (mix / peak).astype(np.float32)
-            else:
-                mix = mix.astype(np.float32)
+                mix /= peak
 
             self._rendered_mix = mix
             self._mix_sr = 44100
@@ -617,7 +781,7 @@ class MixPanel:
     # ------------------------------------------------------------------
 
     def tick(self) -> None:
-        """Update time display during playback. Called each frame."""
+        """Update time display during full-mix playback."""
         if not self._playing:
             return
         pos = self._play_offset + (time.time() - self._play_start)
@@ -631,11 +795,8 @@ class MixPanel:
             dpg.set_value(_t("time"), f"{m}:{s:02d} / {dm}:{ds:02d}")
 
     def _start_play(self, offset: float = 0.0) -> None:
-        # Stop waveform widgets.
         from gui.components.waveform_widget import stop_all as stop_all_waveforms
         stop_all_waveforms()
-
-        # Stop all other MIDI players (not self).
         for w in _ALL_MIDI_PLAYERS:
             if w is not self:
                 try:

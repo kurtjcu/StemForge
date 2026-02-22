@@ -50,7 +50,7 @@ from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIDI_DIR
 from gui.components.demucs_panel import STEM_TARGETS, _STEM_LABEL
 from gui.components.file_browser import FileBrowser
-from gui.components.midi_player_widget import MidiPlayerWidget
+from gui.components.midi_player_widget import MidiPlayerWidget, _ALL_MIDI_PLAYERS
 
 _BP_ONSET_DEFAULT: float = BASICPITCH.default_onset
 _BP_FRAME_DEFAULT: float = BASICPITCH.default_frame
@@ -113,6 +113,18 @@ def _t(name: str) -> str:
     return f"{_P}_{name}"
 
 
+def _safe_tag(label: str) -> str:
+    """Sanitise a display label for use in a DPG tag."""
+    return (
+        label.replace(" ", "_")
+             .replace("&", "and")
+             .replace("/", "_")
+             .replace(".", "_")
+             .replace("(", "")
+             .replace(")", "")
+    )
+
+
 class MidiPanel:
     """MIDI generation panel using the MidiPipeline backend."""
 
@@ -129,7 +141,11 @@ class MidiPanel:
             Callable[[pathlib.Path, dict[str, pathlib.Path]], None]
         ] = []
 
-        self._midi_player = MidiPlayerWidget("midi_preview")
+        # Per-stem MIDI players — populated after each extraction run.
+        self._stem_players: dict[str, MidiPlayerWidget] = {}
+        # State for the shared "Save MIDI as..." dialog.
+        self._save_midi_path: pathlib.Path | None = None
+        self._save_midi_browser: FileBrowser | None = None
 
         self._stem_browser = FileBrowser(
             tag="midi_stem_browser",
@@ -435,12 +451,28 @@ class MidiPanel:
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
-                dpg.add_spacer(height=6)
-                self._midi_player.build_ui()
+                dpg.add_text("Stem Players", color=(175, 175, 255, 255))
+                dpg.add_spacer(height=4)
+                dpg.add_text(
+                    "Extract MIDI to see per-stem players here.",
+                    tag=_t("players_empty"),
+                    color=(120, 120, 140, 255),
+                    wrap=350,
+                )
+                # Per-stem player widgets are added here dynamically after each run.
+                with dpg.group(tag=_t("players_group")):
+                    pass
 
     def build_browsers(self) -> None:
         """Create the stem file browser at the top DearPyGUI level."""
         self._stem_browser.build()
+        self._save_midi_browser = FileBrowser(
+            tag="midi_save_midi_browser",
+            callback=self._on_save_midi_selected,
+            extensions=frozenset({".mid", ".midi"}),
+            mode="save",
+        )
+        self._save_midi_browser.build()
 
     # ------------------------------------------------------------------
     # Inter-panel wiring
@@ -654,6 +686,87 @@ class MidiPanel:
             )
 
     # ------------------------------------------------------------------
+    # Per-stem player management
+    # ------------------------------------------------------------------
+
+    def _rebuild_stem_players(
+        self,
+        stem_midi_paths: dict[str, pathlib.Path],
+    ) -> None:
+        """Clear old per-stem players and create new ones after extraction.
+
+        Called from the pipeline background thread.  DPG 1.x allows widget
+        creation from non-render threads in practice (same pattern used by
+        mix_panel._update_tracks_ui).
+        """
+        import shutil as _shutil
+
+        # Remove old player instances from the global tick/stop list.
+        for player in self._stem_players.values():
+            try:
+                _ALL_MIDI_PLAYERS.remove(player)
+            except ValueError:
+                pass
+        self._stem_players.clear()
+
+        # Clear the dynamic group and update the empty-state label.
+        if dpg.does_item_exist(_t("players_group")):
+            dpg.delete_item(_t("players_group"), children_only=True)
+        if dpg.does_item_exist(_t("players_empty")):
+            dpg.configure_item(_t("players_empty"), show=not bool(stem_midi_paths))
+
+        for label, midi_path in stem_midi_paths.items():
+            safe = _safe_tag(label)
+            player = MidiPlayerWidget(f"midi_{safe}")
+            self._stem_players[label] = player
+
+            path_tag = _t(f"player_path_{safe}")
+
+            with dpg.group(parent=_t("players_group")):
+                dpg.add_text(label, color=(200, 200, 255, 255))
+                player.build_ui()
+
+                dpg.add_text("", tag=path_tag, color=(120, 120, 140, 255), wrap=340)
+                set_widget_text(path_tag, str(midi_path))
+
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Copy path",
+                        callback=make_copy_callback(path_tag),
+                        width=90,
+                    )
+                    dpg.add_button(
+                        label="Save as...",
+                        callback=self._make_save_cb(midi_path),
+                        width=90,
+                    )
+
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
+
+            player.load(midi_path, label)
+
+    def _make_save_cb(self, midi_path: pathlib.Path):
+        """Return a DPG callback that saves *midi_path* to a user-chosen location."""
+        def _cb(sender, app_data, user_data):
+            self._save_midi_path = midi_path
+            if self._save_midi_browser:
+                self._save_midi_browser.show()
+        return _cb
+
+    def _on_save_midi_selected(self, dest: pathlib.Path) -> None:
+        """Copy the selected MIDI file to *dest* (chosen via FileBrowser)."""
+        if self._save_midi_path is None:
+            return
+        import shutil
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(self._save_midi_path), str(dest))
+            log.info("Saved MIDI to %s", dest)
+        except Exception as exc:
+            log.error("MidiPanel save MIDI error: %s", exc)
+
+    # ------------------------------------------------------------------
     # Background pipeline execution
     # ------------------------------------------------------------------
 
@@ -770,8 +883,8 @@ class MidiPanel:
                 f"{len(result.note_counts)} track(s)",
             )
 
-            # Load merged MIDI into the preview player.
-            self._midi_player.load(result.midi_path)
+            # Rebuild per-stem player widgets.
+            self._rebuild_stem_players(result.stem_midi_paths)
 
             # Notify downstream panels (e.g. Generate).
             for cb in self._result_listeners:
