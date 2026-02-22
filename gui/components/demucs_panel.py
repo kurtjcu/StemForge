@@ -37,7 +37,7 @@ from pipelines.roformer_pipeline import RoformerPipeline, RoformerConfig
 from models.registry import list_specs, get_spec, DemucsSpec, RoformerSpec
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
-from gui.components.waveform_widget import WaveformWidget
+from gui.components.waveform_widget import WaveformWidget, stop_all as _stop_all_audio
 from gui.components.file_browser import FileBrowser
 
 
@@ -199,13 +199,28 @@ class DemucsPanel:
 
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
-                dpg.add_text("Separated parts", color=(175, 175, 255, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Separated parts", color=(175, 175, 255, 255))
+                    dpg.add_spacer(width=12)
+                    dpg.add_button(
+                        label="Stop All",
+                        tag=_t("stop_all_btn"),
+                        callback=lambda s, a, u: _stop_all_audio(),
+                        width=80,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Stop playback on all stems.")
                 dpg.add_spacer(height=4)
 
                 for stem in _ALL_STEM_TARGETS:
                     with dpg.group(tag=_t(f"row_{stem}"), show=False):
+                        dpg.add_separator()
+                        dpg.add_spacer(height=4)
+                        # Waveform preview at the top of each row
+                        self._stem_waveforms[stem].build_ui()
+                        # Label + action buttons below the waveform
                         with dpg.group(horizontal=True):
-                            # Result checkbox — controls MIDI tab availability
+                            # Checkbox controls MIDI tab availability
                             dpg.add_checkbox(
                                 label="",
                                 default_value=True,
@@ -241,8 +256,6 @@ class DemucsPanel:
                             tag=_t(f"rms_{stem}"),
                             color=(120, 180, 120, 255),
                         )
-                        # Per-stem waveform preview
-                        self._stem_waveforms[stem].build_ui()
                         dpg.add_spacer(height=6)
 
     def build_save_dialog(self) -> None:

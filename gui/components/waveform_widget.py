@@ -51,6 +51,15 @@ def tick_all() -> None:
             log.debug("WaveformWidget.tick error: %s", exc)
 
 
+def stop_all() -> None:
+    """Stop playback on every registered widget (e.g. for a global Stop All button)."""
+    for w in _ALL_WIDGETS:
+        try:
+            w._stop()
+        except Exception:
+            pass
+
+
 class WaveformWidget:
     """Play/Stop buttons + waveform plot + animated playback cursor."""
 
