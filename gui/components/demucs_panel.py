@@ -68,11 +68,8 @@ _ENGINES = ("Demucs", "BS-Roformer")
 # Stem is "active" if stem_rms / mix_rms exceeds this ratio (~-40 dB)
 _RMS_ACTIVE_RATIO = 0.01
 
-# Braille spinner frames — cycle through these in the progress callback
-_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_SPINNER_GPU_COLOR = (100, 220, 100, 255)   # green — running on GPU
-_SPINNER_CPU_COLOR = (220, 180,  80, 255)   # amber — running on CPU
-_SPINNER_IDLE_COLOR = (80,  80, 100, 255)   # dim — not running
+_SPINNER_CPU_COLOR  = (220, 130,  50, 255)   # orange — CPU fallback warning
+_SPINNER_IDLE_COLOR = (80,   80, 100, 255)   # dim — not running
 
 _P = "demucs"
 
@@ -98,7 +95,6 @@ class DemucsPanel:
         self._stem_paths: dict[str, pathlib.Path] = {}
         self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
         self._save_stem_name: str = ""
-        self._spinner_idx: int = 0
 
         # One WaveformWidget per stem (all four, Roformer only uses 2)
         self._stem_waveforms: dict[str, WaveformWidget] = {
@@ -218,7 +214,7 @@ class DemucsPanel:
                                 color=(220, 220, 220, 255),
                             )
                             dpg.add_button(
-                                label="Save As…",
+                                label="Save As...",
                                 tag=_t(f"save_{stem}"),
                                 callback=self._make_save_cb(stem),
                                 width=80,
@@ -565,17 +561,12 @@ class DemucsPanel:
     # ------------------------------------------------------------------
 
     def _tick_spinner(self, device: str = "") -> None:
-        """Advance the spinner one frame and set GPU/CPU label + color."""
-        char = _SPINNER[self._spinner_idx % len(_SPINNER)]
-        self._spinner_idx += 1
-        if device == "GPU":
-            label = f"{char} GPU"
-            color = _SPINNER_GPU_COLOR
-        elif device == "CPU":
-            label = f"{char} CPU"
+        """Show a CPU warning when on CPU, nothing extra when on GPU."""
+        if device == "CPU":
+            label = "GPU unavailable — using CPU fallback, this will run slowly..."
             color = _SPINNER_CPU_COLOR
         else:
-            label = char
+            label = ""
             color = _SPINNER_IDLE_COLOR
         dpg.set_value(_t("spinner"), label)
         dpg.configure_item(_t("spinner"), color=color)

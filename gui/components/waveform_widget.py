@@ -94,6 +94,15 @@ class WaveformWidget:
                     width=70,
                     enabled=False,
                 )
+                dpg.add_button(
+                    label="<<",
+                    tag=self._tag("rewind_btn"),
+                    callback=self._on_rewind,
+                    width=50,
+                    enabled=False,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Rewind to start")
                 dpg.add_text(
                     "",
                     tag=self._tag("time"),
@@ -134,6 +143,13 @@ class WaveformWidget:
 
             pass  # click-to-seek is handled in tick() via is_item_hovered
 
+        # Style the cursor as a bright yellow line so it's visible on dark themes
+        with dpg.theme() as cursor_theme:
+            with dpg.theme_component(dpg.mvInfLineSeries):
+                dpg.add_theme_color(dpg.mvPlotCol_Line, (255, 210, 0, 220), category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_style(dpg.mvPlotStyleVar_LineWeight, 2.0, category=dpg.mvThemeCat_Plots)
+        dpg.bind_item_theme(self._tag("cursor"), cursor_theme)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -146,13 +162,14 @@ class WaveformWidget:
     def clear(self) -> None:
         """Stop playback, reset plot, and disable buttons."""
         self._stop()
+        self._play_offset = 0.0
         self._waveform = None
         self._duration = 0.0
         if dpg.does_item_exist(self._tag("wave")):
             dpg.set_value(self._tag("wave"), [[], []])
         if dpg.does_item_exist(self._tag("cursor")):
-            dpg.set_value(self._tag("cursor"), [0.0])
-        for btn in (self._tag("play_btn"), self._tag("stop_btn")):
+            dpg.set_value(self._tag("cursor"), [[0.0]])
+        for btn in (self._tag("play_btn"), self._tag("stop_btn"), self._tag("rewind_btn")):
             if dpg.does_item_exist(btn):
                 dpg.configure_item(btn, enabled=False)
         if dpg.does_item_exist(self._tag("time")):
@@ -175,10 +192,11 @@ class WaveformWidget:
         pos = self._play_offset + (time.time() - self._play_start)
         if pos >= self._duration:
             self._stop()
+            self._play_offset = 0.0   # reset to start after natural end
             pos = 0.0
 
         if dpg.does_item_exist(self._tag("cursor")):
-            dpg.set_value(self._tag("cursor"), [pos])
+            dpg.set_value(self._tag("cursor"), [[pos]])
         if dpg.does_item_exist(self._tag("time")):
             m, s = divmod(int(pos), 60)
             dm, ds = divmod(int(self._duration), 60)
@@ -210,6 +228,8 @@ class WaveformWidget:
                 dpg.set_axis_limits(self._tag("yaxis"), -1.0, 1.0)
             if dpg.does_item_exist(self._tag("play_btn")):
                 dpg.configure_item(self._tag("play_btn"), enabled=True)
+            if dpg.does_item_exist(self._tag("rewind_btn")):
+                dpg.configure_item(self._tag("rewind_btn"), enabled=True)
         except Exception as exc:
             log.error("WaveformWidget load error (%s): %s", path, exc)
 
@@ -218,10 +238,22 @@ class WaveformWidget:
     # ------------------------------------------------------------------
 
     def _on_play(self, sender, app_data, user_data) -> None:
-        self._start_play(offset=0.0)
+        self._start_play(offset=self._play_offset)
 
     def _on_stop(self, sender, app_data, user_data) -> None:
         self._stop()
+
+    def _on_rewind(self, sender, app_data, user_data) -> None:
+        """Reset playback position to the beginning."""
+        if self._playing:
+            self._start_play(offset=0.0)
+        else:
+            self._play_offset = 0.0
+            if dpg.does_item_exist(self._tag("cursor")):
+                dpg.set_value(self._tag("cursor"), [[0.0]])
+            if dpg.does_item_exist(self._tag("time")) and self._duration > 0:
+                dm, ds = divmod(int(self._duration), 60)
+                dpg.set_value(self._tag("time"), f"0:00 / {dm}:{ds:02d}")
 
     # ------------------------------------------------------------------
     # Playback internals
@@ -260,6 +292,11 @@ class WaveformWidget:
     def _stop(self) -> None:
         global _active_widget
         if self._playing:
+            # Save position so Play resumes from here
+            self._play_offset = min(
+                self._play_offset + (time.time() - self._play_start),
+                self._duration,
+            )
             self._playing = False
             try:
                 import sounddevice as sd
