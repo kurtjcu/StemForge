@@ -52,6 +52,7 @@ dependencies = [
     "openunmix==1.3.0",
     "julius==0.2.7",
     "lameenc==1.8.1",
+    "diffq==0.2.4",    # required by mdx_extra_q (quantized MDX model)
 
     # BasicPitch deps
     "pretty_midi==0.2.11",
