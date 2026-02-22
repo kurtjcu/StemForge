@@ -15,6 +15,7 @@ import pathlib
 
 import dearpygui.dearpygui as dpg
 
+from utils.wsl import configure_audio as _configure_wsl_audio
 from gui.constants import _STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _MIX_DIR, _EXPORT_DIR
 from gui.components.loader import LoaderPanel
 from gui.components.demucs_panel import DemucsPanel
@@ -129,6 +130,11 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(name)s: %(message)s",
     )
+
+    # ---- WSL audio routing (must run before any sounddevice call) ------
+    wsl_msg = _configure_wsl_audio()
+    if wsl_msg:
+        log.info(wsl_msg)
 
     # ---- DearPyGUI setup -----------------------------------------------
     dpg.create_context()
