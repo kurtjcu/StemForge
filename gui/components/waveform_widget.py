@@ -38,6 +38,41 @@ _ALL_WIDGETS: list["WaveformWidget"] = []
 _active_widget: "WaveformWidget | None" = None
 _MAX_PLOT_POINTS = 2000
 
+# ---------------------------------------------------------------------------
+# Small font for plot tick labels
+# ---------------------------------------------------------------------------
+
+_PLOT_FONT_CANDIDATES = [
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+]
+_plot_font: int | None = None
+_plot_font_tried: bool = False
+
+
+def _get_plot_font() -> int | None:
+    """Return an 11-px font for plot tick labels, created once on first call.
+
+    Returns None if no suitable font file is found (labels fall back to the
+    global default font size instead).
+    """
+    global _plot_font, _plot_font_tried
+    if _plot_font_tried:
+        return _plot_font
+    _plot_font_tried = True
+    for candidate in _PLOT_FONT_CANDIDATES:
+        p = pathlib.Path(candidate)
+        if p.exists():
+            try:
+                with dpg.font_registry():
+                    _plot_font = dpg.add_font(str(p), 11)
+            except Exception as exc:
+                log.debug("Could not load plot font at %s: %s", p, exc)
+            return _plot_font
+    return None
+
 
 def tick_all() -> None:
     """Advance every registered widget by one render frame.
@@ -143,8 +178,6 @@ class WaveformWidget:
                 dpg.add_plot_axis(
                     dpg.mvXAxis,
                     tag=self._tag("xaxis"),
-                    no_tick_marks=True,
-                    no_tick_labels=True,
                 )
                 dpg.add_plot_axis(
                     dpg.mvYAxis,
@@ -164,6 +197,11 @@ class WaveformWidget:
                 )
 
             pass  # click-to-seek is handled in tick() via is_item_hovered
+
+        # Bind small font to the plot so tick labels don't crowd the view
+        _pf = _get_plot_font()
+        if _pf is not None:
+            dpg.bind_item_font(self._tag("plot"), _pf)
 
         # Style the cursor as a bright yellow line so it's visible on dark themes
         with dpg.theme() as cursor_theme:

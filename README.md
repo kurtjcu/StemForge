@@ -16,9 +16,10 @@ StemForge is a local, GPU‑accelerated desktop application for AI‑powered aud
 
 - **Demucs** — stem separation (vocals, drums, bass, other) — 4 models including fine-tuned and MDX variants
 - **BS-Roformer** — high-quality separation with 2-stem vocal, 4-stem, and 6-stem (guitar + piano) models
-- **MIDI extraction** — polyphonic BasicPitch for instruments, faster-whisper + pitch tracking for vocals
+- **MIDI extraction** — polyphonic BasicPitch for instruments, faster-whisper + pitch tracking for vocals; per-stem MIDI preview via FluidSynth
+- **Mix** — multi-track mixer combining audio stems and MIDI-rendered tracks; per-track instrument, volume, and FLAC render
 - **Stable Audio Open** — text-conditioned audio generation up to 600 s, with optional audio and MIDI conditioning
-- **Export** — transcode any pipeline output (stems, MIDI, generated audio) to wav / flac / mp3 / ogg
+- **Export** — transcode any pipeline output (stems, MIDI, mix, generated audio) to wav / flac / mp3 / ogg
 
 Everything runs locally with deterministic environments via uv.
 
@@ -195,8 +196,10 @@ Run:
     │       ├── loader.py               # File browser bar (top of window)
     │       ├── file_browser.py         # Reusable custom file/dir browser
     │       ├── waveform_widget.py      # Waveform preview + playback widget
+    │       ├── midi_player_widget.py   # MIDI preview widget (FluidSynth)
     │       ├── demucs_panel.py         # Separate tab (Demucs + BS-Roformer)
     │       ├── midi_panel.py           # MIDI tab (BasicPitch + vocal MIDI)
+    │       ├── mix_panel.py            # Mix tab (multi-track mixer)
     │       ├── musicgen_panel.py       # Generate tab (Stable Audio Open)
     │       └── export_panel.py         # Export tab (copy + transcode)
     │
@@ -220,7 +223,9 @@ Run:
     │
     └── utils/
         ├── audio_io.py                 # read_audio / write_audio
+        ├── audio_profile.py            # Spectral analysis + engine recommendation
         ├── midi_io.py                  # MIDI read / write / helpers
+        ├── wsl.py                      # WSL detection + PulseAudio routing
         ├── logging_utils.py            # configure_logging
         └── errors.py                   # Custom exception hierarchy
 
@@ -238,6 +243,32 @@ Extracts MIDI from any separated stem or a manually loaded audio file.
 Instrument stems use BasicPitch (polyphonic); vocal stems use faster-whisper + pitch tracking.
 Supports Ace-Step JSON metadata auto-detection for BPM, key, and lyrics prefill.
 
+After extraction each stem gets a **MIDI preview player** (Play / Stop / Rewind) rendered live
+via FluidSynth with a default GM instrument matched to the stem type.
+Extracted MIDI is kept in memory; individual stem files are only written on explicit **Save as**.
+The merged multi-track MIDI file (used for conditioning in the Generate tab) is always saved to
+`~/Music/StemForge/`.
+
+### Mix
+Combines any number of audio stems and MIDI-rendered tracks into a single stereo mix.
+Tracks appear automatically after running Separate and/or Extract MIDI; additional audio and MIDI
+files can be loaded manually.
+
+Each track row has:
+- **ON / OFF** toggle — include or exclude from playback and render
+- **Volume** slider (0–100%)
+- **Instrument** selector — full GM 128-instrument list (MIDI tracks only; drums are fixed)
+
+**Play All** premixes all ON tracks and plays through a click-to-seek master timeline.
+**Solo preview** plays a single track while the master cursor advances.
+All waveform and MIDI timelines show second-labeled ruler ticks; click anywhere to seek.
+
+**Render Mix to FLAC** saves the final mix to `~/.local/share/stemforge/output/mix/`.
+Use **Save as** to write a copy anywhere on disk (wav / flac / ogg).
+
+Requires FluidSynth + a GM soundfont (see [Requirements](#requirements)).
+Note: vocal MIDI uses GM Choir Aahs — no lyrics synthesis.
+
 ### Generate
 Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
 Optional audio conditioning from a separated stem or loaded file.
@@ -245,7 +276,7 @@ Optional MIDI conditioning — BPM, key, and instrument families are appended to
 Duration up to 600 s (chunked generation, 47 s per chunk).
 
 ### Export
-Select any combination of stems, MIDI, and generated audio.
+Select any combination of stems, MIDI, mix render, and generated audio.
 Choose output format (wav / flac / mp3 / ogg) and destination folder.
 Transcoding is performed automatically when the source and target formats differ.
 The checklist auto-refreshes after each pipeline run.
@@ -272,9 +303,12 @@ All pipelines and the full GUI are implemented and working:
 - BS-Roformer separation — 6 models including 4-stem and 6-stem (guitar + piano)
 - Automatic engine/model recommendation from spectral audio analysis
 - MIDI extraction — BasicPitch for instruments, faster-whisper + pitch for vocals
+- MIDI preview — per-stem FluidSynth playback with default GM instruments, in-memory until saved
+- Mix tab — per-track instrument/volume controls, solo preview, click-to-seek master timeline, FLAC render
 - Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s
-- Export panel — all pipeline outputs, 4 audio formats, auto-refresh on pipeline completion
-- Waveform preview and playback for all stems and generated audio
+- Export panel — all pipeline outputs including mix, 4 audio formats, auto-refresh on pipeline completion
+- Waveform and MIDI visualizers with second-labeled ruler ticks and click-to-seek on all plots
+- WSL audio support — auto-detects WSL via `/proc/version`, routes through WSLg PulseAudio socket
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
 
 StemForge is evolving into... not sure what, but its musical!

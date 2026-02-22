@@ -35,7 +35,7 @@ from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIX_DIR
 from gui.components.file_browser import FileBrowser
 from gui.components.demucs_panel import _STEM_LABEL
-from gui.components.waveform_widget import WaveformWidget, _ALL_WIDGETS
+from gui.components.waveform_widget import WaveformWidget, _ALL_WIDGETS, _get_plot_font
 from gui.components.midi_player_widget import (
     _ALL_MIDI_PLAYERS,
     find_soundfont,
@@ -196,174 +196,203 @@ class MixPanel:
     # ------------------------------------------------------------------
 
     def build_ui(self) -> None:
+        # ---- Master Playback (top) -------------------------------------
+        dpg.add_text("Master Playback", color=(175, 175, 255, 255))
+        dpg.add_spacer(height=4)
+
         with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Play All",
+                tag=_t("master_play_btn"),
+                callback=self._on_master_play,
+                width=82,
+                height=32,
+            )
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text("Premix all ON tracks and play.")
+            dpg.add_button(
+                label="Stop All",
+                tag=_t("master_stop_btn"),
+                callback=self._on_master_stop,
+                width=82,
+                height=32,
+            )
+            dpg.add_button(
+                label="<<",
+                tag=_t("master_rewind_btn"),
+                callback=self._on_master_rewind,
+                width=44,
+                height=32,
+            )
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text("Rewind all tracks to start")
+            dpg.add_spacer(width=12)
+            dpg.add_text("", tag=_t("master_time"), color=(160, 160, 160, 255))
 
-            # ---- Left column: soundfont + track list (wide) -----------
-            with dpg.child_window(width=820, height=-1, border=False):
+        with dpg.plot(
+            tag=_t("master_plot"),
+            height=60,
+            width=-1,
+            no_menus=True,
+            no_box_select=True,
+        ):
+            dpg.add_plot_axis(
+                dpg.mvXAxis,
+                tag=_t("master_xaxis"),
+            )
+            dpg.add_plot_axis(
+                dpg.mvYAxis,
+                tag=_t("master_yaxis"),
+                no_tick_marks=True,
+                no_tick_labels=True,
+            )
+            dpg.add_inf_line_series(
+                [0.0],
+                tag=_t("master_cursor"),
+                parent=_t("master_yaxis"),
+            )
 
-                # Soundfont picker
-                dpg.add_text("Soundfont", color=(175, 175, 255, 255))
-                sf2_str = (
-                    str(self._sf2_path) if self._sf2_path
-                    else "(none — install fluid-soundfont-gm)"
+        with dpg.theme() as _mct:
+            with dpg.theme_component(dpg.mvInfLineSeries):
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_Line, (255, 210, 0, 220),
+                    category=dpg.mvThemeCat_Plots,
                 )
-                dpg.add_input_text(
-                    tag=_t("sf2_path"),
-                    default_value=sf2_str,
-                    readonly=True,
-                    width=-1,
+                dpg.add_theme_style(
+                    dpg.mvPlotStyleVar_LineWeight, 2.0,
+                    category=dpg.mvThemeCat_Plots,
                 )
-                dpg.add_button(
-                    label="  Browse soundfont  ",
-                    callback=self._on_sf2_browse,
-                    height=26,
-                )
+        dpg.bind_item_theme(_t("master_cursor"), _mct)
+        _pf = _get_plot_font()
+        if _pf is not None:
+            dpg.bind_item_font(_t("master_plot"), _pf)
 
-                dpg.add_spacer(height=8)
-                dpg.add_separator()
-                dpg.add_spacer(height=6)
+        dpg.add_spacer(height=4)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Copy",
+                callback=make_copy_callback(_t("status")),
+                width=46,
+            )
+            dpg.add_text(
+                "Ready",
+                tag=_t("status"),
+                color=(160, 160, 160, 255),
+                wrap=600,
+            )
 
-                # Track list header + add-file buttons
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Tracks", color=(175, 175, 255, 255))
-                    dpg.add_spacer(width=10)
-                    dpg.add_button(
-                        label="+ Audio file",
-                        callback=self._on_add_audio_click,
-                        height=22,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Load an audio file (wav/flac/mp3) as an additional track.")
-                    dpg.add_spacer(width=4)
-                    dpg.add_button(
-                        label="+ MIDI file",
-                        callback=self._on_add_midi_click,
-                        height=22,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Load a MIDI file as an additional track.")
+        dpg.add_spacer(height=8)
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
 
-                dpg.add_spacer(height=4)
-                dpg.add_text(
-                    "Run Separate and/or Extract MIDI first, or load files above.",
-                    tag=_t("tracks_empty"),
-                    color=(120, 120, 140, 255),
-                    wrap=780,
-                )
+        # ---- Compact soundfont row ------------------------------------
+        with dpg.group(horizontal=True):
+            dpg.add_text("Soundfont:", color=(140, 140, 180, 255))
+            dpg.add_spacer(width=6)
+            sf2_str = (
+                str(self._sf2_path) if self._sf2_path
+                else "(none — install fluid-soundfont-gm)"
+            )
+            dpg.add_input_text(
+                tag=_t("sf2_path"),
+                default_value=sf2_str,
+                readonly=True,
+                width=400,
+            )
+            dpg.add_spacer(width=6)
+            dpg.add_button(
+                label="Browse",
+                callback=self._on_sf2_browse,
+                height=22,
+            )
 
-                # Scrollable track list
-                with dpg.child_window(
-                    tag=_t("tracks_scroll"),
-                    height=-1,
-                    border=False,
-                ):
-                    with dpg.group(tag=_t("tracks_group")):
-                        pass
+        dpg.add_spacer(height=8)
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
 
-            # ---- Right column: master controls + render (narrow) ------
-            with dpg.child_window(width=-1, height=-1, border=False):
+        # ---- Track list header + add-file buttons --------------------
+        with dpg.group(horizontal=True):
+            dpg.add_text("Tracks", color=(175, 175, 255, 255))
+            dpg.add_spacer(width=10)
+            dpg.add_button(
+                label="+ Audio file",
+                callback=self._on_add_audio_click,
+                height=22,
+            )
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text("Load an audio file (wav/flac/mp3) as an additional track.")
+            dpg.add_spacer(width=4)
+            dpg.add_button(
+                label="+ MIDI file",
+                callback=self._on_add_midi_click,
+                height=22,
+            )
+            with dpg.tooltip(dpg.last_item()):
+                dpg.add_text("Load a MIDI file as an additional track.")
 
-                dpg.add_text("Master Playback", color=(175, 175, 255, 255))
-                dpg.add_spacer(height=4)
+        dpg.add_spacer(height=4)
+        dpg.add_text(
+            "Run Separate and/or Extract MIDI first, or load files above.",
+            tag=_t("tracks_empty"),
+            color=(120, 120, 140, 255),
+            wrap=780,
+        )
 
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="Play All",
-                        tag=_t("master_play_btn"),
-                        callback=self._on_master_play,
-                        width=82,
-                        height=32,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Premix all ON tracks and play.")
-                    dpg.add_button(
-                        label="Stop All",
-                        tag=_t("master_stop_btn"),
-                        callback=self._on_master_stop,
-                        width=82,
-                        height=32,
-                    )
-                    dpg.add_button(
-                        label="<<",
-                        tag=_t("master_rewind_btn"),
-                        callback=self._on_master_rewind,
-                        width=44,
-                        height=32,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Rewind all tracks to start")
+        # ---- Scrollable track list (leaves room for render below) ----
+        with dpg.child_window(
+            tag=_t("tracks_scroll"),
+            height=-180,
+            border=False,
+        ):
+            with dpg.group(tag=_t("tracks_group")):
+                pass
 
-                dpg.add_text("", tag=_t("master_time"), color=(160, 160, 160, 255))
-                dpg.add_progress_bar(
-                    tag=_t("master_progress"),
-                    default_value=0.0,
-                    width=-1,
-                    height=14,
-                )
-                dpg.add_spacer(height=4)
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="Copy",
-                        callback=make_copy_callback(_t("status")),
-                        width=46,
-                    )
-                    dpg.add_text(
-                        "Ready",
-                        tag=_t("status"),
-                        color=(160, 160, 160, 255),
-                        wrap=240,
-                    )
+        # ---- Render section (bottom, pinned) -------------------------
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
 
-                dpg.add_spacer(height=12)
-                dpg.add_separator()
-                dpg.add_spacer(height=8)
+        dpg.add_button(
+            label="  Render Mix to FLAC  ",
+            tag=_t("render_btn"),
+            callback=self._on_render_click,
+            width=-1,
+            height=40,
+        )
+        with dpg.tooltip(dpg.last_item()):
+            dpg.add_text(
+                "Mix all ON tracks and save as a FLAC file.\n"
+                "Also available on the Export tab."
+            )
 
-                dpg.add_text("Render", color=(175, 175, 255, 255))
-                dpg.add_spacer(height=4)
-
-                dpg.add_button(
-                    label="Render Mix to FLAC",
-                    tag=_t("render_btn"),
-                    callback=self._on_render_click,
-                    width=-1,
-                    height=32,
-                )
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Mix all ON tracks and save as a FLAC file.\n"
-                        "Also available on the Export tab."
-                    )
-
-                dpg.add_spacer(height=8)
-                dpg.add_text("", tag=_t("result_duration"), color=(220, 220, 220, 255))
-                dpg.add_text("File:", color=(140, 140, 180, 255))
-                dpg.add_text(
-                    "(none)",
-                    tag=_t("result_file"),
-                    color=(140, 140, 140, 255),
-                    wrap=240,
-                )
-                dpg.add_spacer(height=6)
-                with dpg.group(horizontal=True):
-                    dpg.add_button(
-                        label="Copy path",
-                        callback=make_copy_callback(_t("result_file")),
-                        width=80,
-                    )
-                    dpg.add_button(
-                        label="Save as",
-                        tag=_t("save_btn"),
-                        callback=self._on_save_as,
-                        width=80,
-                        enabled=False,
-                    )
-
-                dpg.add_spacer(height=12)
-                dpg.add_text(
-                    "Note: vocal MIDI uses GM choir — no lyrics.",
-                    color=(100, 100, 120, 255),
-                    wrap=240,
-                )
+        dpg.add_spacer(height=4)
+        dpg.add_text("", tag=_t("result_duration"), color=(220, 220, 220, 255))
+        with dpg.group(horizontal=True):
+            dpg.add_text("File:", color=(140, 140, 180, 255))
+            dpg.add_text(
+                "(none)",
+                tag=_t("result_file"),
+                color=(140, 140, 140, 255),
+                wrap=600,
+            )
+        dpg.add_spacer(height=4)
+        with dpg.group(horizontal=True):
+            dpg.add_button(
+                label="Copy path",
+                callback=make_copy_callback(_t("result_file")),
+                width=80,
+            )
+            dpg.add_button(
+                label="Save as",
+                tag=_t("save_btn"),
+                callback=self._on_save_as,
+                width=80,
+                enabled=False,
+            )
+        dpg.add_spacer(height=4)
+        dpg.add_text(
+            "Note: vocal MIDI uses GM choir — no lyrics.",
+            color=(100, 100, 120, 255),
+        )
 
     def build_save_dialog(self) -> None:
         """Create all file browsers at the top DPG level (outside all windows)."""
@@ -653,12 +682,59 @@ class MixPanel:
                     if path:
                         wf.load_async(path)
                 else:
-                    dpg.add_progress_bar(
-                        tag=_t(f"track_{safe}_timebar"),
-                        default_value=0.0,
+                    # MIDI track: plot with inf_line cursor for click-to-seek
+                    all_midi = self._all_midi()
+                    midi_source = all_midi.get(label)
+                    midi_dur = self._master_duration
+                    if midi_dur == 0.0 and midi_source is not None:
+                        try:
+                            if not isinstance(midi_source, pathlib.Path):
+                                midi_dur = float(midi_source.get_end_time())
+                        except Exception:
+                            pass
+                    if midi_dur == 0.0:
+                        midi_dur = 300.0  # fallback
+                    xaxis_tag = _t(f"track_{safe}_xaxis")
+                    yaxis_tag = _t(f"track_{safe}_yaxis")
+                    cursor_tag = _t(f"track_{safe}_cursor")
+                    with dpg.plot(
+                        tag=_t(f"track_{safe}_plot"),
+                        height=65,
                         width=-1,
-                        height=10,
-                    )
+                        no_menus=True,
+                        no_box_select=True,
+                    ):
+                        dpg.add_plot_axis(
+                            dpg.mvXAxis,
+                            tag=xaxis_tag,
+                        )
+                        dpg.add_plot_axis(
+                            dpg.mvYAxis,
+                            tag=yaxis_tag,
+                            no_tick_marks=True,
+                            no_tick_labels=True,
+                        )
+                        dpg.add_inf_line_series(
+                            [0.0],
+                            tag=cursor_tag,
+                            parent=yaxis_tag,
+                        )
+                    with dpg.theme() as _ct:
+                        with dpg.theme_component(dpg.mvInfLineSeries):
+                            dpg.add_theme_color(
+                                dpg.mvPlotCol_Line, (255, 210, 0, 220),
+                                category=dpg.mvThemeCat_Plots,
+                            )
+                            dpg.add_theme_style(
+                                dpg.mvPlotStyleVar_LineWeight, 2.0,
+                                category=dpg.mvThemeCat_Plots,
+                            )
+                    dpg.bind_item_theme(cursor_tag, _ct)
+                    _pf = _get_plot_font()
+                    if _pf is not None:
+                        dpg.bind_item_font(_t(f"track_{safe}_plot"), _pf)
+                    dpg.set_axis_limits(xaxis_tag, 0.0, midi_dur)
+                    dpg.set_axis_limits(yaxis_tag, -1.0, 1.0)
                     dpg.add_text(
                         "0:00",
                         tag=_t(f"track_{safe}_timetext"),
@@ -908,6 +984,11 @@ class MixPanel:
 
         self._master_audio = mix
         self._master_duration = max_len / self._master_sr
+
+        if dpg.does_item_exist(_t("master_xaxis")):
+            dpg.set_axis_limits(_t("master_xaxis"), 0.0, self._master_duration)
+            dpg.set_axis_limits(_t("master_yaxis"), -1.0, 1.0)
+
         self._start_master_play(0.0)
 
     def _start_master_play(self, offset: float = 0.0) -> None:
@@ -1133,6 +1214,30 @@ class MixPanel:
 
     def tick(self) -> None:
         """Update all track cursors from the master clock each frame."""
+        # Click-to-seek: master plot
+        if (self._master_duration > 0
+                and dpg.does_item_exist(_t("master_plot"))
+                and dpg.is_item_hovered(_t("master_plot"))
+                and dpg.is_mouse_button_released(dpg.mvMouseButton_Left)):
+            raw = dpg.get_plot_mouse_pos()
+            seek = float(raw[0])
+            if 0.0 <= seek <= self._master_duration:
+                self._on_waveform_seek(seek)
+
+        # Click-to-seek: MIDI track plots
+        if self._master_duration > 0:
+            for tid, state in self._track_states.items():
+                if state.source == "midi":
+                    plot_tag = _t(f"track_{_safe(tid)}_plot")
+                    if (dpg.does_item_exist(plot_tag)
+                            and dpg.is_item_hovered(plot_tag)
+                            and dpg.is_mouse_button_released(dpg.mvMouseButton_Left)):
+                        raw = dpg.get_plot_mouse_pos()
+                        seek = float(raw[0])
+                        if 0.0 <= seek <= self._master_duration:
+                            self._on_waveform_seek(seek)
+                        break
+
         pos: float | None = None
         duration: float = self._master_duration
 
@@ -1162,21 +1267,20 @@ class MixPanel:
         if dpg.does_item_exist(_t("master_time")):
             dpg.set_value(_t("master_time"), time_str)
 
-        frac = (pos / duration) if duration > 0 else 0.0
-        if dpg.does_item_exist(_t("master_progress")):
-            dpg.set_value(_t("master_progress"), frac)
+        if dpg.does_item_exist(_t("master_cursor")):
+            dpg.set_value(_t("master_cursor"), [[pos]])
 
         # Per-track audio waveform cursors
         for wf in self._track_waveforms.values():
             wf.set_cursor(pos)
 
-        # Per-track MIDI time bars
+        # Per-track MIDI cursors + time text
         for tid, state in self._track_states.items():
             if state.source == "midi":
                 safe = _safe(tid)
-                bar_tag = _t(f"track_{safe}_timebar")
-                if dpg.does_item_exist(bar_tag):
-                    dpg.set_value(bar_tag, frac)
+                cursor_tag = _t(f"track_{safe}_cursor")
+                if dpg.does_item_exist(cursor_tag):
+                    dpg.set_value(cursor_tag, [[pos]])
                 time_tag = _t(f"track_{safe}_timetext")
                 if dpg.does_item_exist(time_tag):
                     dpg.set_value(time_tag, f"{m}:{s:02d}")
