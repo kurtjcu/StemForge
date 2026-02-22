@@ -86,15 +86,37 @@ class MusicGenModelLoader:
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dtype  = torch.float16 if device == "cuda" else torch.float32
 
+        # Resolve HuggingFace auth token (needed for gated models).
+        # Checks HF_TOKEN env var and ~/.cache/huggingface/token (written by
+        # `huggingface-cli login`).  Returns None if no token is stored.
+        hf_token: str | None = None
+        try:
+            from huggingface_hub import get_token  # type: ignore[import]
+            hf_token = get_token()
+        except Exception:
+            pass
+
         try:
             log.info("Loading %s (dtype=%s) …", model_name, dtype)
             pipeline = StableAudioPipeline.from_pretrained(
                 model_name,
                 torch_dtype=dtype,
                 cache_dir=str(self._cache_dir),
+                token=hf_token,
             )
             pipeline = pipeline.to(device)
         except Exception as exc:
+            msg = str(exc)
+            if "403" in msg or "gated" in msg.lower() or "authorized" in msg.lower():
+                raise ModelLoadError(
+                    f"{model_name} is a gated model — two steps required:\n"
+                    "  1. Visit https://huggingface.co/stabilityai/stable-audio-open-1.0\n"
+                    "     and accept the license (requires a free HuggingFace account).\n"
+                    "  2. Authenticate locally:\n"
+                    "       huggingface-cli login\n"
+                    "     or set the HF_TOKEN environment variable.",
+                    model_name=model_name,
+                ) from exc
             raise ModelLoadError(
                 f"Failed to download / load {model_name}: {exc}",
                 model_name=model_name,
