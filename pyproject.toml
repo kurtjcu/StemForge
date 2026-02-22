@@ -38,7 +38,7 @@ classifiers = [
 # Runtime dependencies — REAL, VERIFIED, EXECUTION-READY
 # ---------------------------------------------------------------------------
 dependencies = [
-    # Core PyTorch stack — CUDA 12.8 wheels via pytorch-cu128 index below.
+    # Core PyTorch stack — CUDA 13.0 wheels via pytorch-cu130 index below.
     "torch==2.10.0",
     "torchaudio==2.10.0",
 
@@ -128,12 +128,12 @@ stemforge = "gui.app:main"
 [tool.uv]
 environments = ["python_version == '3.11' and sys_platform == 'linux'"]
 [[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 [tool.uv.sources]
-torch = { index = "pytorch-cu128" }
-torchaudio = { index = "pytorch-cu128" }
+torch = { index = "pytorch-cu130" }
+torchaudio = { index = "pytorch-cu130" }
 
 #---------------------------------------------------------------------------
 # Hatchling build configuration

@@ -68,6 +68,12 @@ _ENGINES = ("Demucs", "BS-Roformer")
 # Stem is "active" if stem_rms / mix_rms exceeds this ratio (~-40 dB)
 _RMS_ACTIVE_RATIO = 0.01
 
+# Braille spinner frames — cycle through these in the progress callback
+_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_SPINNER_GPU_COLOR = (100, 220, 100, 255)   # green — running on GPU
+_SPINNER_CPU_COLOR = (220, 180,  80, 255)   # amber — running on CPU
+_SPINNER_IDLE_COLOR = (80,  80, 100, 255)   # dim — not running
+
 _P = "demucs"
 
 
@@ -92,6 +98,7 @@ class DemucsPanel:
         self._stem_paths: dict[str, pathlib.Path] = {}
         self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
         self._save_stem_name: str = ""
+        self._spinner_idx: int = 0
 
         # One WaveformWidget per stem (all four, Roformer only uses 2)
         self._stem_waveforms: dict[str, WaveformWidget] = {
@@ -168,7 +175,14 @@ class DemucsPanel:
 
             # ---- Right column: results --------------------------------
             with dpg.child_window(width=-1, height=-1, border=False):
-                dpg.add_text("Progress", color=(175, 175, 255, 255))
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Progress", color=(175, 175, 255, 255))
+                    dpg.add_spacer(width=8)
+                    dpg.add_text(
+                        "",
+                        tag=_t("spinner"),
+                        color=_SPINNER_IDLE_COLOR,
+                    )
                 dpg.add_progress_bar(
                     tag=_t("progress"),
                     default_value=0.0,
@@ -340,6 +354,7 @@ class DemucsPanel:
             def _progress(pct: float, stage: str) -> None:
                 dpg.set_value(_t("progress"), pct / 100.0)
                 set_widget_text(_t("status"), stage)
+                self._tick_spinner()   # Demucs runs on GPU internally; no CPU/GPU label
 
             self._demucs_pipeline.set_progress_callback(_progress)
             result = self._demucs_pipeline.run(audio)
@@ -359,6 +374,7 @@ class DemucsPanel:
             dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)
+            self._clear_spinner()
 
     # ------------------------------------------------------------------
     # Roformer auto-analysis
@@ -402,7 +418,10 @@ class DemucsPanel:
             def _progress(pct: float, stage: str) -> None:
                 if not self._cancel_analysis.is_set():
                     dpg.set_value(_t("progress"), pct / 100.0)
-                    set_widget_text(_t("status"), stage)
+                    device = self._roformer_pipeline.last_device
+                    # Show stage + device on same line; spinner gives liveness
+                    set_widget_text(_t("status"), f"[{device}] {stage}")
+                    self._tick_spinner(device)
 
             self._roformer_pipeline.set_progress_callback(_progress)
             result = self._roformer_pipeline.run(path)
@@ -445,6 +464,8 @@ class DemucsPanel:
                 traceback.print_exc()
                 set_widget_text(_t("status"), f"Error: {exc}")
                 dpg.set_value(_t("progress"), 0.0)
+        finally:
+            self._clear_spinner()
 
     # ------------------------------------------------------------------
     # UI updater (called from background thread — dpg calls are thread-safe)
@@ -536,6 +557,30 @@ class DemucsPanel:
         except Exception as exc:
             log.error("Save As failed: %s", exc)
             set_widget_text(_t("status"), f"Save failed: {exc}")
+
+    # ------------------------------------------------------------------
+    # Spinner helper
+    # ------------------------------------------------------------------
+
+    def _tick_spinner(self, device: str = "") -> None:
+        """Advance the spinner one frame and set GPU/CPU label + color."""
+        char = _SPINNER[self._spinner_idx % len(_SPINNER)]
+        self._spinner_idx += 1
+        if device == "GPU":
+            label = f"{char} GPU"
+            color = _SPINNER_GPU_COLOR
+        elif device == "CPU":
+            label = f"{char} CPU"
+            color = _SPINNER_CPU_COLOR
+        else:
+            label = char
+            color = _SPINNER_IDLE_COLOR
+        dpg.set_value(_t("spinner"), label)
+        dpg.configure_item(_t("spinner"), color=color)
+
+    def _clear_spinner(self) -> None:
+        dpg.set_value(_t("spinner"), "")
+        dpg.configure_item(_t("spinner"), color=_SPINNER_IDLE_COLOR)
 
     # ------------------------------------------------------------------
     # File reveal helper

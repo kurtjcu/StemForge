@@ -23,6 +23,42 @@ log = logging.getLogger("stemforge.models.roformer_loader")
 
 DEFAULT_ROFORMER_CACHE_DIR = pathlib.Path.home() / ".cache" / "stemforge" / "roformer"
 
+# ---------------------------------------------------------------------------
+# hyper-connections CUDA contiguity patch
+# ---------------------------------------------------------------------------
+# hyper-connections <=0.4.9 has a bug where width_connection() performs
+#   normed @ self.dynamic_beta_fn.float()
+# but `normed` can be non-contiguous after norm+float() on CUDA, causing
+# CUBLAS_STATUS_INVALID_VALUE (cublasSgemv rejects non-contiguous strides).
+# We patch the method at import time so the fix survives pip reinstalls.
+
+def _check_gpu_compatibility() -> None:
+    """Log a warning if the torch/CUDA stack has known cuBLAS incompatibilities.
+
+    torch 2.10+cu128 (built for CUDA 12.8) has pervasive CUBLAS_STATUS_INVALID_VALUE
+    errors when run against the CUDA 12.9 runtime. All cuBLAS GEMM paths fail,
+    so RoformerPipeline will use CPU for inference until torch is upgraded to a
+    build that targets CUDA 12.9 or later.
+    """
+    if not torch.cuda.is_available():
+        return
+    try:
+        a = torch.zeros(2, 4, device='cuda')
+        b = torch.zeros(4, 2, device='cuda')
+        torch.mm(a, b)
+    except RuntimeError as exc:
+        if "CUBLAS" in str(exc) or "CUDA error" in str(exc):
+            log.warning(
+                "cuBLAS is not functional on this torch/CUDA combination "
+                "(torch %s, CUDA runtime %s). "
+                "BS-Roformer will run on CPU. "
+                "Upgrade to a torch build targeting your CUDA runtime to enable GPU.",
+                torch.__version__,
+                torch.version.cuda,
+            )
+
+_check_gpu_compatibility()
+
 # Keys not accepted by BSRoformer constructor (present in some community YAMLs)
 _INVALID_BS_KEYS = frozenset({"linear_transformer_depth"})
 

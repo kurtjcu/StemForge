@@ -86,6 +86,12 @@ class RoformerPipeline:
         self._loader = RoformerModelLoader()
         self._progress_cb: Callable[[float, str], None] | None = None
         self._cancel: threading.Event = threading.Event()
+        self._last_device: str = "—"  # "GPU" or "CPU", updated during _infer
+
+    @property
+    def last_device(self) -> str:
+        """Device label used for the most recent (or current) inference chunk."""
+        return self._last_device
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -231,9 +237,9 @@ class RoformerPipeline:
         window = window[:chunk_size].astype(np.float32)
 
         device = self._select_device()
+        self._last_device = "GPU" if device.type == "cuda" else "CPU"
         self._model.to(device)  # type: ignore[union-attr]
 
-        n_chunks = (total_padded - chunk_size) // step + 1
         # Ensure we always cover the full signal
         positions = list(range(0, total_padded - chunk_size + 1, step))
         if not positions or positions[-1] + chunk_size < total_padded:
@@ -244,26 +250,13 @@ class RoformerPipeline:
                 break
 
             pct = 10.0 + 78.0 * chunk_idx / max(len(positions), 1)
-            self._report(pct, f"Separating chunk {chunk_idx + 1}/{len(positions)}…")
+            self._report(pct, f"chunk {chunk_idx + 1}/{len(positions)}")
 
             chunk = mix_padded[:, pos: pos + chunk_size].copy()
             chunk_t = torch.from_numpy(chunk).unsqueeze(0).to(device)  # (1, 2, T)
 
-            try:
-                with torch.no_grad():
-                    pred = self._model(chunk_t)  # type: ignore[union-attr]
-            except RuntimeError as exc:
-                err_str = str(exc)
-                if "CUBLAS" in err_str or "CUDA error" in err_str:
-                    log.warning("CUDA error on chunk %d — retrying on CPU", chunk_idx)
-                    try:
-                        cpu_model = self._model.cpu()  # type: ignore[union-attr]
-                        with torch.no_grad():
-                            pred = cpu_model(chunk_t.cpu())
-                    finally:
-                        self._model.to(device)  # type: ignore[union-attr]
-                else:
-                    raise
+            with torch.no_grad():
+                pred = self._model(chunk_t)  # type: ignore[union-attr]
 
             pred_np = pred.squeeze(0).cpu().numpy()  # (2, T) or (1, 2, T) -> handled below
             if pred_np.ndim == 3:
@@ -289,7 +282,23 @@ class RoformerPipeline:
     # ------------------------------------------------------------------
 
     def _select_device(self) -> torch.device:
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        """Return CUDA if a quick probe succeeds; CPU otherwise.
+
+        torch 2.10+cu128 has a cublasSgemv bug on CUDA 12.9 that breaks the
+        3D×1D batch matmul used by hyper-connections inside BSRoformer.
+        We probe the exact failing pattern and pin to CPU for the whole run.
+        """
+        if not torch.cuda.is_available():
+            return torch.device("cpu")
+        try:
+            # Probe the exact 3D×1D pattern that cublasSgemv uses inside hyper-connections
+            a = torch.zeros(1, 8, 16, device="cuda")
+            b = torch.zeros(16, device="cuda")
+            _ = a @ b  # fails on torch 2.10+cu128 vs CUDA 12.9
+            return torch.device("cuda")
+        except RuntimeError:
+            log.info("cuBLAS 3D×1D matmul probe failed — running BS-Roformer on CPU")
+            return torch.device("cpu")
 
     def _report(self, pct: float, stage: str) -> None:
         if self._progress_cb is not None:
