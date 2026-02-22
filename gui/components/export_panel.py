@@ -206,7 +206,7 @@ class ExportPanel:
     def notify_midi_ready(
         self,
         midi_path: pathlib.Path,
-        stem_midi_paths: dict[str, pathlib.Path],
+        stem_midi_data: dict,
     ) -> None:
         """Called by MidiPanel after a successful MIDI extraction run."""
         self._on_refresh(None, None, None)

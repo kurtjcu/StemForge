@@ -370,12 +370,12 @@ class MusicGenPanel:
     def notify_midi_ready(
         self,
         midi_path: pathlib.Path,
-        stem_midi_paths: dict[str, pathlib.Path],
+        stem_midi_data: dict,
     ) -> None:
         """Called by MidiPanel after a successful MIDI extraction run."""
         self._tab_midi_path = midi_path
-        # Always include the merged file; add per-stem entries when available.
-        self._tab_midi_paths = {"All stems": midi_path, **stem_midi_paths}
+        # Per-stem MIDIs are kept in memory (no files); only the merged file is available.
+        self._tab_midi_paths = {"All stems": midi_path}
         labels = list(self._tab_midi_paths.keys())
         if dpg.does_item_exist(_t("midi_radio")):
             dpg.configure_item(_t("midi_radio"), items=labels, enabled=True)

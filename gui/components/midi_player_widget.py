@@ -200,6 +200,24 @@ class MidiPlayerWidget:
             daemon=True,
         ).start()
 
+    def load_from_midi(self, midi_obj, stem_label: str = "") -> None:
+        """Load from an in-memory PrettyMIDI object and start background render.
+
+        Use this instead of :meth:`load` when the MIDI data is already in
+        memory (e.g. directly from MidiPipeline.run without disk write).
+        """
+        self.clear()
+        self._stem_label = stem_label
+        if self._sf2_path is None:
+            self._set_status("Error: no soundfont found. Install fluid-soundfont-gm.")
+            return
+        self._set_status("Rendering MIDI...")
+        threading.Thread(
+            target=self._render_from_obj,
+            args=(midi_obj, stem_label),
+            daemon=True,
+        ).start()
+
     def clear(self) -> None:
         """Stop playback and reset all state."""
         self._stop()
@@ -237,6 +255,15 @@ class MidiPlayerWidget:
         try:
             import pretty_midi
             midi = pretty_midi.PrettyMIDI(str(path))
+            self._render_from_obj(midi, stem_label)
+        except Exception as exc:
+            log.error("MidiPlayerWidget render error (%s): %s", path, exc)
+            self._set_status(f"Render error: {exc}")
+
+    def _render_from_obj(self, midi_obj, stem_label: str) -> None:
+        try:
+            import copy
+            midi = copy.deepcopy(midi_obj)
 
             # Apply default GM program for this stem type.
             program = _STEM_DEFAULT_PROGRAM.get(stem_label, 0)
@@ -248,7 +275,6 @@ class MidiPlayerWidget:
                     inst.program = program
 
             audio = midi.fluidsynth(fs=self._sr, sf2_path=str(self._sf2_path))
-            # pretty_midi.fluidsynth returns (samples,) float32 mono
             self._rendered = audio
             self._duration = len(audio) / self._sr
 
@@ -261,7 +287,7 @@ class MidiPlayerWidget:
             self._set_status(f"Ready  ({dm}:{ds:02d})")
 
         except Exception as exc:
-            log.error("MidiPlayerWidget render error (%s): %s", path, exc)
+            log.error("MidiPlayerWidget render error: %s", exc)
             self._set_status(f"Render error: {exc}")
 
     # ------------------------------------------------------------------

@@ -26,7 +26,7 @@ import pathlib
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import dearpygui.dearpygui as dpg
@@ -132,11 +132,11 @@ class MixPanel:
     def __init__(self) -> None:
         # Stem paths received from upstream panels
         self._audio_stems: dict[str, pathlib.Path] = {}   # internal_name → path
-        self._midi_stems: dict[str, pathlib.Path] = {}    # display_label → path
+        self._midi_stems_data: dict[str, Any] = {}        # display_label → PrettyMIDI
 
         # Manually loaded additional tracks
         self._manual_audio: dict[str, pathlib.Path] = {}  # display_label → path
-        self._manual_midi: dict[str, pathlib.Path] = {}   # display_label → path
+        self._manual_midi: dict[str, pathlib.Path] = {}   # display_label → path (files)
 
         # Per-track state  key = track ID, e.g. "Bass:audio" or "Bass:midi"
         self._track_states: dict[str, TrackState] = {}
@@ -415,10 +415,10 @@ class MixPanel:
     def notify_midi_ready(
         self,
         midi_path: pathlib.Path,
-        stem_midi_paths: dict[str, pathlib.Path],
+        stem_midi_data: dict[str, Any],
     ) -> None:
         """Called by MIDI panel after successful extraction."""
-        self._midi_stems = dict(stem_midi_paths)
+        self._midi_stems_data = dict(stem_midi_data)
         self._rebuild_tracks()
 
     # ------------------------------------------------------------------
@@ -453,10 +453,15 @@ class MixPanel:
         result.update(self._manual_audio)
         return result
 
-    def _all_midi(self) -> dict[str, pathlib.Path]:
-        """Merged MIDI sources: pipeline extractions + manual loads."""
-        result = dict(self._midi_stems)
-        result.update(self._manual_midi)
+    def _all_midi(self) -> dict[str, Any]:
+        """Merged MIDI sources: in-memory PrettyMIDI objects + manual file paths.
+
+        Values are either PrettyMIDI objects (from pipeline) or pathlib.Path
+        objects (from manual file loads).  _render_single_track dispatches on
+        type.
+        """
+        result: dict[str, Any] = dict(self._midi_stems_data)
+        result.update(self._manual_midi)   # manual file paths override if same label
         return result
 
     def _rebuild_tracks(self) -> None:
@@ -1045,8 +1050,13 @@ class MixPanel:
                 self._set_status("No soundfont — install fluid-soundfont-gm.")
                 return None
             try:
+                import copy
                 import pretty_midi
-                midi_obj = pretty_midi.PrettyMIDI(str(all_midi[label]))
+                midi_source = all_midi[label]
+                if isinstance(midi_source, pathlib.Path):
+                    midi_obj = pretty_midi.PrettyMIDI(str(midi_source))
+                else:
+                    midi_obj = copy.deepcopy(midi_source)
                 for inst in midi_obj.instruments:
                     if state.is_drum:
                         inst.is_drum = True

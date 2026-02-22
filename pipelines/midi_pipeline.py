@@ -135,9 +135,10 @@ class MidiResult:
     ----------
     midi_path:
         Absolute path of the merged multi-track MIDI file.
-    stem_midi_paths:
-        Per-stem single-track MIDI files ``{stem_name: path}``.
-        Empty when operating in text-only mode.
+    stem_midi_data:
+        Per-stem PrettyMIDI objects ``{display_label: PrettyMIDI}``.
+        Empty when operating in text-only mode.  Files are NOT written
+        automatically; call write_midi() on individual objects to save.
     note_counts:
         Number of notes detected (or generated) per track
         ``{stem_name: count}``.
@@ -146,19 +147,19 @@ class MidiResult:
     """
 
     midi_path: pathlib.Path
-    stem_midi_paths: dict[str, pathlib.Path]
+    stem_midi_data: dict[str, Any]
     note_counts: dict[str, int]
     total_notes: int
 
     def __init__(
         self,
         midi_path: pathlib.Path,
-        stem_midi_paths: dict[str, pathlib.Path],
+        stem_midi_data: dict[str, Any],
         note_counts: dict[str, int],
         total_notes: int,
     ) -> None:
         self.midi_path = pathlib.Path(midi_path)
-        self.stem_midi_paths = dict(stem_midi_paths)
+        self.stem_midi_data = dict(stem_midi_data)
         self.note_counts = dict(note_counts)
         self.total_notes = int(total_notes)
 
@@ -298,7 +299,7 @@ class MidiPipeline:
 
         track_notes: dict[str, list[NoteEvent]] = {}
         track_lyrics: dict[str, list[LyricEvent]] = {}
-        stem_midi_paths: dict[str, pathlib.Path] = {}
+        stem_midi_data: dict[str, Any] = {}
 
         if has_stems:
             total = len(stems)
@@ -331,10 +332,9 @@ class MidiPipeline:
                     )
                 track_notes[label] = notes
 
-                # Write individual single-track MIDI for this stem
+                # Build per-stem MIDI object in memory (not written to disk yet)
                 stem_lyrics = track_lyrics.get(label)
-                per_stem_path = self._write_stem_midi(label, notes, cfg, stem_lyrics)
-                stem_midi_paths[label] = per_stem_path
+                stem_midi_data[label] = self._build_stem_midi(label, notes, cfg, stem_lyrics)
 
                 self._report(base_pct + (1.0 / total) * 70.0)
 
@@ -384,7 +384,7 @@ class MidiPipeline:
         )
         return MidiResult(
             midi_path=output_path.resolve(),
-            stem_midi_paths=stem_midi_paths,
+            stem_midi_data=stem_midi_data,
             note_counts=note_counts,
             total_notes=total_notes,
         )
@@ -420,14 +420,30 @@ class MidiPipeline:
         if self._progress_callback is not None:
             self._progress_callback(pct)
 
-    def _write_stem_midi(
+    def _build_stem_midi(
         self,
         stem_name: str,
         notes: list[NoteEvent],
         cfg: MidiConfig,
         lyrics: list[LyricEvent] | None = None,
+    ) -> Any:
+        """Build and return a PrettyMIDI object for *stem_name* (no disk write)."""
+        return notes_to_midi(
+            notes, ticks_per_beat=_TICKS_PER_BEAT, tempo_bpm=cfg.bpm, lyrics=lyrics
+        )
+
+    def write_stem_midi(
+        self,
+        stem_name: str,
+        midi_obj: Any,
+        cfg: MidiConfig,
     ) -> pathlib.Path:
-        """Write a single-track MIDI for *stem_name* to *cfg.output_dir*."""
+        """Write *midi_obj* to *cfg.output_dir* and return the absolute path.
+
+        Call this explicitly when the user requests a save (e.g. via the
+        "Save as" button in the MIDI panel).  The pipeline itself no longer
+        writes per-stem files automatically.
+        """
         out_dir = cfg.output_dir
         if out_dir is None:
             out_dir = pathlib.Path.home() / ".local/share/stemforge/output/midi"
@@ -436,10 +452,8 @@ class MidiPipeline:
         safe_name = stem_name.replace(" ", "_").replace("/", "_")
         filename = f"{safe_name}_{int(time.time())}.mid"
         path = out_dir / filename
-
-        pm = notes_to_midi(notes, ticks_per_beat=_TICKS_PER_BEAT, tempo_bpm=cfg.bpm, lyrics=lyrics)
         try:
-            write_midi(pm, path)
+            write_midi(midi_obj, path)
         except Exception as exc:
             raise AudioProcessingError(
                 f"Failed to write stem MIDI for '{stem_name}': {exc}",
