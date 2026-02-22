@@ -63,7 +63,7 @@ def stop_all() -> None:
 class WaveformWidget:
     """Play/Stop buttons + waveform plot + animated playback cursor."""
 
-    def __init__(self, tag_prefix: str) -> None:
+    def __init__(self, tag_prefix: str, on_seek_callback=None) -> None:
         self._p = tag_prefix
         self._waveform: np.ndarray | None = None   # shape: (1, samples), float32
         self._sr: int = 44100
@@ -71,6 +71,9 @@ class WaveformWidget:
         self._playing: bool = False
         self._play_start: float = 0.0    # wall-clock time when play started
         self._play_offset: float = 0.0   # seek offset in seconds
+        # Optional external seek handler — used by Mix tab for synchronized display.
+        # When set, clicking the plot calls this callback instead of starting play.
+        self._on_seek_callback = on_seek_callback
         _ALL_WIDGETS.append(self)
 
     # ------------------------------------------------------------------
@@ -84,44 +87,54 @@ class WaveformWidget:
     # UI construction  (call inside the target dpg parent context)
     # ------------------------------------------------------------------
 
-    def build_ui(self) -> None:
-        """Add Play/Stop buttons and waveform plot to the active context."""
+    def build_ui(self, show_controls: bool = True, plot_height: int = 80) -> None:
+        """Add Play/Stop buttons and waveform plot to the active context.
+
+        Parameters
+        ----------
+        show_controls:
+            When False, omit the Play/Stop/Rewind row — useful when the Mix
+            tab owns playback and wants a display-only waveform.
+        plot_height:
+            Height of the waveform plot in pixels.
+        """
         with dpg.group(horizontal=False):
-            # Control row
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Play",
-                    tag=self._tag("play_btn"),
-                    callback=self._on_play,
-                    width=70,
-                    enabled=False,
-                )
-                dpg.add_button(
-                    label="Stop",
-                    tag=self._tag("stop_btn"),
-                    callback=self._on_stop,
-                    width=70,
-                    enabled=False,
-                )
-                dpg.add_button(
-                    label="<<",
-                    tag=self._tag("rewind_btn"),
-                    callback=self._on_rewind,
-                    width=50,
-                    enabled=False,
-                )
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("Rewind to start")
-                dpg.add_text(
-                    "",
-                    tag=self._tag("time"),
-                    color=(160, 160, 160, 255),
-                )
+            if show_controls:
+                # Control row
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Play",
+                        tag=self._tag("play_btn"),
+                        callback=self._on_play,
+                        width=70,
+                        enabled=False,
+                    )
+                    dpg.add_button(
+                        label="Stop",
+                        tag=self._tag("stop_btn"),
+                        callback=self._on_stop,
+                        width=70,
+                        enabled=False,
+                    )
+                    dpg.add_button(
+                        label="<<",
+                        tag=self._tag("rewind_btn"),
+                        callback=self._on_rewind,
+                        width=50,
+                        enabled=False,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Rewind to start")
+                    dpg.add_text(
+                        "",
+                        tag=self._tag("time"),
+                        color=(160, 160, 160, 255),
+                    )
 
             # Waveform plot
             with dpg.plot(
                 tag=self._tag("plot"),
-                height=80,
+                height=plot_height,
                 width=-1,
                 no_title=True,
                 no_menus=True,
@@ -163,6 +176,15 @@ class WaveformWidget:
     # Public API
     # ------------------------------------------------------------------
 
+    def set_cursor(self, pos: float) -> None:
+        """Set cursor position externally without affecting playback state.
+
+        Called by the Mix tab each frame to synchronise all track displays
+        to the master clock, regardless of whether this widget is playing.
+        """
+        if dpg.does_item_exist(self._tag("cursor")):
+            dpg.set_value(self._tag("cursor"), [[pos]])
+
     def load_async(self, path: pathlib.Path) -> None:
         """Clear current data and start loading *path* in a background thread."""
         self.clear()
@@ -194,7 +216,11 @@ class WaveformWidget:
             mouse_pos = dpg.get_plot_mouse_pos()
             seek = float(mouse_pos[0])
             if 0.0 <= seek <= self._duration:
-                self._start_play(offset=seek)
+                if self._on_seek_callback is not None:
+                    # Display-only mode: delegate seek to the Mix panel master clock.
+                    self._on_seek_callback(seek)
+                else:
+                    self._start_play(offset=seek)
 
         if not self._playing:
             return

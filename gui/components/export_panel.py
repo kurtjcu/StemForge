@@ -36,6 +36,7 @@ _ARTEFACT_DEFS: tuple[tuple[str, str], ...] = (
     ("piano",    "Piano stem"),
     ("midi",     "MIDI transcription"),
     ("musicgen", "Generated audio"),
+    ("mix",      "Mix render (FLAC)"),
 )
 
 _STEM_KEYS: tuple[str, ...] = ("vocals", "drums", "bass", "other", "guitar", "piano")
@@ -189,6 +190,11 @@ class ExportPanel:
         dpg.configure_item(_t("chk_musicgen"), enabled=mg_ok)
         dpg.set_value(_t("chk_musicgen"), mg_ok)
 
+        mix_path = app_state.mix_path
+        mix_ok = mix_path is not None and mix_path.exists()
+        dpg.configure_item(_t("chk_mix"), enabled=mix_ok)
+        dpg.set_value(_t("chk_mix"), mix_ok)
+
     # ------------------------------------------------------------------
     # Notification hooks (called by other panels after a successful run)
     # ------------------------------------------------------------------
@@ -207,6 +213,10 @@ class ExportPanel:
 
     def notify_musicgen_ready(self, path: pathlib.Path) -> None:
         """Called by MusicGenPanel after a successful generation run."""
+        self._on_refresh(None, None, None)
+
+    def notify_mix_ready(self, path: pathlib.Path) -> None:
+        """Called by MixPanel after a successful mix render."""
         self._on_refresh(None, None, None)
 
     def _on_browse(self, sender, app_data, user_data) -> None:
@@ -243,6 +253,7 @@ class ExportPanel:
             stem_paths  = app_state.stem_paths
             midi_path   = app_state.midi_path
             mg_path     = app_state.musicgen_path
+            mix_path    = app_state.mix_path
 
             # Collect (source, dest_name, is_audio)
             tasks: list[tuple[pathlib.Path, str, bool]] = []
@@ -260,6 +271,10 @@ class ExportPanel:
             if dpg.get_value(_t("chk_musicgen")):
                 if mg_path and mg_path.exists():
                     tasks.append((mg_path, f"generated.{fmt}", True))
+
+            if dpg.get_value(_t("chk_mix")):
+                if mix_path and mix_path.exists():
+                    tasks.append((mix_path, f"mix.{fmt}", True))
 
             if not tasks:
                 set_widget_text(_t("status"),"Nothing ticked - check at least one file.")
