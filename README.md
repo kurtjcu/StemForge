@@ -1,4 +1,8 @@
-# StemForge
+<p align="center">
+  <img src="StemForgeLogo.png" alt="StemForge" width="260"/>
+  <br/>
+  <strong>StemForge</strong>
+</p>
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![CUDA](https://img.shields.io/badge/CUDA-12.9%2B-blue)
