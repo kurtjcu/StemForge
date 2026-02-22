@@ -132,10 +132,7 @@ class WaveformWidget:
                     parent=self._tag("yaxis"),
                 )
 
-            # Click-to-seek handler bound to the plot
-            with dpg.item_handler_registry(tag=self._tag("plot_hreg")):
-                dpg.add_item_clicked_handler(callback=self._on_plot_click)
-            dpg.bind_item_handler_registry(self._tag("plot"), self._tag("plot_hreg"))
+            pass  # click-to-seek is handled in tick() via is_item_hovered
 
     # ------------------------------------------------------------------
     # Public API
@@ -154,7 +151,7 @@ class WaveformWidget:
         if dpg.does_item_exist(self._tag("wave")):
             dpg.set_value(self._tag("wave"), [[], []])
         if dpg.does_item_exist(self._tag("cursor")):
-            dpg.set_value(self._tag("cursor"), [[0.0]])
+            dpg.set_value(self._tag("cursor"), [0.0])
         for btn in (self._tag("play_btn"), self._tag("stop_btn")):
             if dpg.does_item_exist(btn):
                 dpg.configure_item(btn, enabled=False)
@@ -163,6 +160,16 @@ class WaveformWidget:
 
     def tick(self) -> None:
         """Advance playback cursor; called once per render frame by tick_all()."""
+        # Click-to-seek: check while the plot is hovered in the render thread
+        if (self._waveform is not None and self._duration > 0
+                and dpg.does_item_exist(self._tag("plot"))
+                and dpg.is_item_hovered(self._tag("plot"))
+                and dpg.is_mouse_button_released(dpg.mvMouseButton_Left)):
+            mouse_pos = dpg.get_plot_mouse_pos()
+            seek = float(mouse_pos[0])
+            if 0.0 <= seek <= self._duration:
+                self._start_play(offset=seek)
+
         if not self._playing:
             return
         pos = self._play_offset + (time.time() - self._play_start)
@@ -171,7 +178,7 @@ class WaveformWidget:
             pos = 0.0
 
         if dpg.does_item_exist(self._tag("cursor")):
-            dpg.set_value(self._tag("cursor"), [[pos]])
+            dpg.set_value(self._tag("cursor"), [pos])
         if dpg.does_item_exist(self._tag("time")):
             m, s = divmod(int(pos), 60)
             dm, ds = divmod(int(self._duration), 60)
@@ -215,13 +222,6 @@ class WaveformWidget:
 
     def _on_stop(self, sender, app_data, user_data) -> None:
         self._stop()
-
-    def _on_plot_click(self, sender, app_data, user_data) -> None:
-        if self._waveform is None:
-            return
-        mouse_pos = dpg.get_plot_mouse_pos()
-        seek = max(0.0, min(float(mouse_pos[0]), self._duration))
-        self._start_play(offset=seek)
 
     # ------------------------------------------------------------------
     # Playback internals

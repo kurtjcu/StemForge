@@ -8,8 +8,8 @@ Two-column layout:
 Engine behaviour
 ----------------
 Demucs   — manual "Separate" button; runs user-selected stems.
-Roformer — auto-analysis on file load; runs immediately, shows active stems
-           based on RMS energy; no manual button needed.
+Roformer — "Analyze" button triggers separation; auto-triggers on file load.
+           Shows active stems based on RMS energy.
 
 Result listeners
 ----------------
@@ -169,8 +169,9 @@ class DemucsPanel:
                 )
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "Split the loaded audio into individual parts.\n"
-                        "The first run downloads model weights (~300 MB)."
+                        "Run separation on the loaded audio.\n"
+                        "First run downloads model weights (~300 MB).\n"
+                        "For BS-Roformer, also runs on file load."
                     )
 
             # ---- Right column: results --------------------------------
@@ -282,35 +283,29 @@ class DemucsPanel:
     def _on_engine_change(self, sender, app_data, user_data) -> None:
         engine = app_data
         self._current_engine = engine
+        # Cancel any in-progress run when switching engines
+        self._cancel_analysis.set()
 
         if engine == "Demucs":
             dpg.configure_item(_t("model"), items=list(DEMUCS_MODELS), default_value=DEMUCS_MODELS[0])
             dpg.set_value(_t("model"), DEMUCS_MODELS[0])
             dpg.set_value(_t("model_desc"), _DEMUCS_DESC.get(DEMUCS_MODELS[0], ""))
             dpg.configure_item(_t("demucs_stem_group"), show=True)
-            dpg.configure_item(_t("run_btn"), show=True)
-            # Cancel any running Roformer analysis
-            self._cancel_analysis.set()
+            dpg.configure_item(_t("run_btn"), label="  Separate  ")
         else:
             dpg.configure_item(_t("model"), items=list(ROFORMER_MODELS), default_value=ROFORMER_MODELS[0])
             dpg.set_value(_t("model"), ROFORMER_MODELS[0])
             dpg.set_value(_t("model_desc"), _ROFORMER_DESC.get(ROFORMER_MODELS[0], ""))
             dpg.configure_item(_t("demucs_stem_group"), show=False)
-            dpg.configure_item(_t("run_btn"), show=False)
-            # Trigger auto-analysis if a file is already loaded
-            path = app_state.audio_path
-            if path is not None:
-                self._start_auto_analyze(path)
+            dpg.configure_item(_t("run_btn"), label="  Analyze  ")
 
     def _on_model_change(self, sender, app_data, user_data) -> None:
         if self._current_engine == "Demucs":
             dpg.set_value(_t("model_desc"), _DEMUCS_DESC.get(app_data, ""))
         else:
             dpg.set_value(_t("model_desc"), _ROFORMER_DESC.get(app_data, ""))
-            # Re-analyze with new model
-            path = app_state.audio_path
-            if path is not None:
-                self._start_auto_analyze(path)
+            # Cancel any in-progress analysis; user must click Analyze to re-run
+            self._cancel_analysis.set()
 
     # ------------------------------------------------------------------
     # Demucs run
@@ -319,8 +314,15 @@ class DemucsPanel:
     def _on_run_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run_demucs, daemon=True)
-        self._thread.start()
+        if self._current_engine == "BS-Roformer":
+            path = app_state.audio_path
+            if path is None:
+                set_widget_text(_t("status"), "Load an audio file first.")
+                return
+            self._start_auto_analyze(path)
+        else:
+            self._thread = threading.Thread(target=self._run_demucs, daemon=True)
+            self._thread.start()
 
     def _run_demucs(self) -> None:
         dpg.configure_item(_t("run_btn"), enabled=False)
