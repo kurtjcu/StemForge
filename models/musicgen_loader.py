@@ -1,11 +1,11 @@
 """Stable Audio Open model loader for StemForge.
 
-Wraps ``stable_audio_tools.get_pretrained_model`` to provide the same
+Wraps ``diffusers.StableAudioPipeline.from_pretrained`` to provide the same
 load/evict interface as the other StemForge model loaders.
 
-Returns a ``(model, model_config)`` tuple where *model_config* is the dict
-from the HuggingFace repo (contains ``"sample_rate"``, ``"sample_size"``, etc.)
-and *model* is a ``ConditionedDiffusionModelWrapper`` ready for inference.
+Returns a ``(pipeline, model_config)`` tuple where *model_config* is a plain
+dict with ``"sample_rate"`` extracted from the pipeline's VAE
+(always 44 100 Hz for ``stabilityai/stable-audio-open-1.0``).
 """
 
 from __future__ import annotations
@@ -27,20 +27,19 @@ DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
 
 
 class MusicGenModelLoader:
-    """Load and cache the Stable Audio Open generation model.
+    """Load and cache the Stable Audio Open generation pipeline.
 
     Parameters
     ----------
     cache_dir:
         Directory used to store downloaded model checkpoints.
-        Passed to Hugging Face Hub via the ``HF_HOME`` environment variable.
         Defaults to ``~/.cache/stemforge/musicgen``.
     """
 
     def __init__(self, cache_dir: pathlib.Path = DEFAULT_MODEL_CACHE_DIR) -> None:
         self._cache_dir = pathlib.Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._model: Any = None
+        self._pipeline: Any = None
         self._model_config: dict | None = None
         self._loaded_model_name: str | None = None
 
@@ -49,11 +48,12 @@ class MusicGenModelLoader:
     # ------------------------------------------------------------------
 
     def load(self, model_name: str) -> tuple[Any, dict]:
-        """Return ``(model, model_config)`` for *model_name*, loading if needed.
+        """Return ``(pipeline, model_config)`` for *model_name*, loading if needed.
 
-        On first call, downloads weights from HuggingFace Hub (~2 GB) and
+        On first call downloads weights from HuggingFace Hub (~2 GB) and
         caches them locally.  Subsequent calls return the cached instance.
-        The model is moved to CUDA if available, otherwise CPU.
+        The pipeline is placed on CUDA if available, otherwise CPU.
+        fp16 is used on CUDA; fp32 on CPU.
 
         Parameters
         ----------
@@ -62,58 +62,59 @@ class MusicGenModelLoader:
 
         Returns
         -------
-        tuple[model, dict]
-            Loaded ``ConditionedDiffusionModelWrapper`` and its config dict.
+        tuple[StableAudioPipeline, dict]
+            Loaded pipeline and ``{"sample_rate": int}`` config dict.
 
         Raises
         ------
         ModelLoadError
-            If ``stable-audio-tools`` is not installed, or if the model
-            cannot be downloaded or loaded.
+            If ``diffusers`` is not installed, or if the model cannot be
+            downloaded or loaded.
         """
-        if self._loaded_model_name == model_name and self._model is not None:
-            return self._model, self._model_config  # type: ignore[return-value]
+        if self._loaded_model_name == model_name and self._pipeline is not None:
+            return self._pipeline, self._model_config  # type: ignore[return-value]
 
         try:
-            from stable_audio_tools import get_pretrained_model  # type: ignore[import]
+            from diffusers import StableAudioPipeline  # type: ignore[import]
         except ImportError as exc:
             raise ModelLoadError(
-                "stable-audio-tools is not installed.\n"
-                "Install with: uv pip install stable-audio-tools",
+                "diffusers is not installed.\n"
+                "Install with: uv pip install 'diffusers>=0.30.0'",
                 model_name=model_name,
             ) from exc
 
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        dtype  = torch.float16 if device == "cuda" else torch.float32
+
         try:
-            log.info("Loading %s …", model_name)
-            model, model_config = get_pretrained_model(model_name)
+            log.info("Loading %s (dtype=%s) …", model_name, dtype)
+            pipeline = StableAudioPipeline.from_pretrained(
+                model_name,
+                torch_dtype=dtype,
+                cache_dir=str(self._cache_dir),
+            )
+            pipeline = pipeline.to(device)
         except Exception as exc:
             raise ModelLoadError(
                 f"Failed to download / load {model_name}: {exc}",
                 model_name=model_name,
             ) from exc
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        try:
-            model = model.to(device)
-            model.train(mode=False)   # put in inference mode (no grad, frozen BN)
-        except Exception as exc:
-            raise ModelLoadError(
-                f"Failed to move {model_name} to {device}: {exc}",
-                model_name=model_name,
-            ) from exc
+        sample_rate: int = pipeline.vae.sampling_rate
+        model_config = {"sample_rate": sample_rate}
 
-        self._model = model
+        self._pipeline = pipeline
         self._model_config = model_config
         self._loaded_model_name = model_name
-        log.info("Loaded %s on %s", model_name, device)
-        return model, model_config
+        log.info("Loaded %s on %s (sr=%d)", model_name, device, sample_rate)
+        return pipeline, model_config
 
     def is_cached(self, model_name: str) -> bool:
-        """Return *True* if *model_name* is already loaded in memory."""
-        return self._loaded_model_name == model_name and self._model is not None
+        """Return True if *model_name* is already loaded in memory."""
+        return self._loaded_model_name == model_name and self._pipeline is not None
 
     def evict(self, model_name: str | None = None) -> None:
-        """Release the in-memory model to free GPU/CPU memory.
+        """Release the in-memory pipeline to free GPU/CPU memory.
 
         Parameters
         ----------
@@ -123,17 +124,17 @@ class MusicGenModelLoader:
         """
         if model_name is not None and self._loaded_model_name != model_name:
             return
-        if self._model is not None:
+        if self._pipeline is not None:
             try:
-                self._model.cpu()
+                self._pipeline.to("cpu")
             except Exception:
                 pass
-            del self._model
-        self._model = None
+            del self._pipeline
+        self._pipeline = None
         self._model_config = None
         self._loaded_model_name = None
         import gc
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-        log.info("Evicted generation model from memory")
+        log.info("Evicted generation pipeline from memory")

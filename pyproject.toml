@@ -80,18 +80,13 @@ dependencies = [
     "bs-roformer>=0.3.2",
     "pyyaml>=6.0.0",
 
-    # Stable Audio Open
-    "stable-audio-tools>=0.0.14",
+    # Stable Audio Open (via diffusers — avoids laion-clap / numpy conflict)
+    "diffusers>=0.30.0",
     "transformers>=4.40.0",
     "accelerate>=0.30.0",
     "safetensors>=0.4.2",
     "einops>=0.7.0",
     "huggingface_hub>=0.23.0",
-    "einops-exts>=0.0.4",
-    "alias-free-torch>=0.0.6",
-    "descript-audio-codec>=1.0.0",
-    "laion-clap>=1.1.4",
-    "k-diffusion==0.0.16",
 
     # GUI
     "dearpygui>=1.11.0",

@@ -158,8 +158,8 @@ class MusicGenPanel:
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
                         "Provide a reference audio clip to guide generation.\n"
-                        "BPM, timbre, and energy of the reference influence\n"
-                        "the output depending on the influence level.\n\n"
+                        "The model encodes it and blends the latent\n"
+                        "with the text-conditioned generation.\n\n"
                         "Stem — use a separated stem from the Separate tab.\n"
                         "Load  — browse for any WAV/FLAC/MP3."
                     )
@@ -195,25 +195,6 @@ class MusicGenPanel:
                         tag=_t("audio_file_label"),
                         color=(140, 140, 140, 255),
                         wrap=340,
-                    )
-
-                # Influence slider (visible when audio_src != "None")
-                with dpg.group(tag=_t("noise_group"), show=False):
-                    dpg.add_spacer(height=6)
-                    dpg.add_text("Influence", color=(175, 175, 255, 255))
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "How strongly the reference audio shapes the output.\n"
-                            "100 = follow audio closely.\n"
-                            "  0 = ignore audio (pure text generation)."
-                        )
-                    dpg.add_slider_int(
-                        tag=_t("noise"),
-                        min_value=0,
-                        max_value=100,
-                        default_value=30,
-                        width=-1,
-                        format="%d%%",
                     )
 
                 # --- MIDI conditioning ---
@@ -375,13 +356,10 @@ class MusicGenPanel:
         src = app_data if app_data is not None else dpg.get_value(_t("audio_src"))
         is_stem = src == "Stem from Separate tab"
         is_file = src == "Load audio file"
-        is_none = src == "None"
         if dpg.does_item_exist(_t("stem_group")):
             dpg.configure_item(_t("stem_group"), show=is_stem)
         if dpg.does_item_exist(_t("audio_file_group")):
             dpg.configure_item(_t("audio_file_group"), show=is_file)
-        if dpg.does_item_exist(_t("noise_group")):
-            dpg.configure_item(_t("noise_group"), show=not is_none)
 
     def _on_midi_source_change(self, sender, app_data, user_data) -> None:
         src = app_data if app_data is not None else dpg.get_value(_t("midi_src"))
@@ -455,10 +433,9 @@ class MusicGenPanel:
                 set_widget_text(_t("status"), "Enter a text prompt first.")
                 return
 
-            duration  = float(dpg.get_value(_t("duration")))
-            steps     = int(dpg.get_value(_t("steps")))
-            cfg       = float(dpg.get_value(_t("cfg")))
-            noise_pct = int(dpg.get_value(_t("noise")))   # 0..100
+            duration = float(dpg.get_value(_t("duration")))
+            steps    = int(dpg.get_value(_t("steps")))
+            cfg      = float(dpg.get_value(_t("cfg")))
 
             # Audio conditioning
             audio_src = dpg.get_value(_t("audio_src"))
@@ -471,10 +448,6 @@ class MusicGenPanel:
                         init_audio_path = self._stem_paths[key]
             elif audio_src == "Load audio file":
                 init_audio_path = self._loaded_audio_path
-
-            # noise_pct=100 → closely follow → init_noise_level=0.1
-            # noise_pct=0   → ignore audio   → init_noise_level=1.0
-            init_noise_level = 1.0 - (noise_pct / 100.0) * 0.9
 
             # MIDI conditioning
             midi_src = dpg.get_value(_t("midi_src"))
@@ -491,7 +464,6 @@ class MusicGenPanel:
                 steps            = steps,
                 cfg_scale        = cfg,
                 init_audio_path  = init_audio_path,
-                init_noise_level = init_noise_level,
                 midi_path        = midi_path,
                 output_dir       = _MUSICGEN_DIR,
             )

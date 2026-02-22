@@ -1,16 +1,16 @@
 """Stable Audio Open generation pipeline for StemForge.
 
-Wraps ``stable_audio_tools.inference.generation.generate_diffusion_cond``
-behind the standard StemForge pipeline interface.
+Wraps ``diffusers.StableAudioPipeline`` behind the standard StemForge
+pipeline interface.
 
 Conditioning sources
 --------------------
 * **Text prompt** — always required; passed directly to the model.
 * **Audio conditioning** (``init_audio_path``) — any audio file.
   Loaded with ``utils.audio_io.read_audio``, resampled to the model's
-  native 44 100 Hz, and passed as ``init_audio`` to the diffusion sampler.
-  ``init_noise_level`` (0.1–1.0) controls how strongly the init audio
-  shapes the output: 0.1 = closely follow init, 1.0 = ignore init.
+  native 44 100 Hz, and passed as ``initial_audio_waveforms`` to the
+  pipeline.  The VAE encodes the audio and the diffusion process blends
+  the resulting latents with the text-conditioned generation.
 * **MIDI conditioning** (``midi_path``) — a MIDI file parsed for BPM,
   key signature, and GM instrument families; the extracted tags are
   appended to the text prompt so the model receives them as language cues.
@@ -21,12 +21,10 @@ Typical usage
 
     pipeline = MusicGenPipeline()
     pipeline.configure(MusicGenConfig(
-        model_name="stabilityai/stable-audio-open-1.0",
         prompt="upbeat jazz piano trio, walking bass, brushed drums",
         duration_seconds=30.0,
         steps=100,
         init_audio_path=Path("vocals_stem.wav"),
-        init_noise_level=0.6,
         midi_path=Path("extracted.mid"),
         output_dir=Path("~/.local/share/stemforge/output/musicgen"),
     ))
@@ -40,7 +38,7 @@ from __future__ import annotations
 import datetime
 import logging
 import pathlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable
 
 import numpy as np
@@ -49,7 +47,6 @@ import torch
 from models.musicgen_loader import MusicGenModelLoader
 from utils.audio_io import read_audio, write_audio
 from utils.errors import (
-    AudioProcessingError,
     InvalidInputError,
     ModelLoadError,
     PipelineExecutionError,
@@ -117,10 +114,12 @@ def extract_midi_info(midi_path: pathlib.Path) -> dict[str, Any]:
             parts.append(key_sig)
         parts.extend(families)
 
-        result["bpm"] = bpm
-        result["key"] = key_sig
-        result["instruments"] = families
-        result["description"] = ", ".join(parts)
+        result.update({
+            "bpm":         bpm,
+            "key":         key_sig,
+            "instruments": families,
+            "description": ", ".join(parts),
+        })
     except Exception as exc:
         log.warning("MIDI info extraction failed for %s: %s", midi_path, exc)
     return result
@@ -129,17 +128,13 @@ def extract_midi_info(midi_path: pathlib.Path) -> dict[str, Any]:
 def enrich_prompt_from_midi(base_prompt: str, midi_path: pathlib.Path) -> str:
     """Return *base_prompt* extended with MIDI-extracted tags.
 
-    Tags are appended as a comma-separated suffix so the model sees them
-    naturally as part of the text prompt.  If extraction fails the original
-    prompt is returned unchanged.
+    Tags are appended as a comma-separated suffix.  If extraction fails
+    the original prompt is returned unchanged.
     """
-    info = extract_midi_info(midi_path)
-    desc = info.get("description", "")
+    desc = extract_midi_info(midi_path).get("description", "")
     if not desc:
         return base_prompt
-    if base_prompt:
-        return f"{base_prompt}, {desc}"
-    return desc
+    return f"{base_prompt}, {desc}" if base_prompt else desc
 
 
 # ---------------------------------------------------------------------------
@@ -157,22 +152,18 @@ class MusicGenConfig:
     prompt:
         Natural-language description of the music to generate.
     duration_seconds:
-        Target clip length (1–47 s; model hard limit is ~47 s at 44 100 Hz).
+        Target clip length (5–47 s; model hard limit is ~47.55 s).
     steps:
         Number of diffusion sampling steps.  More → higher quality, slower.
     cfg_scale:
         Classifier-free guidance scale.  Higher → more prompt-faithful.
-    sigma_min / sigma_max:
-        Noise schedule bounds for the ``dpmpp-3m-sde`` sampler.
-    sampler_type:
-        Sampler name passed to ``generate_diffusion_cond``.
+    negative_prompt:
+        Text describing what to avoid in the generated audio.
     init_audio_path:
         Optional audio file for init-audio conditioning.  The file is
         resampled to 44 100 Hz and truncated / padded to *duration_seconds*.
-    init_noise_level:
-        Amount of noise injected into *init_audio* before the reverse
-        diffusion pass (0.1 = strongly follow audio, 1.0 = ignore audio).
-        Only used when *init_audio_path* is set.
+        The VAE encodes it and the diffusion process uses the resulting
+        latents as a starting point alongside the text conditioning.
     midi_path:
         Optional MIDI file whose BPM, key, and instruments are appended to
         the text prompt.
@@ -184,11 +175,8 @@ class MusicGenConfig:
     duration_seconds: float = 30.0
     steps:            int   = 100
     cfg_scale:        float = 7.0
-    sigma_min:        float = 0.3
-    sigma_max:        float = 500.0
-    sampler_type:     str   = "dpmpp-3m-sde"
+    negative_prompt:  str   = "low quality, distorted, noise, clipping"
     init_audio_path:  pathlib.Path | None = None
-    init_noise_level: float = 0.7
     midi_path:        pathlib.Path | None = None
     output_dir:       pathlib.Path | None = None
 
@@ -203,7 +191,7 @@ class MusicGenResult:
     audio_path:       pathlib.Path
     sample_rate:      int
     duration_seconds: float
-    prompt_used:      str   = ""   # actual prompt sent to the model (after MIDI enrichment)
+    prompt_used:      str = ""   # actual prompt sent to the model (after MIDI enrichment)
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +206,7 @@ class MusicGenPipeline:
 
     def __init__(self) -> None:
         self._config: MusicGenConfig | None = None
-        self._model: Any = None
+        self._pipeline: Any = None
         self._model_config: dict | None = None
         self._loader = MusicGenModelLoader()
         self._progress_cb: Callable[[float, str], None] | None = None
@@ -245,7 +233,7 @@ class MusicGenPipeline:
             )
         if self.is_loaded and self._loader.is_cached(self._config.model_name):
             return
-        self._model, self._model_config = self._loader.load(self._config.model_name)
+        self._pipeline, self._model_config = self._loader.load(self._config.model_name)
         self.is_loaded = True
 
     # ------------------------------------------------------------------
@@ -274,7 +262,7 @@ class MusicGenPipeline:
         InvalidInputError
             If the final effective prompt is empty.
         """
-        if not self.is_loaded or self._model is None:
+        if not self.is_loaded or self._pipeline is None:
             raise PipelineExecutionError(
                 "load_model() must be called before run().",
                 pipeline_name="musicgen",
@@ -285,73 +273,64 @@ class MusicGenPipeline:
                 pipeline_name="musicgen",
             )
 
-        # --- Resolve prompt ---
-        prompt = (input_data.strip() or self._config.prompt.strip())
+        cfg    = self._config
+        prompt = (input_data.strip() or cfg.prompt.strip())
         if not prompt:
             raise InvalidInputError("Prompt must not be empty.", field="prompt")
 
-        # --- MIDI enrichment ---
-        midi_path = self._config.midi_path
-        if midi_path and midi_path.exists():
-            prompt = enrich_prompt_from_midi(prompt, midi_path)
+        # MIDI enrichment
+        if cfg.midi_path and cfg.midi_path.exists():
+            prompt = enrich_prompt_from_midi(prompt, cfg.midi_path)
             log.info("Enriched prompt: %s", prompt)
 
         self._progress(5.0, "Preparing generation …")
 
-        # --- Diffusion parameters ---
-        cfg = self._config
         assert self._model_config is not None
-        sample_rate: int = self._model_config["sample_rate"]   # 44100
-        sample_size: int = int(sample_rate * cfg.duration_seconds)
+        sample_rate: int = self._model_config["sample_rate"]
 
-        conditioning = [{
-            "prompt":         prompt,
-            "seconds_start":  0,
-            "seconds_total":  cfg.duration_seconds,
-        }]
-
-        # --- Audio init conditioning ---
-        init_audio = None
-        init_noise_level = 1.0   # default: ignore init, pure text generation
+        # Audio init conditioning
+        initial_audio_waveforms: torch.Tensor | None = None
         if cfg.init_audio_path and cfg.init_audio_path.exists():
-            init_audio = self._load_init_audio(
+            initial_audio_waveforms = self._load_init_audio(
                 cfg.init_audio_path, sample_rate, cfg.duration_seconds
             )
-            init_noise_level = float(cfg.init_noise_level)
 
-        # --- Device ---
+        # Detect device via transformer parameters
         try:
-            device_str = next(self._model.parameters()).device.type
-        except StopIteration:
+            device_str = next(self._pipeline.transformer.parameters()).device.type
+        except Exception:
             device_str = "cpu"
 
         self._progress(10.0, f"Generating on {device_str.upper()} …")
 
-        # --- Generation ---
-        try:
-            from stable_audio_tools.inference.generation import (  # type: ignore[import]
-                generate_diffusion_cond,
-            )
-        except ImportError as exc:
-            raise PipelineExecutionError(
-                f"stable-audio-tools not available: {exc}",
-                pipeline_name="musicgen",
-            ) from exc
+        # Diffusion step callback — maps 0..steps to 10%..90%
+        steps = cfg.steps
+        progress_cb = self._progress_cb
+
+        def _step_callback(step: int, timestep: int, latents: torch.Tensor) -> None:
+            if progress_cb is not None:
+                pct = 10.0 + (step / max(steps, 1)) * 80.0
+                try:
+                    progress_cb(pct, f"Generating… {step + 1}/{steps}")
+                except Exception:
+                    pass
 
         try:
-            output = generate_diffusion_cond(
-                self._model,
-                steps           = cfg.steps,
-                cfg_scale       = cfg.cfg_scale,
-                conditioning    = conditioning,
-                sample_size     = sample_size,
-                sample_rate     = sample_rate,
-                device          = device_str,
-                init_audio      = init_audio,
-                init_noise_level= init_noise_level,
-                sigma_min       = cfg.sigma_min,
-                sigma_max       = cfg.sigma_max,
-                sampler_type    = cfg.sampler_type,
+            pipe_output = self._pipeline(
+                prompt                     = prompt,
+                negative_prompt            = cfg.negative_prompt,
+                audio_end_in_s             = cfg.duration_seconds,
+                num_inference_steps        = cfg.steps,
+                guidance_scale             = cfg.cfg_scale,
+                num_waveforms_per_prompt   = 1,
+                initial_audio_waveforms    = initial_audio_waveforms,
+                initial_audio_sampling_rate=(
+                    torch.tensor(sample_rate)
+                    if initial_audio_waveforms is not None else None
+                ),
+                callback                   = _step_callback,
+                callback_steps             = 1,
+                output_type                = "pt",
             )
         except Exception as exc:
             raise PipelineExecutionError(
@@ -359,12 +338,11 @@ class MusicGenPipeline:
                 pipeline_name="musicgen",
             ) from exc
 
-        self._progress(90.0, "Writing audio …")
+        self._progress(92.0, "Writing audio …")
 
-        # output shape: (1, channels, samples) or (batch, channels, samples)
-        waveform_np: np.ndarray = output.squeeze(0).cpu().float().numpy()  # (2, samples)
+        # pipe_output.audios shape: (1, 2, samples) as torch.Tensor
+        waveform_np: np.ndarray = pipe_output.audios[0].float().cpu().numpy()  # (2, samples)
 
-        # --- Write to disk ---
         out_dir = cfg.output_dir or (pathlib.Path.home() / "Music" / "StemForge")
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -387,9 +365,9 @@ class MusicGenPipeline:
     # ------------------------------------------------------------------
 
     def clear(self) -> None:
-        """Release model weights from memory and reset state."""
+        """Release pipeline weights from memory and reset state."""
         self._loader.evict()
-        self._model = None
+        self._pipeline = None
         self._model_config = None
         self.is_loaded = False
 
@@ -417,11 +395,11 @@ class MusicGenPipeline:
         path: pathlib.Path,
         target_sr: int,
         seconds: float,
-    ) -> tuple[int, torch.Tensor]:
+    ) -> torch.Tensor:
         """Load *path*, resample to *target_sr*, truncate to *seconds*.
 
-        Returns ``(sample_rate, tensor)`` where tensor has shape
-        ``(1, 2, samples)`` on the same device as the model.
+        Returns a tensor of shape ``(1, 2, samples)`` on the pipeline's
+        device, suitable for ``initial_audio_waveforms``.
         """
         waveform_np, _ = read_audio(path, mono=False, target_rate=target_sr)
         # Ensure stereo — shape (2, samples)
@@ -431,10 +409,10 @@ class MusicGenPipeline:
         target_samples = int(target_sr * seconds)
         waveform_np = waveform_np[:, :target_samples]
 
-        tensor = torch.from_numpy(waveform_np).unsqueeze(0)  # (1, 2, samples)
+        tensor = torch.from_numpy(waveform_np.astype(np.float32)).unsqueeze(0)  # (1, 2, samples)
         try:
-            device = next(self._model.parameters()).device
+            device = next(self._pipeline.transformer.parameters()).device
             tensor = tensor.to(device)
-        except (StopIteration, Exception):
+        except Exception:
             pass
-        return (target_sr, tensor)
+        return tensor
