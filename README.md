@@ -5,14 +5,14 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu128-informational)
 ![Demucs](https://img.shields.io/badge/Demucs-enabled-success)
 ![BasicPitch](https://img.shields.io/badge/BasicPitch-enabled-success)
-![MusicGen](https://img.shields.io/badge/MusicGen-coming_soon-yellow)
+![MusicGen](https://img.shields.io/badge/MusicGen-enabled-success)
 ![License](https://img.shields.io/github/license/tsondo/StemForge)
 
 StemForge is a local, GPU‑accelerated desktop application for AI‑powered audio work:
 
 - **Demucs** — stem separation (vocals, drums, bass, other)
 - **BasicPitch** — polyphonic MIDI extraction
-- **MusicGen** — text/melody‑conditioned audio generation (backend coming soon; GUI ready)
+- **MusicGen** — text‑conditioned audio generation via Stable Audio Open, with optional audio and MIDI conditioning
 
 Everything runs locally with deterministic environments via uv.
 
@@ -55,6 +55,33 @@ Other distros:
 
 ---
 
+## HuggingFace Authentication (required for the Generate tab)
+
+The Generate tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
+a gated model. You must accept its license and authenticate before StemForge can download it.
+
+**Step 1 — Accept the license**
+
+Visit https://huggingface.co/stabilityai/stable-audio-open-1.0, sign in with a free
+HuggingFace account, and click **Agree and access repository**.
+
+**Step 2 — Create a token**
+
+Go to https://huggingface.co/settings/tokens and create a token with **Read** access.
+
+**Step 3 — Log in locally**
+
+    huggingface-cli login
+
+Paste your token when prompted. It is saved to `~/.cache/huggingface/token` and
+picked up automatically by StemForge on every subsequent run — you only need to do
+this once.
+
+The model weights (~2 GB) are downloaded on the first Generate run and cached under
+`~/.cache/stemforge/musicgen/`.
+
+---
+
 ## Install & Run
 
 Clone:
@@ -79,14 +106,14 @@ Run:
     │       ├── loader.py
     │       ├── demucs_panel.py
     │       ├── basicpitch_panel.py
-    │       ├── musicgen_panel.py   # Fully interactive; backend pending
+    │       ├── musicgen_panel.py
     │       └── export_panel.py
     │
     ├── pipelines/
     │   ├── demucs_pipeline.py
     │   ├── basicpitch_pipeline.py
     │   ├── vocal_midi_pipeline.py
-    │   ├── musicgen_pipeline.py    # Stub
+    │   ├── musicgen_pipeline.py
     │   └── resample.py
     │
     ├── models/
@@ -120,6 +147,6 @@ Logs:
 - GUI complete and fully wired
 - Export panel supports copy + transcoding
 - Deterministic uv environment
-- MusicGen backend coming soon (GUI already functional)
+- MusicGen pipeline fully implemented (Stable Audio Open via diffusers)
 
 StemForge is evolving into... not sure what, but its musical!
