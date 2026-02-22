@@ -18,6 +18,7 @@ import shutil
 import threading
 from typing import Callable
 
+import soundfile as sf
 import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
@@ -52,8 +53,10 @@ class MusicGenPanel:
 
         # Stem paths from the Separate tab (keyed by internal stem name)
         self._stem_paths: dict[str, pathlib.Path] = {}
-        # MIDI path produced by the MIDI tab
+        # MIDI paths produced by the MIDI tab: label → path
+        # "All stems" is always the merged file; per-stem entries follow.
         self._tab_midi_path: pathlib.Path | None = None
+        self._tab_midi_paths: dict[str, pathlib.Path] = {}
         # Manually loaded paths
         self._loaded_audio_path: pathlib.Path | None = None
         self._loaded_midi_path: pathlib.Path | None = None
@@ -178,11 +181,16 @@ class MusicGenPanel:
                 # Stem picker (visible when audio_src = "Stem from Separate tab")
                 with dpg.group(tag=_t("stem_group"), show=False):
                     dpg.add_spacer(height=4)
-                    dpg.add_combo(
+                    dpg.add_text(
+                        "Run Separate first to see stems here.",
+                        tag=_t("stem_hint"),
+                        color=(140, 140, 140, 255),
+                    )
+                    dpg.add_radio_button(
                         items=["None"],
                         default_value="None",
-                        tag=_t("stem_pick"),
-                        width=-1,
+                        tag=_t("stem_radio"),
+                        callback=self._on_stem_radio_change,
                     )
 
                 # File browse (visible when audio_src = "Load audio file")
@@ -220,14 +228,19 @@ class MusicGenPanel:
                     width=-1,
                 )
 
-                # MIDI tab path display (visible when midi_src = "From MIDI tab")
+                # MIDI tab picker (visible when midi_src = "From MIDI tab")
                 with dpg.group(tag=_t("midi_tab_group"), show=False):
                     dpg.add_spacer(height=4)
                     dpg.add_text(
-                        "",
-                        tag=_t("midi_tab_label"),
-                        color=(120, 200, 220, 255),
-                        wrap=340,
+                        "Run Extract MIDI first to see options here.",
+                        tag=_t("midi_hint"),
+                        color=(140, 140, 140, 255),
+                    )
+                    dpg.add_radio_button(
+                        items=["All stems"],
+                        default_value="All stems",
+                        tag=_t("midi_radio"),
+                        enabled=False,
                     )
 
                 # MIDI file browse (visible when midi_src = "Load MIDI file")
@@ -333,9 +346,11 @@ class MusicGenPanel:
         """Called by DemucsPanel after a successful separation run."""
         self._stem_paths = dict(stem_paths)
         labels = ["None"] + [_STEM_LABEL.get(k, k) for k in stem_paths]
-        if dpg.does_item_exist(_t("stem_pick")):
-            dpg.configure_item(_t("stem_pick"), items=labels)
-            dpg.set_value(_t("stem_pick"), "None")
+        if dpg.does_item_exist(_t("stem_radio")):
+            dpg.configure_item(_t("stem_radio"), items=labels)
+            dpg.set_value(_t("stem_radio"), "None")
+        if dpg.does_item_exist(_t("stem_hint")):
+            dpg.configure_item(_t("stem_hint"), show=False)
 
     def notify_midi_ready(
         self,
@@ -344,8 +359,14 @@ class MusicGenPanel:
     ) -> None:
         """Called by MidiPanel after a successful MIDI extraction run."""
         self._tab_midi_path = midi_path
-        if dpg.does_item_exist(_t("midi_tab_label")):
-            dpg.set_value(_t("midi_tab_label"), str(midi_path))
+        # Always include the merged file; add per-stem entries when available.
+        self._tab_midi_paths = {"All stems": midi_path, **stem_midi_paths}
+        labels = list(self._tab_midi_paths.keys())
+        if dpg.does_item_exist(_t("midi_radio")):
+            dpg.configure_item(_t("midi_radio"), items=labels, enabled=True)
+            dpg.set_value(_t("midi_radio"), labels[0])
+        if dpg.does_item_exist(_t("midi_hint")):
+            dpg.configure_item(_t("midi_hint"), show=False)
         # Auto-switch to MIDI tab source if user hasn't chosen anything yet
         if dpg.does_item_exist(_t("midi_src")):
             if dpg.get_value(_t("midi_src")) == "None":
@@ -382,6 +403,25 @@ class MusicGenPanel:
         if dpg.does_item_exist(_t("midi_file_group")):
             dpg.configure_item(_t("midi_file_group"), show=is_file)
 
+    def _on_stem_radio_change(self, sender, app_data, user_data) -> None:
+        label = app_data
+        if label == "None":
+            return
+        key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
+        if key and key in self._stem_paths:
+            self._set_duration_from_path(self._stem_paths[key])
+
+    def _set_duration_from_path(self, path: pathlib.Path) -> None:
+        """Read audio duration from *path* metadata and update the duration slider."""
+        try:
+            info = sf.info(str(path))
+            seconds = int(round(info.frames / info.samplerate))
+            seconds = max(5, min(600, seconds))
+            if dpg.does_item_exist(_t("duration")):
+                dpg.set_value(_t("duration"), seconds)
+        except Exception:
+            pass
+
     def _on_browse_audio(self, sender, app_data, user_data) -> None:
         if self._audio_browser:
             self._audio_browser.show()
@@ -394,6 +434,7 @@ class MusicGenPanel:
         self._loaded_audio_path = path
         if dpg.does_item_exist(_t("audio_file_label")):
             dpg.set_value(_t("audio_file_label"), str(path))
+        self._set_duration_from_path(path)
 
     def _on_midi_file_selected(self, path: pathlib.Path) -> None:
         self._loaded_midi_path = path
@@ -453,7 +494,7 @@ class MusicGenPanel:
             audio_src = dpg.get_value(_t("audio_src"))
             init_audio_path: pathlib.Path | None = None
             if audio_src == "Stem from Separate tab":
-                label = dpg.get_value(_t("stem_pick"))
+                label = dpg.get_value(_t("stem_radio"))
                 if label and label != "None":
                     key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
                     if key and key in self._stem_paths:
@@ -465,7 +506,8 @@ class MusicGenPanel:
             midi_src = dpg.get_value(_t("midi_src"))
             midi_path: pathlib.Path | None = None
             if midi_src == "From MIDI tab":
-                midi_path = self._tab_midi_path
+                label = dpg.get_value(_t("midi_radio"))
+                midi_path = self._tab_midi_paths.get(label)
             elif midi_src == "Load MIDI file":
                 midi_path = self._loaded_midi_path
 
