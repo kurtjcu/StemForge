@@ -10,7 +10,7 @@
 ![Demucs](https://img.shields.io/badge/Demucs-enabled-success)
 ![BS--Roformer](https://img.shields.io/badge/BS--Roformer-enabled-success)
 ![MusicGen](https://img.shields.io/badge/MusicGen-enabled-success)
-![License](https://img.shields.io/github/license/tsondo/StemForge)
+![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
 StemForge is a local, GPU‑accelerated desktop application for AI‑powered audio work:
 
@@ -227,3 +227,13 @@ All pipelines and the full GUI are implemented and working:
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
 
 StemForge is evolving into... not sure what, but its musical!
+
+---
+
+## License
+
+StemForge is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+Free for personal, educational, research, and other noncommercial use.
+
+**Commercial use requires a paid commercial license.**
+Contact [tsondo@gmail.com](mailto:tsondo@gmail.com) to discuss terms.
