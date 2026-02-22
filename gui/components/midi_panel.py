@@ -237,12 +237,24 @@ class MidiPanel:
                 )
 
                 dpg.add_spacer(height=6)
-                dpg.add_text("Duration (seconds)", color=(140, 140, 180, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "For stems: notes beyond this point are clipped.\n"
-                        "For text-only: the progression is extended to fill this duration."
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Duration (seconds)", color=(140, 140, 180, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "For stems: notes beyond this point are clipped.\n"
+                            "For text-only: the progression is extended to fill this duration."
+                        )
+                    dpg.add_spacer(width=8)
+                    dpg.add_button(
+                        label="Match to audio",
+                        callback=self._on_match_duration,
+                        height=20,
                     )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Set duration to match the length of the\n"
+                            "currently loaded stem or audio file."
+                        )
                 dpg.add_slider_float(
                     tag=_t("duration"),
                     default_value=30.0,
@@ -504,6 +516,25 @@ class MidiPanel:
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
+
+    def _on_match_duration(self, sender, app_data, user_data) -> None:
+        # Prefer a stem the user has ticked.
+        for stem in STEM_TARGETS:
+            check_tag = _t(f"stem_{stem}_check")
+            if (
+                stem in self._available_stems
+                and dpg.does_item_exist(check_tag)
+                and dpg.get_value(check_tag)
+            ):
+                self._set_duration_from_path(self._available_stems[stem])
+                return
+        # Fall back to first available separated stem.
+        if self._available_stems:
+            self._set_duration_from_path(next(iter(self._available_stems.values())))
+            return
+        # Fall back to first manually loaded stem.
+        if self._manual_stems:
+            self._set_duration_from_path(next(iter(self._manual_stems.values())))
 
     def _set_duration_from_path(self, path: pathlib.Path) -> None:
         """Read *path* duration via metadata and update the duration slider."""
