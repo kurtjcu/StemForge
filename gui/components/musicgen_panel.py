@@ -110,7 +110,7 @@ class MusicGenPanel:
                 dpg.add_slider_int(
                     tag=_t("duration"),
                     min_value=5,
-                    max_value=47,
+                    max_value=600,
                     default_value=30,
                     width=-1,
                     format="%d s",

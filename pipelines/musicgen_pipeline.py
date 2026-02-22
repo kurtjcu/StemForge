@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import math
 import pathlib
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -54,6 +55,9 @@ from utils.errors import (
 
 
 log = logging.getLogger("stemforge.pipelines.musicgen")
+
+# StableAudioPipeline generates at most this many seconds per call.
+_MAX_CHUNK_SECONDS = 47.0
 
 # ---------------------------------------------------------------------------
 # General MIDI instrument family map (program 0–127)
@@ -152,7 +156,8 @@ class MusicGenConfig:
     prompt:
         Natural-language description of the music to generate.
     duration_seconds:
-        Target clip length (5–47 s; model hard limit is ~47.55 s).
+        Target clip length in seconds.  Durations longer than 47 s are
+        split into equal chunks (each ≤ 47 s) and concatenated.
     steps:
         Number of diffusion sampling steps.  More → higher quality, slower.
     cfg_scale:
@@ -288,11 +293,17 @@ class MusicGenPipeline:
         assert self._model_config is not None
         sample_rate: int = self._model_config["sample_rate"]
 
-        # Audio init conditioning
-        initial_audio_waveforms: torch.Tensor | None = None
+        # Chunked generation: split durations > 47 s into equal pieces.
+        n_chunks  = max(1, math.ceil(cfg.duration_seconds / _MAX_CHUNK_SECONDS))
+        chunk_dur = cfg.duration_seconds / n_chunks   # evenly distributed
+
+        # Audio init conditioning — truncated to one chunk length.
+        # Only applied to the first chunk so the reference timbre isn't
+        # repeated every 47 s.
+        init_audio_waveforms: torch.Tensor | None = None
         if cfg.init_audio_path and cfg.init_audio_path.exists():
-            initial_audio_waveforms = self._load_init_audio(
-                cfg.init_audio_path, sample_rate, cfg.duration_seconds
+            init_audio_waveforms = self._load_init_audio(
+                cfg.init_audio_path, sample_rate, chunk_dur
             )
 
         # Detect device via transformer parameters
@@ -303,45 +314,63 @@ class MusicGenPipeline:
 
         self._progress(10.0, f"Generating on {device_str.upper()} …")
 
-        # Diffusion step callback — maps 0..steps to 10%..90%
         steps = cfg.steps
         progress_cb = self._progress_cb
+        chunks: list[np.ndarray] = []
 
-        def _step_callback(step: int, timestep: int, latents: torch.Tensor) -> None:
-            if progress_cb is not None:
-                pct = 10.0 + (step / max(steps, 1)) * 80.0
-                try:
-                    progress_cb(pct, f"Generating… {step + 1}/{steps}")
-                except Exception:
-                    pass
+        for i in range(n_chunks):
+            # Map this chunk's diffusion steps into the 10–90 % progress band.
+            band_start = 10.0 + i       * (80.0 / n_chunks)
+            band_end   = 10.0 + (i + 1) * (80.0 / n_chunks)
 
-        try:
-            pipe_output = self._pipeline(
-                prompt                     = prompt,
-                negative_prompt            = cfg.negative_prompt,
-                audio_end_in_s             = cfg.duration_seconds,
-                num_inference_steps        = cfg.steps,
-                guidance_scale             = cfg.cfg_scale,
-                num_waveforms_per_prompt   = 1,
-                initial_audio_waveforms    = initial_audio_waveforms,
-                initial_audio_sampling_rate=(
-                    torch.tensor(sample_rate)
-                    if initial_audio_waveforms is not None else None
-                ),
-                callback                   = _step_callback,
-                callback_steps             = 1,
-                output_type                = "pt",
-            )
-        except Exception as exc:
-            raise PipelineExecutionError(
-                f"Generation failed: {exc}",
-                pipeline_name="musicgen",
-            ) from exc
+            if n_chunks > 1:
+                self._progress(band_start, f"Generating chunk {i + 1}/{n_chunks}…")
+
+            # Capture band values so the closure doesn't read the loop variable.
+            def _step_callback(
+                step: int,
+                timestep: int,
+                latents: torch.Tensor,
+                _ps: float = band_start,
+                _pe: float = band_end,
+            ) -> None:
+                if progress_cb is not None:
+                    pct = _ps + (step / max(steps, 1)) * (_pe - _ps)
+                    try:
+                        progress_cb(pct, f"Generating… {step + 1}/{steps}")
+                    except Exception:
+                        pass
+
+            use_init = init_audio_waveforms if i == 0 else None
+
+            try:
+                pipe_output = self._pipeline(
+                    prompt                     = prompt,
+                    negative_prompt            = cfg.negative_prompt,
+                    audio_end_in_s             = chunk_dur,
+                    num_inference_steps        = cfg.steps,
+                    guidance_scale             = cfg.cfg_scale,
+                    num_waveforms_per_prompt   = 1,
+                    initial_audio_waveforms    = use_init,
+                    initial_audio_sampling_rate=(
+                        torch.tensor(sample_rate) if use_init is not None else None
+                    ),
+                    callback                   = _step_callback,
+                    callback_steps             = 1,
+                    output_type                = "pt",
+                )
+            except Exception as exc:
+                raise PipelineExecutionError(
+                    f"Generation failed on chunk {i + 1}/{n_chunks}: {exc}",
+                    pipeline_name="musicgen",
+                ) from exc
+
+            # audios shape: (1, 2, samples)
+            chunks.append(pipe_output.audios[0].float().cpu().numpy())  # (2, samples)
 
         self._progress(92.0, "Writing audio …")
 
-        # pipe_output.audios shape: (1, 2, samples) as torch.Tensor
-        waveform_np: np.ndarray = pipe_output.audios[0].float().cpu().numpy()  # (2, samples)
+        waveform_np: np.ndarray = np.concatenate(chunks, axis=1)  # (2, total_samples)
 
         out_dir = cfg.output_dir or (pathlib.Path.home() / "Music" / "StemForge")
         out_dir.mkdir(parents=True, exist_ok=True)

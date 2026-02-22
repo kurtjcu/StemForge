@@ -82,6 +82,7 @@ dependencies = [
 
     # Stable Audio Open (via diffusers — avoids laion-clap / numpy conflict)
     "diffusers>=0.30.0",
+    "torchsde>=0.2.6",
     "transformers>=4.40.0",
     "accelerate>=0.30.0",
     "safetensors>=0.4.2",
