@@ -84,6 +84,39 @@ Other distros:
 - PyTorch 2.10.0+cu130 (pinned) will use the GPU automatically
 - CPU‑only works everywhere, just slower
 
+### Audio on WSL (Windows Subsystem for Linux)
+StemForge detects WSL automatically and routes audio through PulseAudio. You are
+responsible for ensuring your WSL environment has a working PulseAudio setup before
+running StemForge.
+
+**Windows 11 (WSLg) — recommended**
+
+WSLg ships PulseAudio support out of the box. Verify it is working:
+
+    pactl info
+
+If that returns audio server info, you are done — StemForge will find the socket
+automatically.
+
+**Windows 10 (or WSLg not working)**
+
+Install [PulseAudio for Windows](https://github.com/pgaskin/pulseaudio-win32) on the
+Windows side and configure it to accept TCP connections, then expose the server address
+to WSL:
+
+    export PULSE_SERVER=tcp:$(grep nameserver /etc/resolv.conf | awk '{print $2}'):4713
+
+Add that line to your `~/.bashrc` so it persists across sessions. Refer to the
+PulseAudio for Windows documentation for enabling the TCP module in `default.pa`.
+
+**Troubleshooting**
+
+If you get no audio or a driver error on startup, confirm PulseAudio is reachable:
+
+    pactl info 2>/dev/null && echo "Audio OK" || echo "PulseAudio not found"
+
+StemForge will not attempt JACK or direct ALSA output under WSL.
+
 ---
 
 ## HuggingFace Authentication (required for the Generate tab)
