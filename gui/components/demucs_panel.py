@@ -406,6 +406,8 @@ class DemucsPanel:
                 model_id=model_id,
                 stems=list(roformer_spec.available_stems),
                 output_dir=_STEMS_DIR,
+                chunk_size=roformer_spec.default_chunk_size,
+                num_overlap=roformer_spec.default_num_overlap,
             )
             self._roformer_pipeline.configure(config)
 

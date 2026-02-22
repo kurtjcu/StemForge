@@ -265,10 +265,14 @@ class RoformerPipeline:
                 pred_np = pred_np[0]
             pred_np = pred_np[:, :chunk_size]
 
+            # Actual output may be shorter than chunk_size when hop_length doesn't
+            # divide chunk_size evenly (e.g. hop=512 vs chunk=352800 gives -32 samples).
+            actual_len = pred_np.shape[-1]
+            w = window[:actual_len]
+
             # Accumulate weighted result
-            weighted = pred_np * window[np.newaxis, :]
-            result_padded[:, pos: pos + chunk_size] += weighted
-            weight_padded[pos: pos + chunk_size] += window
+            result_padded[:, pos: pos + actual_len] += pred_np * w[np.newaxis, :]
+            weight_padded[pos: pos + actual_len] += w
 
         # Avoid division by zero where no chunks covered
         eps = 1e-8
@@ -336,10 +340,15 @@ class RoformerPipeline:
             pred_np = pred.squeeze(0).cpu().numpy()  # (num_stems, 2, T)
             pred_np = pred_np[:, :, :chunk_size]
 
-            result_padded[:, :, pos: pos + chunk_size] += (
-                pred_np * window[np.newaxis, np.newaxis, :]
+            # Clip window to actual output length (may differ from chunk_size when
+            # hop_length doesn't divide chunk_size evenly).
+            actual_len = pred_np.shape[-1]
+            w = window[:actual_len]
+
+            result_padded[:, :, pos: pos + actual_len] += (
+                pred_np * w[np.newaxis, np.newaxis, :]
             )
-            weight_padded[pos: pos + chunk_size] += window
+            weight_padded[pos: pos + actual_len] += w
 
         eps = 1e-8
         weight_padded = np.maximum(weight_padded, eps)
