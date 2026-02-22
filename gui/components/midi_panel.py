@@ -255,15 +255,25 @@ class MidiPanel:
                 dpg.add_separator()
 
                 # -- Note detection (instruments only — not used for vocals) --
-                dpg.add_text("Note detection", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "BasicPitch settings applied to instrument stems.\n"
-                        "Vocal stems always use faster-whisper + PYIN."
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Note detection", color=(175, 175, 255, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "BasicPitch settings applied to instrument stems.\n"
+                            "Vocal stems always use faster-whisper + PYIN."
+                        )
+                    dpg.add_spacer(width=10)
+                    dpg.add_button(
+                        label="Reset to defaults",
+                        callback=self._on_reset_note_detection,
+                        height=20,
                     )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text("Restore Sensitivity, Sustain, and Shortest note to defaults.")
                 dpg.add_spacer(height=4)
 
                 with dpg.group(horizontal=True):
+                    # -- Sensitivity knob --
                     with dpg.group():
                         dpg.add_text("Sensitivity", color=(140, 140, 180, 255))
                         with dpg.tooltip(dpg.last_item()):
@@ -276,8 +286,25 @@ class MidiPanel:
                             min_value=_BP_ONSET_RANGE[0],
                             max_value=_BP_ONSET_RANGE[1],
                             default_value=_BP_ONSET_DEFAULT,
+                            callback=self._on_onset_knob,
                         )
-                    dpg.add_spacer(width=20)
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(f"{_BP_ONSET_RANGE[0]:.2f}", color=(100, 100, 130, 255))
+                            dpg.add_drag_float(
+                                tag=_t("onset_val"),
+                                default_value=_BP_ONSET_DEFAULT,
+                                min_value=_BP_ONSET_RANGE[0],
+                                max_value=_BP_ONSET_RANGE[1],
+                                speed=0.005,
+                                format="%.2f",
+                                width=62,
+                                callback=self._on_onset_drag,
+                            )
+                            dpg.add_text(f"{_BP_ONSET_RANGE[1]:.2f}", color=(100, 100, 130, 255))
+
+                    dpg.add_spacer(width=16)
+
+                    # -- Sustain knob --
                     with dpg.group():
                         dpg.add_text("Sustain", color=(140, 140, 180, 255))
                         with dpg.tooltip(dpg.last_item()):
@@ -290,7 +317,21 @@ class MidiPanel:
                             min_value=_BP_FRAME_RANGE[0],
                             max_value=_BP_FRAME_RANGE[1],
                             default_value=_BP_FRAME_DEFAULT,
+                            callback=self._on_frame_knob,
                         )
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(f"{_BP_FRAME_RANGE[0]:.2f}", color=(100, 100, 130, 255))
+                            dpg.add_drag_float(
+                                tag=_t("frame_val"),
+                                default_value=_BP_FRAME_DEFAULT,
+                                min_value=_BP_FRAME_RANGE[0],
+                                max_value=_BP_FRAME_RANGE[1],
+                                speed=0.005,
+                                format="%.2f",
+                                width=62,
+                                callback=self._on_frame_drag,
+                            )
+                            dpg.add_text(f"{_BP_FRAME_RANGE[1]:.2f}", color=(100, 100, 130, 255))
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("Shortest note", color=(140, 140, 180, 255))
@@ -458,6 +499,33 @@ class MidiPanel:
     # ------------------------------------------------------------------
     # Callbacks
     # ------------------------------------------------------------------
+
+    def _on_onset_knob(self, sender, app_data, user_data) -> None:
+        if dpg.does_item_exist(_t("onset_val")):
+            dpg.set_value(_t("onset_val"), app_data)
+
+    def _on_onset_drag(self, sender, app_data, user_data) -> None:
+        if dpg.does_item_exist(_t("onset")):
+            dpg.set_value(_t("onset"), app_data)
+
+    def _on_frame_knob(self, sender, app_data, user_data) -> None:
+        if dpg.does_item_exist(_t("frame_val")):
+            dpg.set_value(_t("frame_val"), app_data)
+
+    def _on_frame_drag(self, sender, app_data, user_data) -> None:
+        if dpg.does_item_exist(_t("frame")):
+            dpg.set_value(_t("frame"), app_data)
+
+    def _on_reset_note_detection(self, sender, app_data, user_data) -> None:
+        for tag, val in (
+            (_t("onset"),     _BP_ONSET_DEFAULT),
+            (_t("onset_val"), _BP_ONSET_DEFAULT),
+            (_t("frame"),     _BP_FRAME_DEFAULT),
+            (_t("frame_val"), _BP_FRAME_DEFAULT),
+            (_t("min_note"),  _BP_MIN_NOTE_DEFAULT),
+        ):
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, val)
 
     def _on_run_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
