@@ -81,6 +81,7 @@ dependencies = [
     "pyyaml>=6.0.0",
 
     # Stable Audio Open
+    "stable-audio-tools>=0.0.14",
     "transformers>=4.40.0",
     "accelerate>=0.30.0",
     "safetensors>=0.4.2",

@@ -152,6 +152,7 @@ def main() -> None:
 
     # ---- Inter-panel wiring --------------------------------------------
     _demucs.add_result_listener(_midi.notify_stems_ready)
+    _demucs.add_result_listener(_musicgen.notify_stems_ready)
     _midi.add_result_listener(_musicgen.notify_midi_ready)
     # Auto-trigger Roformer analysis when a new file is loaded
     _loader.add_on_load_callback(_demucs.on_file_loaded)

@@ -1,36 +1,37 @@
-"""MusicGen audio-generation panel for StemForge.
+"""MusicGen (Stable Audio Open) audio-generation panel for StemForge.
 
-Left column: text prompt, model selector, duration slider, creativity
-and variety knobs, optional melody-stem picker, and a Generate button.
-Right column: progress bar, status, result info, waveform preview, and
-a Save button.
+Left column: text prompt, model, duration, steps, CFG scale,
+             audio conditioning (stem or file + influence level),
+             MIDI conditioning (MIDI-tab or file), Generate button.
+Right column: progress bar, status, result info, waveform preview,
+              Save As button.
 
 The pipeline runs on a daemon thread; all DearPyGUI updates are
 thread-safe calls to dpg.set_value / dpg.configure_item.
-
-NOTE: MusicGenPipeline methods are currently stubs — the panel is fully
-wired and will produce output as soon as the pipeline is implemented.
 """
 
-import pathlib
+from __future__ import annotations
+
 import logging
+import pathlib
+import shutil
 import threading
 
 import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
-from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
+from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MUSICGEN_DIR
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
+from gui.components.demucs_panel import _STEM_LABEL
 
 
 log = logging.getLogger("stemforge.gui.musicgen_panel")
 
-# Model list — populated when Stable Audio Open integration is complete.
-MUSICGEN_MODELS: tuple[str, ...] = ()
-_MODEL_LABEL: dict[str, str] = {}
-_MODEL_PLACEHOLDER = "(not yet configured)"
+_STABLE_AUDIO_MODEL = "stabilityai/stable-audio-open-1.0"
+_AUDIO_SOURCES = ("None", "Stem from Separate tab", "Load audio file")
+_MIDI_SOURCES  = ("None", "From MIDI tab", "Load MIDI file")
 
 _P = "mg"
 
@@ -40,20 +41,26 @@ def _t(name: str) -> str:
 
 
 class MusicGenPanel:
-    """MusicGen audio-generation panel."""
+    """Stable Audio Open generation panel."""
 
     def __init__(self) -> None:
         self._pipeline = MusicGenPipeline()
         self._thread: threading.Thread | None = None
         self._result_path: pathlib.Path | None = None
-        self._current_model: str | None = None
         self._waveform = WaveformWidget("mg")
-        self._save_browser = FileBrowser(
-            tag="mg_save_browser",
-            callback=self._on_file_save_selected,
-            extensions=frozenset({".wav", ".flac", ".ogg"}),
-            mode="save",
-        )
+
+        # Stem paths from the Separate tab (keyed by internal stem name)
+        self._stem_paths: dict[str, pathlib.Path] = {}
+        # MIDI path produced by the MIDI tab
+        self._tab_midi_path: pathlib.Path | None = None
+        # Manually loaded paths
+        self._loaded_audio_path: pathlib.Path | None = None
+        self._loaded_midi_path: pathlib.Path | None = None
+
+        # File browsers (created in build_save_dialog)
+        self._save_browser: FileBrowser | None = None
+        self._audio_browser: FileBrowser | None = None
+        self._midi_browser: FileBrowser | None = None
 
     # ------------------------------------------------------------------
     # UI construction
@@ -63,7 +70,7 @@ class MusicGenPanel:
         with dpg.group(horizontal=True):
 
             # ---- Left column: settings --------------------------------
-            with dpg.child_window(width=340, height=-1, border=False):
+            with dpg.child_window(width=360, height=-1, border=False):
 
                 dpg.add_text("Describe the music", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
@@ -80,115 +87,179 @@ class MusicGenPanel:
                     hint="e.g. upbeat jazz piano with walking bass",
                     multiline=True,
                     width=-1,
-                    height=90,
+                    height=80,
                 )
 
-                dpg.add_spacer(height=14)
+                dpg.add_spacer(height=12)
                 dpg.add_text("Model", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Small is the quickest to load; Large sounds best.\n"
-                        "Choose Melody to hum or upload a tune for the AI\n"
-                        "to follow as an additional guide."
-                    )
                 dpg.add_combo(
-                    items=list(_MODEL_LABEL.values()) or [_MODEL_PLACEHOLDER],
-                    default_value=next(iter(_MODEL_LABEL.values()), _MODEL_PLACEHOLDER),
+                    items=["Stable Audio Open 1.0"],
+                    default_value="Stable Audio Open 1.0",
                     tag=_t("model"),
-                    callback=self._on_model_change,
                     width=-1,
-                    enabled=bool(MUSICGEN_MODELS),
                 )
 
-                dpg.add_spacer(height=14)
-                dpg.add_text("Length", color=(175, 175, 255, 255))
+                dpg.add_spacer(height=12)
+                dpg.add_text("Duration", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
                         "How many seconds of audio to generate.\n"
+                        "Model hard limit is 47 s at 44,100 Hz.\n"
                         "Longer clips take more time and memory."
                     )
                 dpg.add_slider_int(
                     tag=_t("duration"),
                     min_value=5,
-                    max_value=30,
-                    default_value=10,
+                    max_value=47,
+                    default_value=30,
                     width=-1,
-                    format="%d seconds",
+                    format="%d s",
                 )
 
-                dpg.add_spacer(height=14)
-                with dpg.group(horizontal=True):
-                    with dpg.group():
-                        dpg.add_text("Creativity", color=(175, 175, 255, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "Controls how unpredictable the result is.\n\n"
-                                "Turn up  ->  more varied, experimental output.\n"
-                                "Turn down ->  safer, more predictable music."
-                            )
-                        dpg.add_knob_float(
-                            tag=_t("temperature"),
-                            min_value=0.2,
-                            max_value=2.0,
-                            default_value=1.0,
-                        )
-
-                    dpg.add_spacer(width=20)
-
-                    with dpg.group():
-                        dpg.add_text("Variety", color=(175, 175, 255, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "Number of token choices at each generation step.\n\n"
-                                "Turn up  ->  broader range of musical ideas.\n"
-                                "Turn down ->  sticks to the most likely sounds."
-                            )
-                        dpg.add_knob_float(
-                            tag=_t("topk"),
-                            min_value=10.0,
-                            max_value=500.0,
-                            default_value=250.0,
-                        )
-
-                dpg.add_spacer(height=14)
-                dpg.add_text("Melody guide  (optional)", color=(175, 175, 255, 255))
+                dpg.add_spacer(height=8)
+                dpg.add_text("Diffusion steps", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "Pick a separated stem for the AI to follow melodically.\n"
-                        "Only effective with the Melody model variant.\n"
-                        "Run Separate first, then pick a part here."
+                        "Number of denoising steps.\n"
+                        "More → higher quality, slower.\n"
+                        "100 is a good balance."
+                    )
+                dpg.add_slider_int(
+                    tag=_t("steps"),
+                    min_value=20,
+                    max_value=200,
+                    default_value=100,
+                    width=-1,
+                    format="%d steps",
+                )
+
+                dpg.add_spacer(height=8)
+                dpg.add_text("CFG scale", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Classifier-free guidance scale.\n"
+                        "Higher → more prompt-faithful.\n"
+                        "Lower → more varied output."
+                    )
+                dpg.add_slider_float(
+                    tag=_t("cfg"),
+                    min_value=1.0,
+                    max_value=15.0,
+                    default_value=7.0,
+                    width=-1,
+                    format="%.1f",
+                )
+
+                # --- Audio conditioning ---
+                dpg.add_spacer(height=14)
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
+                dpg.add_text("Audio conditioning  (optional)", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "Provide a reference audio clip to guide generation.\n"
+                        "BPM, timbre, and energy of the reference influence\n"
+                        "the output depending on the influence level.\n\n"
+                        "Stem — use a separated stem from the Separate tab.\n"
+                        "Load  — browse for any WAV/FLAC/MP3."
                     )
                 dpg.add_combo(
-                    items=["None"],
-                    default_value="None",
-                    tag=_t("melody"),
+                    items=list(_AUDIO_SOURCES),
+                    default_value=_AUDIO_SOURCES[0],
+                    tag=_t("audio_src"),
+                    callback=self._on_audio_source_change,
                     width=-1,
-                    enabled=False,
                 )
-                dpg.add_button(
-                    label="Refresh stems",
-                    tag=_t("refresh_btn"),
-                    callback=self._on_refresh_stems,
-                    width=-1,
-                    enabled=False,
-                )
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text("Re-read which separated parts are available.")
 
+                # Stem picker (visible when audio_src = "Stem from Separate tab")
+                with dpg.group(tag=_t("stem_group"), show=False):
+                    dpg.add_spacer(height=4)
+                    dpg.add_combo(
+                        items=["None"],
+                        default_value="None",
+                        tag=_t("stem_pick"),
+                        width=-1,
+                    )
+
+                # File browse (visible when audio_src = "Load audio file")
+                with dpg.group(tag=_t("audio_file_group"), show=False):
+                    dpg.add_spacer(height=4)
+                    dpg.add_button(
+                        label="  Browse…  ",
+                        tag=_t("audio_browse_btn"),
+                        callback=self._on_browse_audio,
+                        width=-1,
+                    )
+                    dpg.add_text(
+                        "No file selected",
+                        tag=_t("audio_file_label"),
+                        color=(140, 140, 140, 255),
+                        wrap=340,
+                    )
+
+                # Influence slider (visible when audio_src != "None")
+                with dpg.group(tag=_t("noise_group"), show=False):
+                    dpg.add_spacer(height=6)
+                    dpg.add_text("Influence", color=(175, 175, 255, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "How strongly the reference audio shapes the output.\n"
+                            "100 = follow audio closely.\n"
+                            "  0 = ignore audio (pure text generation)."
+                        )
+                    dpg.add_slider_int(
+                        tag=_t("noise"),
+                        min_value=0,
+                        max_value=100,
+                        default_value=30,
+                        width=-1,
+                        format="%d%%",
+                    )
+
+                # --- MIDI conditioning ---
                 dpg.add_spacer(height=14)
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
                 dpg.add_text("MIDI conditioning  (optional)", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "MIDI file produced by the MIDI tab.\n"
-                        "Will be used as a structural/harmonic guide\n"
-                        "when the generation pipeline supports it."
+                        "Extract BPM, key, and instruments from a MIDI file\n"
+                        "and append them to your text prompt so the model\n"
+                        "stays in key and at the right tempo."
                     )
-                dpg.add_text(
-                    "No MIDI available - run Extract MIDI first.",
-                    tag=_t("midi_status"),
-                    color=(140, 140, 140, 255),
-                    wrap=300,
+                dpg.add_combo(
+                    items=list(_MIDI_SOURCES),
+                    default_value=_MIDI_SOURCES[0],
+                    tag=_t("midi_src"),
+                    callback=self._on_midi_source_change,
+                    width=-1,
                 )
+
+                # MIDI tab path display (visible when midi_src = "From MIDI tab")
+                with dpg.group(tag=_t("midi_tab_group"), show=False):
+                    dpg.add_spacer(height=4)
+                    dpg.add_text(
+                        "",
+                        tag=_t("midi_tab_label"),
+                        color=(120, 200, 220, 255),
+                        wrap=340,
+                    )
+
+                # MIDI file browse (visible when midi_src = "Load MIDI file")
+                with dpg.group(tag=_t("midi_file_group"), show=False):
+                    dpg.add_spacer(height=4)
+                    dpg.add_button(
+                        label="  Browse…  ",
+                        tag=_t("midi_browse_btn"),
+                        callback=self._on_browse_midi,
+                        width=-1,
+                    )
+                    dpg.add_text(
+                        "No file selected",
+                        tag=_t("midi_file_label"),
+                        color=(140, 140, 140, 255),
+                        wrap=340,
+                    )
 
                 dpg.add_spacer(height=20)
                 dpg.add_button(
@@ -201,7 +272,7 @@ class MusicGenPanel:
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
                         "Generate audio from your description.\n"
-                        "The model is loaded on the first run."
+                        "The model is loaded on the first run (~2 GB download)."
                     )
 
             # ---- Right column: results --------------------------------
@@ -230,7 +301,6 @@ class MusicGenPanel:
                 dpg.add_text("-", tag=_t("audio_file"), color=(140, 140, 140, 255), wrap=350)
 
                 dpg.add_spacer(height=8)
-                # Waveform preview replaces the old ▶ Play button
                 self._waveform.build_ui()
 
                 dpg.add_spacer(height=8)
@@ -245,31 +315,104 @@ class MusicGenPanel:
                     dpg.add_text("Copy the generated file to a location you choose.")
 
     def build_save_dialog(self) -> None:
-        """Create the custom Save browser at the top DearPyGUI level."""
+        """Create file browsers at the top DearPyGUI level."""
+        self._save_browser = FileBrowser(
+            tag="mg_save_browser",
+            callback=self._on_file_save_selected,
+            extensions=frozenset({".wav", ".flac", ".ogg"}),
+            mode="save",
+        )
         self._save_browser.build()
 
+        self._audio_browser = FileBrowser(
+            tag="mg_audio_browser",
+            callback=self._on_audio_file_selected,
+            extensions=frozenset({".wav", ".flac", ".mp3", ".ogg", ".aif", ".aiff"}),
+            mode="open",
+        )
+        self._audio_browser.build()
+
+        self._midi_browser = FileBrowser(
+            tag="mg_midi_browser",
+            callback=self._on_midi_file_selected,
+            extensions=frozenset({".mid", ".midi"}),
+            mode="open",
+        )
+        self._midi_browser.build()
+
     # ------------------------------------------------------------------
-    # Callbacks
+    # Inter-panel notifications
     # ------------------------------------------------------------------
+
+    def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
+        """Called by DemucsPanel after a successful separation run."""
+        self._stem_paths = dict(stem_paths)
+        labels = ["None"] + [_STEM_LABEL.get(k, k) for k in stem_paths]
+        if dpg.does_item_exist(_t("stem_pick")):
+            dpg.configure_item(_t("stem_pick"), items=labels)
+            dpg.set_value(_t("stem_pick"), "None")
 
     def notify_midi_ready(
         self,
         midi_path: pathlib.Path,
         stem_midi_paths: dict[str, pathlib.Path],
     ) -> None:
-        """Called by MidiPanel after a successful extraction run."""
-        if dpg.does_item_exist(_t("midi_status")):
-            dpg.set_value(_t("midi_status"), str(midi_path))
+        """Called by MidiPanel after a successful MIDI extraction run."""
+        self._tab_midi_path = midi_path
+        if dpg.does_item_exist(_t("midi_tab_label")):
+            dpg.set_value(_t("midi_tab_label"), str(midi_path))
+        # Auto-switch to MIDI tab source if user hasn't chosen anything yet
+        if dpg.does_item_exist(_t("midi_src")):
+            if dpg.get_value(_t("midi_src")) == "None":
+                dpg.set_value(_t("midi_src"), "From MIDI tab")
+                self._on_midi_source_change(None, "From MIDI tab", None)
 
-    def _on_model_change(self, sender, app_data, user_data) -> None:
-        pass
+    # ------------------------------------------------------------------
+    # Callbacks — audio conditioning
+    # ------------------------------------------------------------------
 
-    def _on_refresh_stems(self, sender, app_data, user_data) -> None:
-        from gui.components.demucs_panel import _STEM_LABEL
-        stems = app_state.stem_paths
-        items = ["None"] + [_STEM_LABEL.get(k, k) for k in stems]
-        dpg.configure_item(_t("melody"), items=items)
-        dpg.set_value(_t("melody"), "None")
+    def _on_audio_source_change(self, sender, app_data, user_data) -> None:
+        src = app_data if app_data is not None else dpg.get_value(_t("audio_src"))
+        is_stem = src == "Stem from Separate tab"
+        is_file = src == "Load audio file"
+        is_none = src == "None"
+        if dpg.does_item_exist(_t("stem_group")):
+            dpg.configure_item(_t("stem_group"), show=is_stem)
+        if dpg.does_item_exist(_t("audio_file_group")):
+            dpg.configure_item(_t("audio_file_group"), show=is_file)
+        if dpg.does_item_exist(_t("noise_group")):
+            dpg.configure_item(_t("noise_group"), show=not is_none)
+
+    def _on_midi_source_change(self, sender, app_data, user_data) -> None:
+        src = app_data if app_data is not None else dpg.get_value(_t("midi_src"))
+        is_tab  = src == "From MIDI tab"
+        is_file = src == "Load MIDI file"
+        if dpg.does_item_exist(_t("midi_tab_group")):
+            dpg.configure_item(_t("midi_tab_group"), show=is_tab)
+        if dpg.does_item_exist(_t("midi_file_group")):
+            dpg.configure_item(_t("midi_file_group"), show=is_file)
+
+    def _on_browse_audio(self, sender, app_data, user_data) -> None:
+        if self._audio_browser:
+            self._audio_browser.show()
+
+    def _on_browse_midi(self, sender, app_data, user_data) -> None:
+        if self._midi_browser:
+            self._midi_browser.show()
+
+    def _on_audio_file_selected(self, path: pathlib.Path) -> None:
+        self._loaded_audio_path = path
+        if dpg.does_item_exist(_t("audio_file_label")):
+            dpg.set_value(_t("audio_file_label"), str(path))
+
+    def _on_midi_file_selected(self, path: pathlib.Path) -> None:
+        self._loaded_midi_path = path
+        if dpg.does_item_exist(_t("midi_file_label")):
+            dpg.set_value(_t("midi_file_label"), str(path))
+
+    # ------------------------------------------------------------------
+    # Callbacks — run / save
+    # ------------------------------------------------------------------
 
     def _on_run_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
@@ -278,7 +421,8 @@ class MusicGenPanel:
         self._thread.start()
 
     def _on_save_click(self, sender, app_data, user_data) -> None:
-        self._save_browser.show()
+        if self._save_browser:
+            self._save_browser.show()
 
     def _on_file_save_selected(self, dest: pathlib.Path) -> None:
         if not self._result_path or not self._result_path.exists():
@@ -286,12 +430,11 @@ class MusicGenPanel:
         if not dest.suffix:
             dest = dest.with_suffix(".wav")
         try:
-            import shutil
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(self._result_path, dest)
-            set_widget_text(_t("status"),f"Saved -> {dest}")
+            set_widget_text(_t("status"), f"Saved → {dest}")
         except Exception as exc:
-            set_widget_text(_t("status"),f"Save failed: {exc}")
+            set_widget_text(_t("status"), f"Save failed: {exc}")
 
     # ------------------------------------------------------------------
     # Background thread
@@ -299,37 +442,81 @@ class MusicGenPanel:
 
     def _run(self) -> None:
         dpg.configure_item(_t("run_btn"), enabled=False)
+        dpg.configure_item(_t("save_btn"), enabled=False)
         dpg.set_value(_t("progress"), 0.0)
+
+        def _progress(pct: float, stage: str) -> None:
+            dpg.set_value(_t("progress"), pct / 100.0)
+            set_widget_text(_t("status"), stage)
+
         try:
-            set_widget_text(_t("status"), "Generation pipeline not yet implemented.")
+            prompt = dpg.get_value(_t("prompt")).strip()
+            if not prompt:
+                set_widget_text(_t("status"), "Enter a text prompt first.")
+                return
+
+            duration  = float(dpg.get_value(_t("duration")))
+            steps     = int(dpg.get_value(_t("steps")))
+            cfg       = float(dpg.get_value(_t("cfg")))
+            noise_pct = int(dpg.get_value(_t("noise")))   # 0..100
+
+            # Audio conditioning
+            audio_src = dpg.get_value(_t("audio_src"))
+            init_audio_path: pathlib.Path | None = None
+            if audio_src == "Stem from Separate tab":
+                label = dpg.get_value(_t("stem_pick"))
+                if label and label != "None":
+                    key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
+                    if key and key in self._stem_paths:
+                        init_audio_path = self._stem_paths[key]
+            elif audio_src == "Load audio file":
+                init_audio_path = self._loaded_audio_path
+
+            # noise_pct=100 → closely follow → init_noise_level=0.1
+            # noise_pct=0   → ignore audio   → init_noise_level=1.0
+            init_noise_level = 1.0 - (noise_pct / 100.0) * 0.9
+
+            # MIDI conditioning
+            midi_src = dpg.get_value(_t("midi_src"))
+            midi_path: pathlib.Path | None = None
+            if midi_src == "From MIDI tab":
+                midi_path = self._tab_midi_path
+            elif midi_src == "Load MIDI file":
+                midi_path = self._loaded_midi_path
+
+            config = MusicGenConfig(
+                model_name       = _STABLE_AUDIO_MODEL,
+                prompt           = prompt,
+                duration_seconds = duration,
+                steps            = steps,
+                cfg_scale        = cfg,
+                init_audio_path  = init_audio_path,
+                init_noise_level = init_noise_level,
+                midi_path        = midi_path,
+                output_dir       = _MUSICGEN_DIR,
+            )
+            self._pipeline.configure(config)
+            self._pipeline.set_progress_callback(_progress)
+
+            _progress(2.0, "Loading model…")
+            self._pipeline.load_model()
+
+            result: MusicGenResult = self._pipeline.run("")
+
+            self._result_path = result.audio_path
+            app_state.musicgen_path = result.audio_path
+            set_widget_text(
+                _t("duration_info"),
+                f"{result.duration_seconds:.1f} s  ·  {result.sample_rate} Hz",
+            )
+            set_widget_text(_t("audio_file"), str(result.audio_path))
+            self._waveform.load_async(result.audio_path)
+            dpg.configure_item(_t("save_btn"), enabled=True)
+            _progress(100.0, f"Done — {result.duration_seconds:.1f} s")
+
+        except Exception as exc:
+            log.exception("Generation failed")
+            set_widget_text(_t("status"), f"Error: {exc}")
+            dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)
-
-    # ------------------------------------------------------------------
-    # Legacy stub methods
-    # ------------------------------------------------------------------
-
-    def set_melody_path(self, path: pathlib.Path) -> None:
-        pass
-
-    def get_prompt(self) -> str:
-        return dpg.get_value(_t("prompt")) if dpg.does_item_exist(_t("prompt")) else ""
-
-    def get_selected_model(self) -> str:
-        label = dpg.get_value(_t("model")) if dpg.does_item_exist(_t("model")) else ""
-        return next((k for k, v in _MODEL_LABEL.items() if v == label), "")
-
-    def get_duration_seconds(self) -> float:
-        return float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 10.0
-
-    def get_melody_conditioning(self) -> pathlib.Path | None:
-        return None
-
-    def run(self) -> None:
-        self._on_run_click(None, None, None)
-
-    def cancel(self) -> None:
-        pass
-
-    def add_result_listener(self, callback) -> None:
-        pass
