@@ -1,6 +1,12 @@
 # StemForge — Claude Context
 
+## Workflow
+- Break all multi-step tasks into a numbered plan before starting
+- After each major step, pause and report: what was done, what changed, what's next
+- Wait for explicit "continue" or "proceed" confirmation before moving to the next step
+
 ## What this project is
+
 
 AI-powered audio processing desktop application with three pipelines:
 - **Demucs** — source separation (vocals, drums, bass, other)

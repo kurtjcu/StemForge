@@ -1,43 +1,60 @@
-"""Demucs source-separation panel for StemForge.
+"""Demucs + BS-Roformer source-separation panel for StemForge.
 
-Provides a two-column layout: settings on the left (model selector,
-part checkboxes, Run button) and results on the right (progress bar,
-status, per-stem waveform previews and Show-file buttons).  The
-pipeline runs on a daemon thread so the render loop is never blocked.
+Two-column layout:
+  Left  — engine selector, model combo, stem checkboxes (Demucs) or
+          auto-analysis status (Roformer), Separate button (Demucs only).
+  Right — progress bar, status, per-stem rows (waveform + Save As + Show file).
+
+Engine behaviour
+----------------
+Demucs   — manual "Separate" button; runs user-selected stems.
+Roformer — auto-analysis on file load; runs immediately, shows active stems
+           based on RMS energy; no manual button needed.
 
 Result listeners
 ----------------
-Callers may register callbacks via add_result_listener(cb).  After a
-successful run, every callback is invoked with the stem_paths dict so
-that the MIDI tab can be updated automatically.
+Register via add_result_listener(cb).  After a successful run (either
+engine) every callback is invoked with the active stem_paths dict so
+the MIDI tab updates automatically.
 """
 
-import pathlib
+from __future__ import annotations
+
 import logging
+import pathlib
+import shutil
+import subprocess
+import sys
 import threading
 import traceback
 from typing import Callable
 
+import numpy as np
 import dearpygui.dearpygui as dpg
 
-from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig, DemucsResult
-from models.registry import list_specs, DemucsSpec
-from gui.state import app_state, copy_to_clipboard, set_widget_text, get_widget_text, make_copy_callback
+from pipelines.demucs_pipeline import DemucsPipeline, DemucsConfig
+from pipelines.roformer_pipeline import RoformerPipeline, RoformerConfig
+from models.registry import list_specs, DemucsSpec, RoformerSpec
+from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
 from gui.components.waveform_widget import WaveformWidget
+from gui.components.file_browser import FileBrowser
 
 
 log = logging.getLogger("stemforge.gui.demucs_panel")
 
-DEMUCS_MODELS: tuple[str, ...] = tuple(s.model_id for s in list_specs(DemucsSpec))
-STEM_TARGETS:  tuple[str, ...] = ("vocals", "drums", "bass", "other")
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
 
-_MODEL_DESC: dict[str, str] = {
-    "htdemucs":    "Best overall quality — good for most music",
-    "htdemucs_ft": "Fine-tuned variant — sharper on pop and rock",
-    "mdx_extra":   "MDX architecture — excellent vocal isolation",
-    "mdx_extra_q": "MDX quality mode — cleanest results, slowest",
-}
+DEMUCS_MODELS: tuple[str, ...] = tuple(s.model_id for s in list_specs(DemucsSpec))
+ROFORMER_MODELS: tuple[str, ...] = tuple(s.model_id for s in list_specs(RoformerSpec))
+
+_DEMUCS_DESC: dict[str, str] = {s.model_id: s.description for s in list_specs(DemucsSpec)}
+_ROFORMER_DESC: dict[str, str] = {s.model_id: s.description for s in list_specs(RoformerSpec)}
+
+STEM_TARGETS: tuple[str, ...] = ("vocals", "drums", "bass", "other")
+_ROFORMER_STEMS: tuple[str, ...] = ("vocals", "other")
 
 _STEM_LABEL: dict[str, str] = {
     "vocals": "Singing voice",
@@ -46,6 +63,11 @@ _STEM_LABEL: dict[str, str] = {
     "other":  "Everything else",
 }
 
+_ENGINES = ("Demucs", "BS-Roformer")
+
+# Stem is "active" if stem_rms / mix_rms exceeds this ratio (~-40 dB)
+_RMS_ACTIVE_RATIO = 0.01
+
 _P = "demucs"
 
 
@@ -53,22 +75,34 @@ def _t(name: str) -> str:
     return f"{_P}_{name}"
 
 
+# ---------------------------------------------------------------------------
+# Panel
+# ---------------------------------------------------------------------------
+
 class DemucsPanel:
-    """Demucs separation panel — builds and manages its own DearPyGUI widgets."""
+    """Separation panel — manages Demucs and BS-Roformer engines."""
 
     def __init__(self) -> None:
-        self._pipeline = DemucsPipeline()
+        self._demucs_pipeline = DemucsPipeline()
+        self._roformer_pipeline = RoformerPipeline()
         self._current_model: str | None = None
+        self._current_engine: str = "Demucs"
         self._thread: threading.Thread | None = None
+        self._cancel_analysis: threading.Event = threading.Event()
         self._stem_paths: dict[str, pathlib.Path] = {}
         self._result_listeners: list[Callable[[dict[str, pathlib.Path]], None]] = []
-        # Pre-create one WaveformWidget per stem
+        self._save_stem_name: str = ""
+
+        # One WaveformWidget per stem (all four, Roformer only uses 2)
         self._stem_waveforms: dict[str, WaveformWidget] = {
             stem: WaveformWidget(f"stem_{stem}") for stem in STEM_TARGETS
         }
 
+        # Save-As file browser (created in build_save_dialog)
+        self._save_browser: FileBrowser | None = None
+
     # ------------------------------------------------------------------
-    # UI construction  (call inside the target dpg parent context)
+    # UI construction
     # ------------------------------------------------------------------
 
     def build_ui(self) -> None:
@@ -76,7 +110,17 @@ class DemucsPanel:
 
             # ---- Left column: settings --------------------------------
             with dpg.child_window(width=300, height=-1, border=False):
-                dpg.add_text("Separation model", color=(175, 175, 255, 255))
+                dpg.add_text("Engine", color=(175, 175, 255, 255))
+                dpg.add_combo(
+                    items=list(_ENGINES),
+                    default_value=_ENGINES[0],
+                    tag=_t("engine"),
+                    callback=self._on_engine_change,
+                    width=-1,
+                )
+
+                dpg.add_spacer(height=8)
+                dpg.add_text("Model", color=(175, 175, 255, 255))
                 dpg.add_combo(
                     items=list(DEMUCS_MODELS),
                     default_value=DEMUCS_MODELS[0],
@@ -85,25 +129,28 @@ class DemucsPanel:
                     width=-1,
                 )
                 dpg.add_text(
-                    _MODEL_DESC[DEMUCS_MODELS[0]],
+                    _DEMUCS_DESC.get(DEMUCS_MODELS[0], ""),
                     tag=_t("model_desc"),
                     color=(140, 140, 140, 255),
                     wrap=280,
                 )
 
                 dpg.add_spacer(height=14)
-                dpg.add_text("Parts to separate", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Tick the parts you want.\n"
-                        "Separating fewer parts is faster."
-                    )
-                for stem in STEM_TARGETS:
-                    dpg.add_checkbox(
-                        label=_STEM_LABEL[stem],
-                        default_value=True,
-                        tag=_t(f"stem_{stem}"),
-                    )
+
+                # Demucs stem checkboxes (hidden in Roformer mode)
+                with dpg.group(tag=_t("demucs_stem_group")):
+                    dpg.add_text("Parts to separate", color=(175, 175, 255, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Tick the parts you want.\n"
+                            "Separating fewer parts is faster."
+                        )
+                    for stem in STEM_TARGETS:
+                        dpg.add_checkbox(
+                            label=_STEM_LABEL[stem],
+                            default_value=True,
+                            tag=_t(f"stem_{stem}"),
+                        )
 
                 dpg.add_spacer(height=20)
                 dpg.add_button(
@@ -143,12 +190,29 @@ class DemucsPanel:
 
                 for stem in STEM_TARGETS:
                     with dpg.group(tag=_t(f"row_{stem}"), show=False):
-                        # Label + Show-file button on one line
                         with dpg.group(horizontal=True):
+                            # Result checkbox — controls MIDI tab availability
+                            dpg.add_checkbox(
+                                label="",
+                                default_value=True,
+                                tag=_t(f"result_chk_{stem}"),
+                                callback=self._make_stem_check_cb(stem),
+                            )
                             dpg.add_text(
                                 _STEM_LABEL[stem],
                                 color=(220, 220, 220, 255),
                             )
+                            dpg.add_button(
+                                label="Save As…",
+                                tag=_t(f"save_{stem}"),
+                                callback=self._make_save_cb(stem),
+                                width=80,
+                            )
+                            with dpg.tooltip(dpg.last_item()):
+                                dpg.add_text(
+                                    "Save this stem to a location of your choice.\n"
+                                    "Same format as the imported file — no conversion."
+                                )
                             dpg.add_button(
                                 label="Show file",
                                 tag=_t(f"open_{stem}"),
@@ -157,9 +221,24 @@ class DemucsPanel:
                             )
                             with dpg.tooltip(dpg.last_item()):
                                 dpg.add_text("Reveal this file in your file manager.")
-                        # Per-stem waveform preview below
+                        # RMS energy info (shown for Roformer)
+                        dpg.add_text(
+                            "",
+                            tag=_t(f"rms_{stem}"),
+                            color=(120, 180, 120, 255),
+                        )
+                        # Per-stem waveform preview
                         self._stem_waveforms[stem].build_ui()
                         dpg.add_spacer(height=6)
+
+    def build_save_dialog(self) -> None:
+        """Create the Save As file browser at the top DearPyGUI level."""
+        self._save_browser = FileBrowser(
+            tag="demucs_save_browser",
+            callback=self._on_save_selected,
+            mode="save",
+        )
+        self._save_browser.build()
 
     # ------------------------------------------------------------------
     # Public API
@@ -168,78 +247,105 @@ class DemucsPanel:
     def add_result_listener(
         self, callback: Callable[[dict[str, pathlib.Path]], None]
     ) -> None:
-        """Register a callback invoked with stem_paths after a successful run."""
+        """Register a callback invoked with active stem_paths after a successful run."""
         self._result_listeners.append(callback)
 
+    def on_file_loaded(self, path: pathlib.Path) -> None:
+        """Called by LoaderPanel when a new file is selected.
+
+        If the current engine is BS-Roformer, cancels any running analysis
+        and starts a fresh one in a background thread.
+        Demucs: no-op (user must click Separate).
+        """
+        if self._current_engine != "BS-Roformer":
+            return
+        self._start_auto_analyze(path)
+
     # ------------------------------------------------------------------
-    # Callbacks
+    # Engine switch
     # ------------------------------------------------------------------
 
+    def _on_engine_change(self, sender, app_data, user_data) -> None:
+        engine = app_data
+        self._current_engine = engine
+
+        if engine == "Demucs":
+            dpg.configure_item(_t("model"), items=list(DEMUCS_MODELS), default_value=DEMUCS_MODELS[0])
+            dpg.set_value(_t("model"), DEMUCS_MODELS[0])
+            dpg.set_value(_t("model_desc"), _DEMUCS_DESC.get(DEMUCS_MODELS[0], ""))
+            dpg.configure_item(_t("demucs_stem_group"), show=True)
+            dpg.configure_item(_t("run_btn"), show=True)
+            # Cancel any running Roformer analysis
+            self._cancel_analysis.set()
+        else:
+            dpg.configure_item(_t("model"), items=list(ROFORMER_MODELS), default_value=ROFORMER_MODELS[0])
+            dpg.set_value(_t("model"), ROFORMER_MODELS[0])
+            dpg.set_value(_t("model_desc"), _ROFORMER_DESC.get(ROFORMER_MODELS[0], ""))
+            dpg.configure_item(_t("demucs_stem_group"), show=False)
+            dpg.configure_item(_t("run_btn"), show=False)
+            # Trigger auto-analysis if a file is already loaded
+            path = app_state.audio_path
+            if path is not None:
+                self._start_auto_analyze(path)
+
     def _on_model_change(self, sender, app_data, user_data) -> None:
-        dpg.set_value(_t("model_desc"), _MODEL_DESC.get(app_data, ""))
+        if self._current_engine == "Demucs":
+            dpg.set_value(_t("model_desc"), _DEMUCS_DESC.get(app_data, ""))
+        else:
+            dpg.set_value(_t("model_desc"), _ROFORMER_DESC.get(app_data, ""))
+            # Re-analyze with new model
+            path = app_state.audio_path
+            if path is not None:
+                self._start_auto_analyze(path)
+
+    # ------------------------------------------------------------------
+    # Demucs run
+    # ------------------------------------------------------------------
 
     def _on_run_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread = threading.Thread(target=self._run_demucs, daemon=True)
         self._thread.start()
 
-    def _make_open_cb(self, stem: str):
-        def _cb(s, a, u):
-            self._open_stem(stem)
-        return _cb
-
-    # ------------------------------------------------------------------
-    # Background thread
-    # ------------------------------------------------------------------
-
-    def _run(self) -> None:
-        """Runs entirely on a daemon thread — all dpg calls are thread-safe."""
+    def _run_demucs(self) -> None:
         dpg.configure_item(_t("run_btn"), enabled=False)
         dpg.set_value(_t("progress"), 0.0)
 
         try:
             audio = app_state.audio_path
             if audio is None:
-                set_widget_text(_t("status"),"Load an audio file first (Browse button above).")
+                set_widget_text(_t("status"), "Load an audio file first (Browse button above).")
                 return
 
             stems = [s for s in STEM_TARGETS if dpg.get_value(_t(f"stem_{s}"))]
             if not stems:
-                set_widget_text(_t("status"),"Tick at least one part to separate.")
+                set_widget_text(_t("status"), "Tick at least one part to separate.")
                 return
 
             model_name = dpg.get_value(_t("model"))
-
             if self._current_model != model_name:
                 if self._current_model is not None:
-                    set_widget_text(_t("status"),"Unloading previous model…")
-                    self._pipeline.clear()
+                    set_widget_text(_t("status"), "Unloading previous model…")
+                    self._demucs_pipeline.clear()
                 self._current_model = model_name
 
-            config = DemucsConfig(
-                model_name=model_name,
-                stems=stems,
-                output_dir=_STEMS_DIR,
-            )
-            self._pipeline.configure(config)
+            config = DemucsConfig(model_name=model_name, stems=stems, output_dir=_STEMS_DIR)
+            self._demucs_pipeline.configure(config)
 
-            if not self._pipeline.is_loaded:
-                set_widget_text(
-                    _t("status"),
-                    "Loading model — first run may take a minute while weights download…",
-                )
-                self._pipeline.load_model()
+            if not self._demucs_pipeline.is_loaded:
+                set_widget_text(_t("status"), "Loading model — first run may take a minute…")
+                self._demucs_pipeline.load_model()
 
             def _progress(pct: float, stage: str) -> None:
                 dpg.set_value(_t("progress"), pct / 100.0)
-                set_widget_text(_t("status"),stage)
+                set_widget_text(_t("status"), stage)
 
-            self._pipeline.set_progress_callback(_progress)
-            result = self._pipeline.run(audio)
+            self._demucs_pipeline.set_progress_callback(_progress)
+            result = self._demucs_pipeline.run(audio)
 
-            app_state.stem_paths = result.stem_paths
             self._stem_paths = result.stem_paths
+            self._apply_stem_results(result.stem_paths, rms_map=None)
 
             dpg.set_value(_t("progress"), 1.0)
             set_widget_text(
@@ -247,37 +353,203 @@ class DemucsPanel:
                 f"Done — {len(result.stem_paths)} parts  ({result.duration_seconds:.1f} s)",
             )
 
-            for stem_name in STEM_TARGETS:
-                show = stem_name in result.stem_paths
-                dpg.configure_item(_t(f"row_{stem_name}"), show=show)
-                if show:
-                    self._stem_waveforms[stem_name].load_async(
-                        result.stem_paths[stem_name]
-                    )
-
-            # Notify any registered listeners (e.g. BasicPitchPanel)
-            for cb in self._result_listeners:
-                try:
-                    cb(result.stem_paths)
-                except Exception as exc:
-                    log.error("DemucsPanel result listener error: %s", exc)
-
         except Exception as exc:
             traceback.print_exc()
-            set_widget_text(_t("status"),f"Error: {exc}")
+            set_widget_text(_t("status"), f"Error: {exc}")
             dpg.set_value(_t("progress"), 0.0)
         finally:
             dpg.configure_item(_t("run_btn"), enabled=True)
 
     # ------------------------------------------------------------------
+    # Roformer auto-analysis
+    # ------------------------------------------------------------------
+
+    def _start_auto_analyze(self, path: pathlib.Path) -> None:
+        """Cancel any running analysis and start a new one."""
+        self._cancel_analysis.set()
+        # Wait briefly for thread to notice cancellation
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=0.5)
+        self._cancel_analysis = threading.Event()
+        self._roformer_pipeline.set_cancel_event(self._cancel_analysis)
+        self._thread = threading.Thread(
+            target=self._auto_analyze, args=(path,), daemon=True
+        )
+        self._thread.start()
+
+    def _auto_analyze(self, path: pathlib.Path) -> None:
+        """Background thread: run Roformer, compute RMS, update UI."""
+        dpg.set_value(_t("progress"), 0.0)
+        set_widget_text(_t("status"), "Starting analysis…")
+
+        try:
+            model_id = dpg.get_value(_t("model"))
+            config = RoformerConfig(
+                model_id=model_id,
+                stems=list(_ROFORMER_STEMS),
+                output_dir=_STEMS_DIR,
+            )
+            self._roformer_pipeline.configure(config)
+
+            if not self._roformer_pipeline.is_loaded:
+                set_widget_text(_t("status"), "Loading BS-Roformer model — first run downloads ~300 MB…")
+
+            self._roformer_pipeline.load_model()
+
+            if self._cancel_analysis.is_set():
+                return
+
+            def _progress(pct: float, stage: str) -> None:
+                if not self._cancel_analysis.is_set():
+                    dpg.set_value(_t("progress"), pct / 100.0)
+                    set_widget_text(_t("status"), stage)
+
+            self._roformer_pipeline.set_progress_callback(_progress)
+            result = self._roformer_pipeline.run(path)
+
+            if self._cancel_analysis.is_set():
+                return
+
+            # Compute RMS for each stem and the mix
+            from utils.audio_io import read_audio
+            try:
+                mix_np, _ = read_audio(path, target_rate=44_100, mono=False)
+                mix_rms = float(np.sqrt(np.mean(mix_np ** 2))) + 1e-9
+            except Exception:
+                mix_rms = 1.0
+
+            rms_map: dict[str, float] = {}
+            for stem_name, stem_path in result.stem_paths.items():
+                try:
+                    stem_np, _ = read_audio(stem_path, target_rate=44_100, mono=False)
+                    rms_map[stem_name] = float(np.sqrt(np.mean(stem_np ** 2)))
+                except Exception:
+                    rms_map[stem_name] = 0.0
+
+            self._stem_paths = result.stem_paths
+            active_paths: dict[str, pathlib.Path] = {
+                s: p for s, p in result.stem_paths.items()
+                if rms_map.get(s, 0.0) / mix_rms > _RMS_ACTIVE_RATIO
+            }
+
+            self._apply_stem_results(result.stem_paths, rms_map=rms_map, active=active_paths)
+
+            dpg.set_value(_t("progress"), 1.0)
+            set_widget_text(
+                _t("status"),
+                f"Done — {len(result.stem_paths)} stems  ({result.duration_seconds:.1f} s)",
+            )
+
+        except Exception as exc:
+            if not self._cancel_analysis.is_set():
+                traceback.print_exc()
+                set_widget_text(_t("status"), f"Error: {exc}")
+                dpg.set_value(_t("progress"), 0.0)
+
+    # ------------------------------------------------------------------
+    # UI updater (called from background thread — dpg calls are thread-safe)
+    # ------------------------------------------------------------------
+
+    def _apply_stem_results(
+        self,
+        stem_paths: dict[str, pathlib.Path],
+        rms_map: dict[str, float] | None,
+        active: dict[str, pathlib.Path] | None = None,
+    ) -> None:
+        """Show/update stem rows, checkboxes, waveforms, and notify listeners."""
+        if active is None:
+            active = stem_paths  # Demucs: all produced stems are active
+
+        for stem_name in STEM_TARGETS:
+            in_result = stem_name in stem_paths
+            dpg.configure_item(_t(f"row_{stem_name}"), show=in_result)
+            if not in_result:
+                continue
+
+            is_active = stem_name in active
+            dpg.set_value(_t(f"result_chk_{stem_name}"), is_active)
+
+            if rms_map is not None:
+                rms = rms_map.get(stem_name, 0.0)
+                db = 20.0 * np.log10(rms + 1e-9)
+                tag_str = "active" if is_active else "below threshold"
+                dpg.set_value(_t(f"rms_{stem_name}"), f"RMS: {rms:.4f} ({db:.1f} dB) — {tag_str}")
+            else:
+                dpg.set_value(_t(f"rms_{stem_name}"), "")
+
+            self._stem_waveforms[stem_name].load_async(stem_paths[stem_name])
+
+        app_state.stem_paths = active
+        for cb in self._result_listeners:
+            try:
+                cb(active)
+            except Exception as exc:
+                log.error("DemucsPanel result listener error: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Per-stem checkbox callback
+    # ------------------------------------------------------------------
+
+    def _make_stem_check_cb(self, stem: str) -> Callable:
+        def _cb(sender, app_data, user_data):
+            # Rebuild active stems from all checked rows
+            active: dict[str, pathlib.Path] = {
+                s: p
+                for s in STEM_TARGETS
+                if s in self._stem_paths and dpg.get_value(_t(f"result_chk_{s}"))
+                for p in [self._stem_paths[s]]
+            }
+            app_state.stem_paths = active
+            for cb in self._result_listeners:
+                try:
+                    cb(active)
+                except Exception as exc:
+                    log.error("DemucsPanel checkbox listener error: %s", exc)
+        return _cb
+
+    # ------------------------------------------------------------------
+    # Save As callbacks
+    # ------------------------------------------------------------------
+
+    def _make_save_cb(self, stem: str) -> Callable:
+        def _cb(sender, app_data, user_data):
+            self._save_stem_name = stem
+            if self._save_browser is not None:
+                self._save_browser.show()
+        return _cb
+
+    def _on_save_selected(self, dest: pathlib.Path) -> None:
+        """Copy the stem file to the user-chosen destination."""
+        stem = self._save_stem_name
+        src = self._stem_paths.get(stem)
+        if src is None or not src.exists():
+            log.warning("Save As: stem %r not available", stem)
+            return
+        # Ensure destination has the correct extension (same as source)
+        if dest.suffix.lower() != src.suffix.lower():
+            dest = dest.with_suffix(src.suffix)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            log.info("Saved %s -> %s", stem, dest)
+            set_widget_text(_t("status"), f"Saved {stem} → {dest.name}")
+        except Exception as exc:
+            log.error("Save As failed: %s", exc)
+            set_widget_text(_t("status"), f"Save failed: {exc}")
+
+    # ------------------------------------------------------------------
     # File reveal helper
     # ------------------------------------------------------------------
+
+    def _make_open_cb(self, stem: str) -> Callable:
+        def _cb(s, a, u):
+            self._open_stem(stem)
+        return _cb
 
     def _open_stem(self, stem: str) -> None:
         path = self._stem_paths.get(stem)
         if not path:
             return
-        import subprocess, sys
         if sys.platform == "linux":
             subprocess.Popen(["xdg-open", str(path.parent)])
         elif sys.platform == "darwin":
@@ -286,7 +558,7 @@ class DemucsPanel:
             subprocess.Popen(["explorer", "/select,", str(path)])
 
     # ------------------------------------------------------------------
-    # Legacy stub methods
+    # Legacy stubs
     # ------------------------------------------------------------------
 
     def set_input_path(self, path: pathlib.Path) -> None:
@@ -302,7 +574,7 @@ class DemucsPanel:
         self._on_run_click(None, None, None)
 
     def cancel(self) -> None:
-        pass
+        self._cancel_analysis.set()
 
     def _on_progress(self, percent: float, stem: str) -> None:
         pass

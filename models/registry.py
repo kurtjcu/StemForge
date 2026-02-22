@@ -226,6 +226,42 @@ class StableAudioSpec(ModelSpec):
     conditioning_keys: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class RoformerSpec(ModelSpec):
+    """Descriptor for a BS-Roformer / MelBand-Roformer separation model.
+
+    Additional fields
+    -----------------
+    architecture:
+        Model class to instantiate: ``"bs_roformer"`` or
+        ``"mel_band_roformer"``.
+    checkpoint_url:
+        Direct download URL for the ``.ckpt`` weight file.
+    config_url:
+        Direct download URL for the accompanying ``.yaml`` config file.
+    target_instrument:
+        The instrument this model is trained to isolate, e.g. ``"vocals"``.
+    other_fix:
+        When ``True``, the ``"other"`` stem is computed as
+        ``mix - predicted`` rather than predicted directly.
+    available_stems:
+        Stems produced by the pipeline, e.g. ``("vocals", "other")``.
+    default_chunk_size:
+        Default inference chunk size in samples (352800 ≈ 8 s at 44.1 kHz).
+    default_num_overlap:
+        Default number of overlap divisions between consecutive chunks.
+    """
+
+    architecture: str
+    checkpoint_url: str
+    config_url: str
+    target_instrument: str
+    other_fix: bool
+    available_stems: tuple[str, ...]
+    default_chunk_size: int
+    default_num_overlap: int
+
+
 # ---------------------------------------------------------------------------
 # Registry internals
 # ---------------------------------------------------------------------------
@@ -570,6 +606,94 @@ STABLE_AUDIO_OPEN = _register(StableAudioSpec(
 ))
 
 # ---------------------------------------------------------------------------
+# BS-Roformer / MelBand-Roformer variants
+# ---------------------------------------------------------------------------
+
+_ROFORMER_CAPS = frozenset({
+    "separate",
+    "stem_input",
+    "gpu_acceleration",
+})
+
+ROFORMER_VIPERX = _register(RoformerSpec(
+    model_id="roformer-viperx-vocals",
+    display_name="BS-Roformer (ViperX, SDR 12.97)",
+    version="1.0",
+    source="TRvlvr/model_repo",
+    device="auto",
+    gpu_capable=True,
+    device_fallback="cpu",
+    device_quirks="CUBLAS errors fall back to CPU per-chunk automatically.",
+    sample_rate=44_100,
+    hop_size=0,
+    chunk_size=352_800,
+    max_duration_seconds=0.0,
+    default_bpm=0.0,
+    default_key="",
+    default_time_signature="",
+    quantize_grid="none",
+    default_min_note_ms=0.0,
+    capabilities=_ROFORMER_CAPS,
+    cache_subdir="roformer",
+    description="BS-Roformer vocals (ViperX) — SDR 12.97, state-of-the-art.",
+    preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
+    postprocessing="other = mix − vocals; write per-stem WAV files.",
+    architecture="bs_roformer",
+    checkpoint_url=(
+        "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/"
+        "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+    ),
+    config_url=(
+        "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/"
+        "mdx_c_configs/model_bs_roformer_ep_317_sdr_12.9755.yaml"
+    ),
+    target_instrument="vocals",
+    other_fix=True,
+    available_stems=("vocals", "other"),
+    default_chunk_size=352_800,
+    default_num_overlap=2,
+))
+
+ROFORMER_KJ = _register(RoformerSpec(
+    model_id="roformer-kj-vocals",
+    display_name="MelBand-Roformer (KimberleyJensen)",
+    version="1.0",
+    source="KimberleyJSN/MelBandRoformer",
+    device="auto",
+    gpu_capable=True,
+    device_fallback="cpu",
+    device_quirks="CUBLAS errors fall back to CPU per-chunk automatically.",
+    sample_rate=44_100,
+    hop_size=0,
+    chunk_size=352_800,
+    max_duration_seconds=0.0,
+    default_bpm=0.0,
+    default_key="",
+    default_time_signature="",
+    quantize_grid="none",
+    default_min_note_ms=0.0,
+    capabilities=_ROFORMER_CAPS,
+    cache_subdir="roformer",
+    description="MelBand-Roformer vocals (KimberleyJensen) — ~SDR 13.0.",
+    preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
+    postprocessing="other = mix − vocals; write per-stem WAV files.",
+    architecture="mel_band_roformer",
+    checkpoint_url=(
+        "https://huggingface.co/KimberleyJSN/melbandroformer/resolve/main/"
+        "MelBandRoformer.ckpt"
+    ),
+    config_url=(
+        "https://huggingface.co/KimberleyJSN/melbandroformer/resolve/main/"
+        "config.yaml"
+    ),
+    target_instrument="vocals",
+    other_fix=True,
+    available_stems=("vocals", "other"),
+    default_chunk_size=352_800,
+    default_num_overlap=2,
+))
+
+# ---------------------------------------------------------------------------
 # Convenience constants
 # ---------------------------------------------------------------------------
 
@@ -578,6 +702,9 @@ DEFAULT_WHISPER_SPEC: WhisperSpec = WHISPER_BASE
 
 #: Default Demucs spec used as the application default model.
 DEFAULT_DEMUCS_SPEC: DemucsSpec = DEMUCS_HTDEMUCS
+
+#: Default Roformer spec (ViperX BSRoformer).
+DEFAULT_ROFORMER_SPEC: RoformerSpec = ROFORMER_VIPERX
 
 # ---------------------------------------------------------------------------
 # Public helpers
@@ -670,6 +797,14 @@ def get_loader_kwargs(model_id: str) -> dict[str, Any]:
             "hf_repo_id": spec.hf_repo_id,
         }
 
+    if isinstance(spec, RoformerSpec):
+        return {
+            "cache_dir": spec.cache_dir,
+            "architecture": spec.architecture,
+            "checkpoint_url": spec.checkpoint_url,
+            "config_url": spec.config_url,
+        }
+
     raise NotImplementedError(
         f"No loader kwargs defined for spec type {type(spec).__name__!r}."
     )
@@ -731,6 +866,14 @@ def get_pipeline_defaults(model_id: str) -> dict[str, Any]:
             "duration_seconds": 10.0,
             "steps": spec.default_steps,
             "cfg_scale": spec.default_cfg_scale,
+        }
+
+    if isinstance(spec, RoformerSpec):
+        return {
+            "model_id": spec.model_id,
+            "sample_rate": spec.sample_rate,
+            "chunk_size": spec.default_chunk_size,
+            "num_overlap": spec.default_num_overlap,
         }
 
     raise NotImplementedError(
@@ -802,6 +945,14 @@ def get_gui_metadata(model_id: str) -> dict[str, Any]:
             "default_steps": spec.default_steps,
             "default_cfg_scale": spec.default_cfg_scale,
             "tooltip": spec.description,
+        }
+
+    if isinstance(spec, RoformerSpec):
+        return {
+            "available_stems": list(spec.available_stems),
+            "model_choices": [s.model_id for s in list_specs(RoformerSpec)],
+            "tooltip": spec.description,
+            "target_instrument": spec.target_instrument,
         }
 
     raise NotImplementedError(
