@@ -311,7 +311,7 @@ All pipelines and the full GUI are implemented and working:
 - WSL audio support — auto-detects WSL via `/proc/version`, routes through WSLg PulseAudio socket
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
 
-StemForge is evolving into... not sure what, but its musical!
+StemForge is evolving into a musical playground where you can regenerate and remix any part of any song.
 
 ---
 
