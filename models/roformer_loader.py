@@ -65,6 +65,7 @@ _INVALID_ROFORMER_KEYS = frozenset({
     "linear_transformer_depth",  # not a constructor param in any released version
     "use_torch_checkpoint",      # gradient-checkpointing training flag
     "skip_connection",           # not present in all package versions
+    # mlp_expansion_factor is handled explicitly in _instantiate (see below)
 })
 
 
@@ -172,9 +173,41 @@ class RoformerModelLoader:
         for bad_key in _INVALID_ROFORMER_KEYS:
             model_kwargs.pop(bad_key, None)
 
+        # mlp_expansion_factor controls MaskEstimator's hidden dim but neither
+        # BSRoformer nor MelBandRoformer exposes it as a constructor param — they
+        # always default to 4.  Pop it here; if the config wants a different value,
+        # we rebuild mask_estimators after construction so the state_dict aligns.
+        mlp_expansion_factor: int = model_kwargs.pop("mlp_expansion_factor", 4)
+
         if spec.architecture == "bs_roformer" or "freqs_per_bands" in model_kwargs:
             from bs_roformer import BSRoformer  # type: ignore[import]
-            return BSRoformer(**model_kwargs)
+            from bs_roformer.bs_roformer import MaskEstimator as BSMaskEstimator
+            model = BSRoformer(**model_kwargs)
+            if mlp_expansion_factor != 4:
+                dim_inputs = model.mask_estimators[0].dim_inputs
+                model.mask_estimators = nn.ModuleList([
+                    BSMaskEstimator(
+                        dim=model_kwargs["dim"],
+                        dim_inputs=dim_inputs,
+                        depth=model_kwargs.get("mask_estimator_depth", 2),
+                        mlp_expansion_factor=mlp_expansion_factor,
+                    )
+                    for _ in range(model_kwargs.get("num_stems", 1))
+                ])
+            return model
         else:
             from bs_roformer import MelBandRoformer  # type: ignore[import]
-            return MelBandRoformer(**model_kwargs)
+            from bs_roformer.mel_band_roformer import MaskEstimator as MBRMaskEstimator
+            model = MelBandRoformer(**model_kwargs)
+            if mlp_expansion_factor != 4:
+                dim_inputs = model.mask_estimators[0].dim_inputs
+                model.mask_estimators = nn.ModuleList([
+                    MBRMaskEstimator(
+                        dim=model_kwargs["dim"],
+                        dim_inputs=dim_inputs,
+                        depth=model_kwargs.get("mask_estimator_depth", 2),
+                        mlp_expansion_factor=mlp_expansion_factor,
+                    )
+                    for _ in range(model_kwargs.get("num_stems", 1))
+                ])
+            return model
