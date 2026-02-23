@@ -48,6 +48,7 @@ from pipelines.midi_pipeline import MidiPipeline, MidiConfig
 from models.registry import BASICPITCH
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIDI_DIR
+from gui.ui_queue import schedule_ui
 from gui.components.demucs_panel import STEM_TARGETS, _STEM_LABEL
 from gui.components.file_browser import FileBrowser
 from gui.components.midi_player_widget import MidiPlayerWidget, _ALL_MIDI_PLAYERS
@@ -470,23 +471,25 @@ class MidiPanel:
         Shows stem checkboxes for available stems and hides the rest.
         Also auto-loads an Ace-Step JSON sidecar from the source audio file
         if one exists.
+
+        May be called from a background thread — all DPG calls are scheduled.
         """
         self._available_stems = dict(stem_paths)
 
-        count = 0
-        for stem in STEM_TARGETS:
-            available = stem in stem_paths
-            if dpg.does_item_exist(_t(f"stem_{stem}_group")):
-                dpg.configure_item(_t(f"stem_{stem}_group"), show=available)
-            if available:
-                count += 1
-
+        count = sum(1 for stem in STEM_TARGETS if stem in stem_paths)
         status = (
             f"{count} stem(s) ready - select and click Extract MIDI."
             if count else "Run Separate first, or load a file below."
         )
-        if dpg.does_item_exist(_t("stems_status")):
-            dpg.set_value(_t("stems_status"), status)
+
+        def _update_ui():
+            for stem in STEM_TARGETS:
+                available = stem in stem_paths
+                if dpg.does_item_exist(_t(f"stem_{stem}_group")):
+                    dpg.configure_item(_t(f"stem_{stem}_group"), show=available)
+            if dpg.does_item_exist(_t("stems_status")):
+                dpg.set_value(_t("stems_status"), status)
+        schedule_ui(_update_ui)
 
         # Auto-set duration from the first available stem.
         if stem_paths:
@@ -500,37 +503,40 @@ class MidiPanel:
     def apply_acestep_meta(self, meta: dict) -> None:
         """Pre-fill musical parameters from an Ace-Step JSON sidecar dict.
 
-        Safe to call at any time; silently skips any widget that does not yet
-        exist (e.g. if called before ``build_ui``).
+        Safe to call from any thread; all DPG calls are scheduled on the main
+        thread.  Silently skips any widget that does not yet exist.
         """
-        def _set(tag: str, value) -> None:
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, value)
+        bpm_val = meta.get("bpm")
+        keyscale = meta.get("keyscale", "").strip()
+        ts = _parse_ts(meta)
+        dur_raw = meta.get("duration")
+        caption = meta.get("caption", "").strip()
 
-        if (bpm := meta.get("bpm")):
-            _set(_t("bpm"), int(bpm))
+        def _apply():
+            def _set(tag: str, value) -> None:
+                if dpg.does_item_exist(tag):
+                    dpg.set_value(tag, value)
 
-        if (keyscale := meta.get("keyscale", "").strip()) and keyscale in _KEYS:
-            _set(_t("key"), keyscale)
+            if bpm_val:
+                _set(_t("bpm"), int(bpm_val))
+            if keyscale and keyscale in _KEYS:
+                _set(_t("key"), keyscale)
+            if ts:
+                _set(_t("time_sig"), ts)
+            if dur_raw:
+                dur = float(dur_raw)
+                if dpg.does_item_exist(_t("duration")):
+                    dpg.configure_item(_t("duration"), max_value=max(600.0, dur))
+                    dpg.set_value(_t("duration"), dur)
+            if caption:
+                if dpg.does_item_exist(_t("prompt")) and not dpg.get_value(_t("prompt")).strip():
+                    dpg.set_value(_t("prompt"), caption)
 
-        if ts := _parse_ts(meta):
-            _set(_t("time_sig"), ts)
-
-        if (duration := meta.get("duration")):
-            dur = float(duration)
-            if dpg.does_item_exist(_t("duration")):
-                # Expand the slider ceiling to fit the actual file length.
-                dpg.configure_item(_t("duration"), max_value=max(600.0, dur))
-                dpg.set_value(_t("duration"), dur)
-
-        # Caption → prompt only if the prompt field is currently blank.
-        if (caption := meta.get("caption", "").strip()):
-            if dpg.does_item_exist(_t("prompt")) and not dpg.get_value(_t("prompt")).strip():
-                dpg.set_value(_t("prompt"), caption)
+        schedule_ui(_apply)
 
         log.debug(
             "MidiPanel: applied Ace-Step metadata — bpm=%s key=%s ts=%s dur=%s",
-            meta.get("bpm"), meta.get("keyscale"), _parse_ts(meta), meta.get("duration"),
+            meta.get("bpm"), keyscale, ts, dur_raw,
         )
 
     def add_result_listener(
@@ -562,9 +568,10 @@ class MidiPanel:
     def _apply_duration(self, seconds: float) -> None:
         """Write *seconds* to the duration slider, expanding the ceiling if needed."""
         seconds = max(1.0, min(600.0, seconds))
-        if dpg.does_item_exist(_t("duration")):
-            dpg.configure_item(_t("duration"), max_value=max(600.0, seconds))
-            dpg.set_value(_t("duration"), seconds)
+        schedule_ui(lambda _s=seconds: (
+            dpg.configure_item(_t("duration"), max_value=max(600.0, _s)),
+            dpg.set_value(_t("duration"), _s),
+        ) if dpg.does_item_exist(_t("duration")) else None)
 
     def _set_duration_from_path(self, path: pathlib.Path) -> None:
         """Convenience: read duration from *path* and apply it to the slider."""
@@ -601,8 +608,45 @@ class MidiPanel:
     def _on_run_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        # Capture all UI values on the main thread before spawning bg work
+        ui_vals = self._capture_run_inputs()
+        self._thread = threading.Thread(target=self._run, args=(ui_vals,), daemon=True)
         self._thread.start()
+
+    def _capture_run_inputs(self) -> dict:
+        """Read all DPG widget values needed by _run() — main thread only."""
+        prompt = (
+            dpg.get_value(_t("prompt")).strip()
+            if dpg.does_item_exist(_t("prompt")) else ""
+        ) or None
+        key      = dpg.get_value(_t("key"))      if dpg.does_item_exist(_t("key"))      else "Any"
+        time_sig = dpg.get_value(_t("time_sig")) if dpg.does_item_exist(_t("time_sig")) else "4/4"
+        bpm      = float(dpg.get_value(_t("bpm")))      if dpg.does_item_exist(_t("bpm"))      else 120.0
+        duration = float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 30.0
+        onset    = dpg.get_value(_t("onset"))    if dpg.does_item_exist(_t("onset"))    else 0.5
+        frame    = dpg.get_value(_t("frame"))    if dpg.does_item_exist(_t("frame"))    else 0.3
+        min_note = dpg.get_value(_t("min_note")) if dpg.does_item_exist(_t("min_note")) else 58.0
+
+        # Determine which stems are checked
+        stems: dict[str, pathlib.Path] = {}
+        for stem in STEM_TARGETS:
+            check_tag = _t(f"stem_{stem}_check")
+            if (
+                stem in self._available_stems
+                and dpg.does_item_exist(check_tag)
+                and dpg.get_value(check_tag)
+            ):
+                stems[_STEM_LABEL[stem]] = self._available_stems[stem]
+        for label, path in self._manual_stems.items():
+            check_tag = _t(f"manual_{label}_check")
+            if dpg.does_item_exist(check_tag) and dpg.get_value(check_tag):
+                stems[label] = path
+
+        return dict(
+            prompt=prompt, key=key, time_sig=time_sig, bpm=bpm,
+            duration=duration, onset=onset, frame=frame, min_note=min_note,
+            stems=stems,
+        )
 
     def _on_load_stem_click(self, sender, app_data, user_data) -> None:
         self._stem_browser.show()
@@ -656,7 +700,8 @@ class MidiPanel:
         """Clear old per-stem players and create new ones after extraction.
 
         *stem_midi_data* maps display label → PrettyMIDI object.
-        Called from the pipeline background thread.
+        Called from the pipeline background thread — all DPG widget creation
+        is scheduled on the main thread.
         """
         # Remove old player instances from the global tick/stop list.
         for player in self._stem_players.values():
@@ -667,36 +712,39 @@ class MidiPanel:
         self._stem_players.clear()
         self._stem_midi_data = dict(stem_midi_data)
 
-        # Clear the dynamic group and update the empty-state label.
-        if dpg.does_item_exist(_t("players_group")):
-            dpg.delete_item(_t("players_group"), children_only=True)
-        if dpg.does_item_exist(_t("players_empty")):
-            dpg.configure_item(_t("players_empty"), show=not bool(stem_midi_data))
+        def _build():
+            # Clear the dynamic group and update the empty-state label.
+            if dpg.does_item_exist(_t("players_group")):
+                dpg.delete_item(_t("players_group"), children_only=True)
+            if dpg.does_item_exist(_t("players_empty")):
+                dpg.configure_item(_t("players_empty"), show=not bool(stem_midi_data))
 
-        for label, midi_obj in stem_midi_data.items():
-            safe = _safe_tag(label)
-            player = MidiPlayerWidget(f"midi_{safe}")
-            self._stem_players[label] = player
+            for label, midi_obj in stem_midi_data.items():
+                safe = _safe_tag(label)
+                player = MidiPlayerWidget(f"midi_{safe}")
+                self._stem_players[label] = player
 
-            with dpg.group(parent=_t("players_group")):
-                dpg.add_text(label, color=(200, 200, 255, 255))
-                player.build_ui()
+                with dpg.group(parent=_t("players_group")):
+                    dpg.add_text(label, color=(200, 200, 255, 255))
+                    player.build_ui()
 
-                dpg.add_text(
-                    "(not saved to disk)",
-                    color=(120, 120, 140, 255),
-                    wrap=340,
-                )
-                dpg.add_button(
-                    label="Save as...",
-                    callback=self._make_save_cb(midi_obj),
-                    width=90,
-                )
+                    dpg.add_text(
+                        "(not saved to disk)",
+                        color=(120, 120, 140, 255),
+                        wrap=340,
+                    )
+                    dpg.add_button(
+                        label="Save as...",
+                        callback=self._make_save_cb(midi_obj),
+                        width=90,
+                    )
 
-                dpg.add_separator()
-                dpg.add_spacer(height=6)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=6)
 
-            player.load_from_midi(midi_obj, label)
+                player.load_from_midi(midi_obj, label)
+
+        schedule_ui(_build)
 
     def _make_save_cb(self, midi_obj: Any):
         """Return a DPG callback that writes *midi_obj* to a user-chosen path."""
@@ -730,51 +778,32 @@ class MidiPanel:
     # Background pipeline execution
     # ------------------------------------------------------------------
 
-    def _run(self) -> None:
-        dpg.configure_item(_t("run_btn"), enabled=False)
-        dpg.set_value(_t("progress"), 0.0)
+    def _run(self, ui_vals: dict) -> None:
+        schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=False))
+        schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         set_widget_text(_t("status"), "")
 
         # Clear previous results.
-        for stem in STEM_TARGETS:
-            if dpg.does_item_exist(_t(f"result_{stem}")):
-                dpg.set_value(_t(f"result_{stem}"), "")
-        if dpg.does_item_exist(_t("result_extra")):
-            dpg.set_value(_t("result_extra"), "")
-        if dpg.does_item_exist(_t("midi_file")):
-            set_widget_text(_t("midi_file"), "")
+        def _clear_results():
+            for stem in STEM_TARGETS:
+                if dpg.does_item_exist(_t(f"result_{stem}")):
+                    dpg.set_value(_t(f"result_{stem}"), "")
+            if dpg.does_item_exist(_t("result_extra")):
+                dpg.set_value(_t("result_extra"), "")
+        schedule_ui(_clear_results)
+        set_widget_text(_t("midi_file"), "")
 
         try:
-            # ---- Collect inputs ----------------------------------------
-            prompt = (
-                dpg.get_value(_t("prompt")).strip()
-                if dpg.does_item_exist(_t("prompt")) else ""
-            ) or None
-
-            key      = dpg.get_value(_t("key"))      if dpg.does_item_exist(_t("key"))      else "Any"
-            time_sig = dpg.get_value(_t("time_sig")) if dpg.does_item_exist(_t("time_sig")) else "4/4"
-            bpm      = float(dpg.get_value(_t("bpm")))      if dpg.does_item_exist(_t("bpm"))      else 120.0
-            duration = float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 30.0
-            onset    = dpg.get_value(_t("onset"))    if dpg.does_item_exist(_t("onset"))    else 0.5
-            frame    = dpg.get_value(_t("frame"))    if dpg.does_item_exist(_t("frame"))    else 0.3
-            min_note = dpg.get_value(_t("min_note")) if dpg.does_item_exist(_t("min_note")) else 58.0
-
-            # Build stems dict: display label → path.
-            stems: dict[str, pathlib.Path] = {}
-
-            for stem in STEM_TARGETS:
-                check_tag = _t(f"stem_{stem}_check")
-                if (
-                    stem in self._available_stems
-                    and dpg.does_item_exist(check_tag)
-                    and dpg.get_value(check_tag)
-                ):
-                    stems[_STEM_LABEL[stem]] = self._available_stems[stem]
-
-            for label, path in self._manual_stems.items():
-                check_tag = _t(f"manual_{label}_check")
-                if dpg.does_item_exist(check_tag) and dpg.get_value(check_tag):
-                    stems[label] = path
+            # ---- Inputs (pre-captured on main thread) ------------------
+            prompt   = ui_vals["prompt"]
+            key      = ui_vals["key"]
+            time_sig = ui_vals["time_sig"]
+            bpm      = ui_vals["bpm"]
+            duration = ui_vals["duration"]
+            onset    = ui_vals["onset"]
+            frame    = ui_vals["frame"]
+            min_note = ui_vals["min_note"]
+            stems    = ui_vals["stems"]
 
             if not stems and not prompt:
                 set_widget_text(
@@ -804,7 +833,7 @@ class MidiPanel:
             self._pipeline.load_model()
 
             def _progress(pct: float) -> None:
-                dpg.set_value(_t("progress"), pct / 100.0)
+                schedule_ui(lambda _p=pct: dpg.set_value(_t("progress"), _p / 100.0))
                 set_widget_text(_t("status"), f"{pct:.0f}%")
 
             self._pipeline.set_progress_callback(_progress)
@@ -819,28 +848,38 @@ class MidiPanel:
             # ---- Update state and results ------------------------------
             self._merged_midi_data = result.merged_midi_data
 
+            # Build result strings for UI
+            stem_results: dict[str, str] = {}
             for stem in STEM_TARGETS:
                 display = _STEM_LABEL[stem]
                 count = result.note_counts.get(display)
-                if count is not None and dpg.does_item_exist(_t(f"result_{stem}")):
-                    dpg.set_value(_t(f"result_{stem}"), f"{display}: {count} notes")
+                if count is not None:
+                    stem_results[stem] = f"{display}: {count} notes"
 
             extra_lines = [
                 f"{lbl}: {cnt} notes"
                 for lbl, cnt in result.note_counts.items()
                 if lbl not in set(_STEM_LABEL.values())
             ]
-            if extra_lines and dpg.does_item_exist(_t("result_extra")):
-                dpg.set_value(_t("result_extra"), "\n".join(extra_lines))
+            extra_text = "\n".join(extra_lines) if extra_lines else ""
+            total = result.total_notes
+            track_count = len(result.note_counts)
+
+            def _show_results():
+                for stem, text in stem_results.items():
+                    if dpg.does_item_exist(_t(f"result_{stem}")):
+                        dpg.set_value(_t(f"result_{stem}"), text)
+                if extra_text and dpg.does_item_exist(_t("result_extra")):
+                    dpg.set_value(_t("result_extra"), extra_text)
+                if dpg.does_item_exist(_t("save_merged_btn")):
+                    dpg.configure_item(_t("save_merged_btn"), enabled=True)
+                dpg.set_value(_t("progress"), 1.0)
+            schedule_ui(_show_results)
 
             set_widget_text(_t("midi_file"), "(not saved — click Save merged to write)")
-            if dpg.does_item_exist(_t("save_merged_btn")):
-                dpg.configure_item(_t("save_merged_btn"), enabled=True)
-            dpg.set_value(_t("progress"), 1.0)
             set_widget_text(
                 _t("status"),
-                f"Done - {result.total_notes} notes, "
-                f"{len(result.note_counts)} track(s)",
+                f"Done - {total} notes, {track_count} track(s)",
             )
 
             # Rebuild per-stem player widgets.
@@ -856,7 +895,7 @@ class MidiPanel:
         except Exception as exc:
             log.exception("MidiPanel._run failed")
             set_widget_text(_t("status"), f"Error: {exc}")
-            dpg.set_value(_t("progress"), 0.0)
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
 
         finally:
-            dpg.configure_item(_t("run_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=True))

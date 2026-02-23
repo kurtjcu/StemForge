@@ -227,8 +227,13 @@ def main() -> None:
     dpg.show_viewport()
     dpg.set_primary_window("primary_window", True)
 
-    # Manual render loop so tick_all() / tick_all_midi() animate cursors each frame
+    # Manual render loop so tick_all() / tick_all_midi() animate cursors each frame.
+    # flush_ui() drains the thread-safe UI queue — background threads must never
+    # call dpg.* directly; they use schedule_ui() instead (see gui/ui_queue.py).
+    from gui.ui_queue import flush_ui
+
     while dpg.is_dearpygui_running():
+        flush_ui()
         tick_all()
         tick_all_midi()
         dpg.render_dearpygui_frame()

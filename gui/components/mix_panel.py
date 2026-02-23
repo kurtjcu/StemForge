@@ -33,6 +33,7 @@ import dearpygui.dearpygui as dpg
 
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIX_DIR
+from gui.ui_queue import schedule_ui
 from gui.components.file_browser import FileBrowser
 from gui.components.demucs_panel import _STEM_LABEL
 from gui.components.waveform_widget import WaveformWidget, _ALL_WIDGETS, _get_plot_font
@@ -437,18 +438,18 @@ class MixPanel:
     # ------------------------------------------------------------------
 
     def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
-        """Called by Separate panel after successful separation."""
+        """Called by Separate panel after successful separation (may be bg thread)."""
         self._audio_stems = dict(stem_paths)
-        self._rebuild_tracks()
+        schedule_ui(self._rebuild_tracks)
 
     def notify_midi_ready(
         self,
         midi_path: pathlib.Path,
         stem_midi_data: dict[str, Any],
     ) -> None:
-        """Called by MIDI panel after successful extraction."""
+        """Called by MIDI panel after successful extraction (may be bg thread)."""
         self._midi_stems_data = dict(stem_midi_data)
-        self._rebuild_tracks()
+        schedule_ui(self._rebuild_tracks)
 
     # ------------------------------------------------------------------
     # Manual file loading
@@ -950,10 +951,13 @@ class MixPanel:
 
         self._master_audio = mix
         self._master_duration = max_len / self._master_sr
+        dur = self._master_duration
 
-        if dpg.does_item_exist(_t("master_xaxis")):
-            dpg.set_axis_limits(_t("master_xaxis"), 0.0, self._master_duration)
-            dpg.set_axis_limits(_t("master_yaxis"), -1.0, 1.0)
+        def _set_axes():
+            if dpg.does_item_exist(_t("master_xaxis")):
+                dpg.set_axis_limits(_t("master_xaxis"), 0.0, dur)
+                dpg.set_axis_limits(_t("master_yaxis"), -1.0, 1.0)
+        schedule_ui(_set_axes)
 
         self._start_master_play(0.0)
 
@@ -1000,8 +1004,8 @@ class MixPanel:
         self._render_thread.start()
 
     def _render_mix(self) -> None:
-        if dpg.does_item_exist(_t("render_btn")):
-            dpg.configure_item(_t("render_btn"), enabled=False)
+        schedule_ui(lambda: dpg.configure_item(_t("render_btn"), enabled=False)
+                    if dpg.does_item_exist(_t("render_btn")) else None)
         self._set_status("Rendering…")
 
         try:
@@ -1057,22 +1061,23 @@ class MixPanel:
             dm, ds = divmod(int(self._mix_duration), 60)
             self._set_status(f"Done — {dm}:{ds:02d}")
 
-            if dpg.does_item_exist(_t("result_duration")):
-                dpg.set_value(
-                    _t("result_duration"),
-                    f"Duration: {self._mix_duration:.1f} s · 44100 Hz · FLAC",
-                )
-            set_widget_text(_t("result_file"), str(out_path))
+            dur_text = f"Duration: {self._mix_duration:.1f} s · 44100 Hz · FLAC"
+            path_str = str(out_path)
 
-            if dpg.does_item_exist(_t("save_btn")):
-                dpg.configure_item(_t("save_btn"), enabled=True)
+            def _show_result():
+                if dpg.does_item_exist(_t("result_duration")):
+                    dpg.set_value(_t("result_duration"), dur_text)
+                if dpg.does_item_exist(_t("save_btn")):
+                    dpg.configure_item(_t("save_btn"), enabled=True)
+            schedule_ui(_show_result)
+            set_widget_text(_t("result_file"), path_str)
 
         except Exception as exc:
             log.exception("MixPanel render failed")
             self._set_status(f"Error: {exc}")
         finally:
-            if dpg.does_item_exist(_t("render_btn")):
-                dpg.configure_item(_t("render_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("render_btn"), enabled=True)
+                        if dpg.does_item_exist(_t("render_btn")) else None)
 
     # ------------------------------------------------------------------
     # Render a single track to (2, samples) float32

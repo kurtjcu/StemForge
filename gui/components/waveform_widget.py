@@ -29,6 +29,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from utils.audio_io import read_audio
+from gui.ui_queue import schedule_ui
 
 
 log = logging.getLogger("stemforge.gui.waveform_widget")
@@ -296,16 +297,18 @@ class WaveformWidget:
             self._sr = sr
             self._duration = duration
 
-            if dpg.does_item_exist(self._tag("wave")):
-                dpg.set_value(self._tag("wave"), [xs, ys])
-            if dpg.does_item_exist(self._tag("xaxis")):
-                dpg.set_axis_limits(self._tag("xaxis"), 0.0, duration)
-            if dpg.does_item_exist(self._tag("yaxis")):
-                dpg.set_axis_limits(self._tag("yaxis"), -1.0, 1.0)
-            if dpg.does_item_exist(self._tag("play_btn")):
-                dpg.configure_item(self._tag("play_btn"), enabled=True)
-            if dpg.does_item_exist(self._tag("rewind_btn")):
-                dpg.configure_item(self._tag("rewind_btn"), enabled=True)
+            def _apply_ui():
+                if dpg.does_item_exist(self._tag("wave")):
+                    dpg.set_value(self._tag("wave"), [xs, ys])
+                if dpg.does_item_exist(self._tag("xaxis")):
+                    dpg.set_axis_limits(self._tag("xaxis"), 0.0, duration)
+                if dpg.does_item_exist(self._tag("yaxis")):
+                    dpg.set_axis_limits(self._tag("yaxis"), -1.0, 1.0)
+                if dpg.does_item_exist(self._tag("play_btn")):
+                    dpg.configure_item(self._tag("play_btn"), enabled=True)
+                if dpg.does_item_exist(self._tag("rewind_btn")):
+                    dpg.configure_item(self._tag("rewind_btn"), enabled=True)
+            schedule_ui(_apply_ui)
         except Exception as exc:
             log.error("WaveformWidget load error (%s): %s", path, exc)
 

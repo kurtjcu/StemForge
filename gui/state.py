@@ -143,16 +143,21 @@ def set_widget_text(tag: str, text) -> None:
     Use instead of dpg.set_value() for every status and error message widget.
     get_widget_text() is guaranteed to return whatever was last passed here,
     regardless of which internal DPG field set_value/get_value actually
-    address for mvText items.  Never raises.
+    address for mvText items.  Safe to call from any thread.  Never raises.
     """
+    from gui.ui_queue import schedule_ui
     import dearpygui.dearpygui as dpg
     s = "" if text is None else str(text)
     _widget_cache[tag] = s
-    try:
-        if dpg.does_item_exist(tag):
-            dpg.set_value(tag, s)
-    except Exception:
-        pass
+
+    def _apply():
+        try:
+            if dpg.does_item_exist(tag):
+                dpg.set_value(tag, s)
+        except Exception:
+            pass
+
+    schedule_ui(_apply)
 
 
 def get_widget_text(tag: str) -> str:

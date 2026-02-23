@@ -37,6 +37,7 @@ from pipelines.roformer_pipeline import RoformerPipeline, RoformerConfig
 from models.registry import list_specs, get_spec, DemucsSpec, RoformerSpec
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _STEMS_DIR
+from gui.ui_queue import schedule_ui
 from gui.components.waveform_widget import WaveformWidget, stop_all as _stop_all_audio
 from gui.components.file_browser import FileBrowser
 from utils.audio_profile import profile_audio, recommend_separator, Recommendation
@@ -375,12 +376,17 @@ class DemucsPanel:
                 return
             self._start_auto_analyze(path)
         else:
-            self._thread = threading.Thread(target=self._run_demucs, daemon=True)
+            # Capture UI values on the main thread before spawning bg work
+            stems = [s for s in STEM_TARGETS if dpg.get_value(_t(f"stem_{s}"))]
+            model_name = dpg.get_value(_t("model"))
+            self._thread = threading.Thread(
+                target=self._run_demucs, args=(stems, model_name), daemon=True,
+            )
             self._thread.start()
 
-    def _run_demucs(self) -> None:
-        dpg.configure_item(_t("run_btn"), enabled=False)
-        dpg.set_value(_t("progress"), 0.0)
+    def _run_demucs(self, stems: list[str], model_name: str) -> None:
+        schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=False))
+        schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
 
         try:
             audio = app_state.audio_path
@@ -388,12 +394,10 @@ class DemucsPanel:
                 set_widget_text(_t("status"), "Load an audio file first (Browse button above).")
                 return
 
-            stems = [s for s in STEM_TARGETS if dpg.get_value(_t(f"stem_{s}"))]
             if not stems:
                 set_widget_text(_t("status"), "Tick at least one part to separate.")
                 return
 
-            model_name = dpg.get_value(_t("model"))
             if self._current_model != model_name:
                 if self._current_model is not None:
                     set_widget_text(_t("status"), "Unloading previous model...")
@@ -408,7 +412,7 @@ class DemucsPanel:
                 self._demucs_pipeline.load_model()
 
             def _progress(pct: float, stage: str) -> None:
-                dpg.set_value(_t("progress"), pct / 100.0)
+                schedule_ui(lambda _p=pct: dpg.set_value(_t("progress"), _p / 100.0))
                 set_widget_text(_t("status"), stage)
                 self._tick_spinner()   # Demucs runs on GPU internally; no CPU/GPU label
 
@@ -418,7 +422,7 @@ class DemucsPanel:
             self._stem_paths = result.stem_paths
             self._apply_stem_results(result.stem_paths, rms_map=None)
 
-            dpg.set_value(_t("progress"), 1.0)
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 1.0))
             set_widget_text(
                 _t("status"),
                 f"Done - {len(result.stem_paths)} parts  ({result.duration_seconds:.1f} s)",
@@ -427,9 +431,9 @@ class DemucsPanel:
         except Exception as exc:
             traceback.print_exc()
             set_widget_text(_t("status"), f"Error: {exc}")
-            dpg.set_value(_t("progress"), 0.0)
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         finally:
-            dpg.configure_item(_t("run_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=True))
             self._clear_spinner()
 
     # ------------------------------------------------------------------
@@ -444,18 +448,23 @@ class DemucsPanel:
             self._thread.join(timeout=0.5)
         self._cancel_analysis = threading.Event()
         self._roformer_pipeline.set_cancel_event(self._cancel_analysis)
+        # Capture UI value on main thread before spawning bg work
+        model_id = (
+            dpg.get_value(_t("model"))
+            if dpg.does_item_exist(_t("model"))
+            else ROFORMER_MODELS[0]
+        )
         self._thread = threading.Thread(
-            target=self._auto_analyze, args=(path,), daemon=True
+            target=self._auto_analyze, args=(path, model_id), daemon=True
         )
         self._thread.start()
 
-    def _auto_analyze(self, path: pathlib.Path) -> None:
+    def _auto_analyze(self, path: pathlib.Path, model_id: str) -> None:
         """Background thread: run Roformer, compute RMS, update UI."""
-        dpg.set_value(_t("progress"), 0.0)
+        schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         set_widget_text(_t("status"), "Starting analysis...")
 
         try:
-            model_id = dpg.get_value(_t("model"))
             roformer_spec = get_spec(model_id)
             config = RoformerConfig(
                 model_id=model_id,
@@ -476,7 +485,7 @@ class DemucsPanel:
 
             def _progress(pct: float, stage: str) -> None:
                 if not self._cancel_analysis.is_set():
-                    dpg.set_value(_t("progress"), pct / 100.0)
+                    schedule_ui(lambda _p=pct: dpg.set_value(_t("progress"), _p / 100.0))
                     device = self._roformer_pipeline.last_device
                     # Show stage + device on same line; spinner gives liveness
                     set_widget_text(_t("status"), f"[{device}] {stage}")
@@ -512,7 +521,7 @@ class DemucsPanel:
 
             self._apply_stem_results(result.stem_paths, rms_map=rms_map, active=active_paths)
 
-            dpg.set_value(_t("progress"), 1.0)
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 1.0))
             set_widget_text(
                 _t("status"),
                 f"Done - {len(result.stem_paths)} stems  ({result.duration_seconds:.1f} s)",
@@ -522,12 +531,12 @@ class DemucsPanel:
             if not self._cancel_analysis.is_set():
                 traceback.print_exc()
                 set_widget_text(_t("status"), f"Error: {exc}")
-                dpg.set_value(_t("progress"), 0.0)
+                schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         finally:
             self._clear_spinner()
 
     # ------------------------------------------------------------------
-    # UI updater (called from background thread — dpg calls are thread-safe)
+    # UI updater (called from background thread — uses schedule_ui)
     # ------------------------------------------------------------------
 
     def _apply_stem_results(
@@ -542,20 +551,33 @@ class DemucsPanel:
 
         for stem_name in _ALL_STEM_TARGETS:
             in_result = stem_name in stem_paths
-            dpg.configure_item(_t(f"row_{stem_name}"), show=in_result)
+            schedule_ui(
+                lambda _sn=stem_name, _ir=in_result: dpg.configure_item(
+                    _t(f"row_{_sn}"), show=_ir
+                )
+            )
             if not in_result:
                 continue
 
             is_active = stem_name in active
-            dpg.set_value(_t(f"result_chk_{stem_name}"), is_active)
+            schedule_ui(
+                lambda _sn=stem_name, _ia=is_active: dpg.set_value(
+                    _t(f"result_chk_{_sn}"), _ia
+                )
+            )
 
             if rms_map is not None:
                 rms = rms_map.get(stem_name, 0.0)
                 db = 20.0 * np.log10(rms + 1e-9)
                 tag_str = "active" if is_active else "below threshold"
-                dpg.set_value(_t(f"rms_{stem_name}"), f"RMS: {rms:.4f} ({db:.1f} dB) - {tag_str}")
+                val = f"RMS: {rms:.4f} ({db:.1f} dB) - {tag_str}"
+                schedule_ui(
+                    lambda _sn=stem_name, _v=val: dpg.set_value(_t(f"rms_{_sn}"), _v)
+                )
             else:
-                dpg.set_value(_t(f"rms_{stem_name}"), "")
+                schedule_ui(
+                    lambda _sn=stem_name: dpg.set_value(_t(f"rms_{_sn}"), "")
+                )
 
             self._stem_waveforms[stem_name].load_async(stem_paths[stem_name])
 
@@ -629,12 +651,17 @@ class DemucsPanel:
         else:
             label = ""
             color = _SPINNER_IDLE_COLOR
-        dpg.set_value(_t("spinner"), label)
-        dpg.configure_item(_t("spinner"), color=color)
+
+        def _update(_l=label, _c=color):
+            dpg.set_value(_t("spinner"), _l)
+            dpg.configure_item(_t("spinner"), color=_c)
+        schedule_ui(_update)
 
     def _clear_spinner(self) -> None:
-        dpg.set_value(_t("spinner"), "")
-        dpg.configure_item(_t("spinner"), color=_SPINNER_IDLE_COLOR)
+        def _update():
+            dpg.set_value(_t("spinner"), "")
+            dpg.configure_item(_t("spinner"), color=_SPINNER_IDLE_COLOR)
+        schedule_ui(_update)
 
     # ------------------------------------------------------------------
     # File reveal helper
@@ -700,15 +727,19 @@ class DemucsPanel:
                 lines.append("")
                 lines.append(profile.analysis_note)
 
-            dpg.set_value(_t("recommend_text"), "\n".join(lines))
-            dpg.configure_item(_t("recommend_text"), color=color)
-            dpg.configure_item(_t("recommend_group"), show=True)
+            text = "\n".join(lines)
+
+            def _show_result():
+                dpg.set_value(_t("recommend_text"), text)
+                dpg.configure_item(_t("recommend_text"), color=color)
+                dpg.configure_item(_t("recommend_group"), show=True)
+            schedule_ui(_show_result)
             set_widget_text(_t("status"), "Analysis complete.")
         except Exception as exc:
             log.error("Recommendation failed: %s", exc)
             set_widget_text(_t("status"), f"Analysis error: {exc}")
         finally:
-            dpg.configure_item(_t("recommend_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("recommend_btn"), enabled=True))
 
     def _on_recommend_apply(self, sender, app_data, user_data) -> None:
         rec = self._last_recommendation

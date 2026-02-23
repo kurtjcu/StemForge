@@ -18,6 +18,7 @@ import dearpygui.dearpygui as dpg
 from utils.audio_io import read_audio, write_audio
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.components.file_browser import FileBrowser
+from gui.ui_queue import schedule_ui
 
 
 log = logging.getLogger("stemforge.gui.export_panel")
@@ -200,24 +201,24 @@ class ExportPanel:
     # ------------------------------------------------------------------
 
     def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
-        """Called by DemucsPanel after a successful separation run."""
-        self._on_refresh(None, None, None)
+        """Called by DemucsPanel after a successful separation run (may be bg thread)."""
+        schedule_ui(lambda: self._on_refresh(None, None, None))
 
     def notify_midi_ready(
         self,
         merged_midi_data,
         stem_midi_data: dict,
     ) -> None:
-        """Called by MidiPanel after a successful MIDI extraction run."""
-        self._on_refresh(None, None, None)
+        """Called by MidiPanel after a successful MIDI extraction run (may be bg thread)."""
+        schedule_ui(lambda: self._on_refresh(None, None, None))
 
     def notify_musicgen_ready(self, path: pathlib.Path) -> None:
-        """Called by MusicGenPanel after a successful generation run."""
-        self._on_refresh(None, None, None)
+        """Called by MusicGenPanel after a successful generation run (may be bg thread)."""
+        schedule_ui(lambda: self._on_refresh(None, None, None))
 
     def notify_mix_ready(self, path: pathlib.Path) -> None:
-        """Called by MixPanel after a successful mix render."""
-        self._on_refresh(None, None, None)
+        """Called by MixPanel after a successful mix render (may be bg thread)."""
+        schedule_ui(lambda: self._on_refresh(None, None, None))
 
     def _on_browse(self, sender, app_data, user_data) -> None:
         self._dir_browser.show()
@@ -228,28 +229,49 @@ class ExportPanel:
     def _on_export_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run_export, daemon=True)
+        # Capture all UI values on the main thread
+        ui = self._capture_export_inputs()
+        self._thread = threading.Thread(target=self._run_export, args=(ui,), daemon=True)
         self._thread.start()
+
+    def _capture_export_inputs(self) -> dict:
+        """Read all DPG widget values needed by _run_export() — main thread only."""
+        outdir_str = dpg.get_value(_t("outdir")).strip() if dpg.does_item_exist(_t("outdir")) else ""
+        fmt = dpg.get_value(_t("format")) if dpg.does_item_exist(_t("format")) else "wav"
+
+        checked_stems = [
+            key for key in _STEM_KEYS
+            if dpg.does_item_exist(_t(f"chk_{key}")) and dpg.get_value(_t(f"chk_{key}"))
+        ]
+        chk_midi = dpg.get_value(_t("chk_midi")) if dpg.does_item_exist(_t("chk_midi")) else False
+        chk_mg   = dpg.get_value(_t("chk_musicgen")) if dpg.does_item_exist(_t("chk_musicgen")) else False
+        chk_mix  = dpg.get_value(_t("chk_mix")) if dpg.does_item_exist(_t("chk_mix")) else False
+
+        return dict(
+            outdir_str=outdir_str, fmt=fmt,
+            checked_stems=checked_stems, chk_midi=chk_midi,
+            chk_musicgen=chk_mg, chk_mix=chk_mix,
+        )
 
     # ------------------------------------------------------------------
     # Background export thread
     # ------------------------------------------------------------------
 
-    def _run_export(self) -> None:
-        dpg.configure_item(_t("run_btn"), enabled=False)
-        dpg.set_value(_t("progress"), 0.0)
-        dpg.set_value(_t("result_list"), "")
+    def _run_export(self, ui: dict) -> None:
+        schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=False))
+        schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
+        schedule_ui(lambda: dpg.set_value(_t("result_list"), ""))
 
         try:
-            outdir_str = dpg.get_value(_t("outdir")).strip()
+            outdir_str = ui["outdir_str"]
             if not outdir_str:
-                set_widget_text(_t("status"),"Set a destination folder first.")
+                set_widget_text(_t("status"), "Set a destination folder first.")
                 return
 
             out = pathlib.Path(outdir_str)
             out.mkdir(parents=True, exist_ok=True)
 
-            fmt         = dpg.get_value(_t("format"))
+            fmt         = ui["fmt"]
             stem_paths  = app_state.stem_paths
             midi_path   = app_state.midi_path
             mg_path     = app_state.musicgen_path
@@ -258,32 +280,31 @@ class ExportPanel:
             # Collect (source, dest_name, is_audio)
             tasks: list[tuple[pathlib.Path, str, bool]] = []
 
-            for key in _STEM_KEYS:
-                if dpg.get_value(_t(f"chk_{key}")):
-                    src = stem_paths.get(key)
-                    if src and src.exists():
-                        tasks.append((src, f"{key}.{fmt}", True))
+            for key in ui["checked_stems"]:
+                src = stem_paths.get(key)
+                if src and src.exists():
+                    tasks.append((src, f"{key}.{fmt}", True))
 
-            if dpg.get_value(_t("chk_midi")):
+            if ui["chk_midi"]:
                 if midi_path and midi_path.exists():
                     tasks.append((midi_path, midi_path.name, False))
 
-            if dpg.get_value(_t("chk_musicgen")):
+            if ui["chk_musicgen"]:
                 if mg_path and mg_path.exists():
                     tasks.append((mg_path, f"generated.{fmt}", True))
 
-            if dpg.get_value(_t("chk_mix")):
+            if ui["chk_mix"]:
                 if mix_path and mix_path.exists():
                     tasks.append((mix_path, f"mix.{fmt}", True))
 
             if not tasks:
-                set_widget_text(_t("status"),"Nothing ticked - check at least one file.")
+                set_widget_text(_t("status"), "Nothing ticked - check at least one file.")
                 return
 
             written: list[str] = []
             for i, (src, dest_name, is_audio) in enumerate(tasks):
-                dpg.set_value(_t("progress"), i / len(tasks))
-                set_widget_text(_t("status"),f"Writing {dest_name}...")
+                schedule_ui(lambda _p=i, _n=len(tasks): dpg.set_value(_t("progress"), _p / _n))
+                set_widget_text(_t("status"), f"Writing {dest_name}...")
                 dest = out / dest_name
                 src_ext = src.suffix.lower().lstrip(".")
                 if is_audio and src_ext != fmt:
@@ -293,14 +314,15 @@ class ExportPanel:
                     shutil.copy2(src, dest)
                 written.append(str(dest))
 
-            dpg.set_value(_t("progress"), 1.0)
-            set_widget_text(_t("status"),f"Done - {len(written)} file(s) exported")
-            dpg.set_value(_t("result_list"), "\n".join(written))
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 1.0))
+            set_widget_text(_t("status"), f"Done - {len(written)} file(s) exported")
+            result_text = "\n".join(written)
+            schedule_ui(lambda: dpg.set_value(_t("result_list"), result_text))
 
         except Exception as exc:
             traceback.print_exc()
-            set_widget_text(_t("status"),f"Error: {exc}")
-            dpg.set_value(_t("progress"), 0.0)
+            set_widget_text(_t("status"), f"Error: {exc}")
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         finally:
-            dpg.configure_item(_t("run_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=True))
 

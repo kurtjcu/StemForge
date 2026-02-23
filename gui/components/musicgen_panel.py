@@ -25,6 +25,7 @@ import dearpygui.dearpygui as dpg
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MUSICGEN_DIR, _MIDI_DIR
+from gui.ui_queue import schedule_ui
 from gui.components.waveform_widget import WaveformWidget
 from gui.components.file_browser import FileBrowser
 from gui.components.demucs_panel import _STEM_LABEL
@@ -358,34 +359,40 @@ class MusicGenPanel:
     # ------------------------------------------------------------------
 
     def notify_stems_ready(self, stem_paths: dict[str, pathlib.Path]) -> None:
-        """Called by DemucsPanel after a successful separation run."""
+        """Called by DemucsPanel after a successful separation run (may be bg thread)."""
         self._stem_paths = dict(stem_paths)
         labels = ["None"] + [_STEM_LABEL.get(k, k) for k in stem_paths]
-        if dpg.does_item_exist(_t("stem_radio")):
-            dpg.configure_item(_t("stem_radio"), items=labels)
-            dpg.set_value(_t("stem_radio"), "None")
-        if dpg.does_item_exist(_t("stem_hint")):
-            dpg.configure_item(_t("stem_hint"), show=False)
+
+        def _update():
+            if dpg.does_item_exist(_t("stem_radio")):
+                dpg.configure_item(_t("stem_radio"), items=labels)
+                dpg.set_value(_t("stem_radio"), "None")
+            if dpg.does_item_exist(_t("stem_hint")):
+                dpg.configure_item(_t("stem_hint"), show=False)
+        schedule_ui(_update)
 
     def notify_midi_ready(
         self,
         midi_path: pathlib.Path,
         stem_midi_data: dict,
     ) -> None:
-        """Called by MidiPanel after a successful MIDI extraction run."""
+        """Called by MidiPanel after a successful MIDI extraction run (may be bg thread)."""
         self._tab_merged_midi_obj = midi_path   # first arg is now a PrettyMIDI object
         self._tab_midi_paths = {"All stems": None}  # placeholder for radio items
         labels = list(self._tab_midi_paths.keys())
-        if dpg.does_item_exist(_t("midi_radio")):
-            dpg.configure_item(_t("midi_radio"), items=labels, enabled=True)
-            dpg.set_value(_t("midi_radio"), labels[0])
-        if dpg.does_item_exist(_t("midi_hint")):
-            dpg.configure_item(_t("midi_hint"), show=False)
-        # Auto-switch to MIDI tab source if user hasn't chosen anything yet
-        if dpg.does_item_exist(_t("midi_src")):
-            if dpg.get_value(_t("midi_src")) == "None":
-                dpg.set_value(_t("midi_src"), "From MIDI tab")
-                self._on_midi_source_change(None, "From MIDI tab", None)
+
+        def _update():
+            if dpg.does_item_exist(_t("midi_radio")):
+                dpg.configure_item(_t("midi_radio"), items=labels, enabled=True)
+                dpg.set_value(_t("midi_radio"), labels[0])
+            if dpg.does_item_exist(_t("midi_hint")):
+                dpg.configure_item(_t("midi_hint"), show=False)
+            # Auto-switch to MIDI tab source if user hasn't chosen anything yet
+            if dpg.does_item_exist(_t("midi_src")):
+                if dpg.get_value(_t("midi_src")) == "None":
+                    dpg.set_value(_t("midi_src"), "From MIDI tab")
+                    self._on_midi_source_change(None, "From MIDI tab", None)
+        schedule_ui(_update)
 
     def add_result_listener(
         self,
@@ -509,8 +516,24 @@ class MusicGenPanel:
     def _on_run_click(self, sender, app_data, user_data) -> None:
         if self._thread and self._thread.is_alive():
             return
-        self._thread = threading.Thread(target=self._run, daemon=True)
+        # Capture all UI values on the main thread
+        ui = self._capture_run_inputs()
+        self._thread = threading.Thread(target=self._run, args=(ui,), daemon=True)
         self._thread.start()
+
+    def _capture_run_inputs(self) -> dict:
+        """Read all DPG widget values needed by _run() — main thread only."""
+        prompt   = dpg.get_value(_t("prompt")).strip() if dpg.does_item_exist(_t("prompt")) else ""
+        duration = float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 30.0
+        steps    = int(dpg.get_value(_t("steps")))      if dpg.does_item_exist(_t("steps"))    else 100
+        cfg      = float(dpg.get_value(_t("cfg")))      if dpg.does_item_exist(_t("cfg"))      else 7.0
+        audio_src = dpg.get_value(_t("audio_src"))       if dpg.does_item_exist(_t("audio_src")) else "None"
+        midi_src  = dpg.get_value(_t("midi_src"))        if dpg.does_item_exist(_t("midi_src"))  else "None"
+        stem_label = dpg.get_value(_t("stem_radio"))     if dpg.does_item_exist(_t("stem_radio")) else "None"
+        return dict(
+            prompt=prompt, duration=duration, steps=steps, cfg=cfg,
+            audio_src=audio_src, midi_src=midi_src, stem_label=stem_label,
+        )
 
     def _on_save_click(self, sender, app_data, user_data) -> None:
         if self._save_browser:
@@ -532,39 +555,39 @@ class MusicGenPanel:
     # Background thread
     # ------------------------------------------------------------------
 
-    def _run(self) -> None:
-        dpg.configure_item(_t("run_btn"), enabled=False)
-        dpg.configure_item(_t("save_btn"), enabled=False)
-        dpg.set_value(_t("progress"), 0.0)
+    def _run(self, ui: dict) -> None:
+        schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=False))
+        schedule_ui(lambda: dpg.configure_item(_t("save_btn"), enabled=False))
+        schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
 
         def _progress(pct: float, stage: str) -> None:
-            dpg.set_value(_t("progress"), pct / 100.0)
+            schedule_ui(lambda _p=pct: dpg.set_value(_t("progress"), _p / 100.0))
             set_widget_text(_t("status"), stage)
 
         try:
-            prompt = dpg.get_value(_t("prompt")).strip()
+            prompt = ui["prompt"]
             if not prompt:
                 set_widget_text(_t("status"), "Enter a text prompt first.")
                 return
 
-            duration = float(dpg.get_value(_t("duration")))
-            steps    = int(dpg.get_value(_t("steps")))
-            cfg      = float(dpg.get_value(_t("cfg")))
+            duration   = ui["duration"]
+            steps      = ui["steps"]
+            cfg        = ui["cfg"]
+            audio_src  = ui["audio_src"]
+            midi_src   = ui["midi_src"]
+            stem_label = ui["stem_label"]
 
             # Audio conditioning
-            audio_src = dpg.get_value(_t("audio_src"))
             init_audio_path: pathlib.Path | None = None
             if audio_src == "Stem from Separate tab":
-                label = dpg.get_value(_t("stem_radio"))
-                if label and label != "None":
-                    key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
+                if stem_label and stem_label != "None":
+                    key = next((k for k, v in _STEM_LABEL.items() if v == stem_label), None)
                     if key and key in self._stem_paths:
                         init_audio_path = self._stem_paths[key]
             elif audio_src == "Load audio file":
                 init_audio_path = self._loaded_audio_path
 
             # MIDI conditioning
-            midi_src = dpg.get_value(_t("midi_src"))
             midi_path: pathlib.Path | None = None
             if midi_src == "From MIDI tab":
                 if self._tab_merged_midi_obj is not None:
@@ -601,7 +624,7 @@ class MusicGenPanel:
             )
             set_widget_text(_t("audio_file"), str(result.audio_path))
             self._waveform.load_async(result.audio_path)
-            dpg.configure_item(_t("save_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("save_btn"), enabled=True))
             _progress(100.0, f"Done — {result.duration_seconds:.1f} s")
             for cb in self._result_listeners:
                 try:
@@ -612,6 +635,6 @@ class MusicGenPanel:
         except Exception as exc:
             log.exception("Generation failed")
             set_widget_text(_t("status"), f"Error: {exc}")
-            dpg.set_value(_t("progress"), 0.0)
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         finally:
-            dpg.configure_item(_t("run_btn"), enabled=True)
+            schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=True))

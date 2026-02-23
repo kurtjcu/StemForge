@@ -29,6 +29,8 @@ import time
 import numpy as np
 import dearpygui.dearpygui as dpg
 
+from gui.ui_queue import schedule_ui
+
 log = logging.getLogger("stemforge.gui.midi_player_widget")
 
 # Duck-typed: any object with tick() and _stop() may be appended here.
@@ -357,18 +359,20 @@ class MidiPlayerWidget:
             step = max(1, samples // _MAX_PLOT_POINTS)
             ys = audio[::step].tolist()
             xs = np.linspace(0.0, self._duration, len(ys)).tolist()
+            dur = self._duration
 
-            if dpg.does_item_exist(self._tag("wave")):
-                dpg.set_value(self._tag("wave"), [xs, ys])
-            if dpg.does_item_exist(self._tag("xaxis")):
-                dpg.set_axis_limits(self._tag("xaxis"), 0.0, self._duration)
-            if dpg.does_item_exist(self._tag("yaxis")):
-                dpg.set_axis_limits(self._tag("yaxis"), -1.0, 1.0)
-
-            if dpg.does_item_exist(self._tag("play_btn")):
-                dpg.configure_item(self._tag("play_btn"), enabled=True)
-            if dpg.does_item_exist(self._tag("rewind_btn")):
-                dpg.configure_item(self._tag("rewind_btn"), enabled=True)
+            def _apply_ui():
+                if dpg.does_item_exist(self._tag("wave")):
+                    dpg.set_value(self._tag("wave"), [xs, ys])
+                if dpg.does_item_exist(self._tag("xaxis")):
+                    dpg.set_axis_limits(self._tag("xaxis"), 0.0, dur)
+                if dpg.does_item_exist(self._tag("yaxis")):
+                    dpg.set_axis_limits(self._tag("yaxis"), -1.0, 1.0)
+                if dpg.does_item_exist(self._tag("play_btn")):
+                    dpg.configure_item(self._tag("play_btn"), enabled=True)
+                if dpg.does_item_exist(self._tag("rewind_btn")):
+                    dpg.configure_item(self._tag("rewind_btn"), enabled=True)
+            schedule_ui(_apply_ui)
 
             dm, ds = divmod(int(self._duration), 60)
             self._set_status(f"Ready  ({dm}:{ds:02d})")
@@ -465,5 +469,6 @@ class MidiPlayerWidget:
 
     def _set_status(self, msg: str) -> None:
         tag = self._tag("status")
-        if dpg.does_item_exist(tag):
-            dpg.set_value(tag, msg)
+        schedule_ui(
+            lambda _m=msg: dpg.set_value(tag, _m) if dpg.does_item_exist(tag) else None
+        )
