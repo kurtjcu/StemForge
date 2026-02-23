@@ -30,6 +30,7 @@ import numpy as np
 import dearpygui.dearpygui as dpg
 
 from gui.ui_queue import schedule_ui
+from gui.audio_player import audio_play, audio_stop
 
 log = logging.getLogger("stemforge.gui.midi_player_widget")
 
@@ -435,15 +436,7 @@ class MidiPlayerWidget:
         audio = self._rendered
         sr = self._sr
         start_sample = int(offset * sr)
-
-        def _play_audio() -> None:
-            try:
-                import sounddevice as sd
-                sd.play(audio[start_sample:], samplerate=sr)
-            except Exception as exc:
-                log.error("MidiPlayerWidget playback error: %s", exc)
-
-        threading.Thread(target=_play_audio, daemon=True).start()
+        audio_play(audio[start_sample:], samplerate=sr)
 
     def _stop(self) -> None:
         global _active_midi_player
@@ -453,15 +446,14 @@ class MidiPlayerWidget:
                 self._duration,
             )
             self._playing = False
-            try:
-                import sounddevice as sd
-                sd.stop()
-            except Exception:
-                pass
+            audio_stop()
         if _active_midi_player is self:
             _active_midi_player = None
-        if dpg.does_item_exist(self._tag("stop_btn")):
-            dpg.configure_item(self._tag("stop_btn"), enabled=False)
+        stop_btn = self._tag("stop_btn")
+        schedule_ui(
+            lambda _t=stop_btn: dpg.configure_item(_t, enabled=False)
+            if dpg.does_item_exist(_t) else None
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers

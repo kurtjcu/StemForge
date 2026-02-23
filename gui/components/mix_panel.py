@@ -34,6 +34,7 @@ import dearpygui.dearpygui as dpg
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MIX_DIR
 from gui.ui_queue import schedule_ui
+from gui.audio_player import audio_play, audio_stop
 from gui.components.file_browser import FileBrowser
 from gui.components.demucs_panel import _STEM_LABEL
 from gui.components.waveform_widget import WaveformWidget, _ALL_WIDGETS, _get_plot_font
@@ -806,11 +807,6 @@ class MixPanel:
     def _on_master_stop(self, sender, app_data, user_data) -> None:
         self._stop_master()
         self._stop_solo()
-        try:
-            import sounddevice as sd
-            sd.stop()
-        except Exception:
-            pass
         self._set_status("Stopped")
 
     def _on_master_rewind(self, sender, app_data, user_data) -> None:
@@ -879,23 +875,14 @@ class MixPanel:
         self._solo_playing = True
         self._set_status(f"Solo: {label} ({state.source})")
 
-        try:
-            import sounddevice as sd
-            sd.play(audio.T, samplerate=self._mix_sr)
-        except Exception as exc:
-            log.error("MixPanel solo preview error: %s", exc)
-            self._solo_playing = False
+        audio_play(audio.T, samplerate=self._mix_sr)
 
     def _stop_solo(self) -> None:
         if self._solo_playing:
             elapsed = time.time() - self._solo_start
             self._solo_offset = min(self._solo_offset + elapsed, self._solo_duration)
             self._solo_playing = False
-            try:
-                import sounddevice as sd
-                sd.stop()
-            except Exception:
-                pass
+            audio_stop()
 
     # ------------------------------------------------------------------
     # Master Play All
@@ -972,26 +959,14 @@ class MixPanel:
         audio = self._master_audio
         sr = self._master_sr
         start_sample = int(offset * sr)
-
-        def _play_audio() -> None:
-            try:
-                import sounddevice as sd
-                sd.play(audio[:, start_sample:].T, samplerate=sr)
-            except Exception as exc:
-                log.error("MixPanel master playback error: %s", exc)
-
-        threading.Thread(target=_play_audio, daemon=True).start()
+        audio_play(audio[:, start_sample:].T, samplerate=sr)
 
     def _stop_master(self) -> None:
         if self._master_playing:
             elapsed = time.time() - self._master_start
             self._master_offset = min(self._master_offset + elapsed, self._master_duration)
             self._master_playing = False
-            try:
-                import sounddevice as sd
-                sd.stop()
-            except Exception:
-                pass
+            audio_stop()
 
     # ------------------------------------------------------------------
     # Background render to FLAC (Render Mix button)

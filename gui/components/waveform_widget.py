@@ -30,6 +30,7 @@ import dearpygui.dearpygui as dpg
 
 from utils.audio_io import read_audio
 from gui.ui_queue import schedule_ui
+from gui.audio_player import audio_play, audio_stop
 
 
 log = logging.getLogger("stemforge.gui.waveform_widget")
@@ -363,15 +364,7 @@ class WaveformWidget:
         waveform = self._waveform
         sr = self._sr
         start_sample = int(offset * sr)
-
-        def _audio() -> None:
-            try:
-                import sounddevice as sd
-                sd.play(waveform[:, start_sample:].T, samplerate=sr)
-            except Exception as exc:
-                log.error("WaveformWidget audio playback error: %s", exc)
-
-        threading.Thread(target=_audio, daemon=True).start()
+        audio_play(waveform[:, start_sample:].T, samplerate=sr)
 
     def _stop(self) -> None:
         global _active_widget
@@ -382,12 +375,11 @@ class WaveformWidget:
                 self._duration,
             )
             self._playing = False
-            try:
-                import sounddevice as sd
-                sd.stop()
-            except Exception:
-                pass
+            audio_stop()
         if _active_widget is self:
             _active_widget = None
-        if dpg.does_item_exist(self._tag("stop_btn")):
-            dpg.configure_item(self._tag("stop_btn"), enabled=False)
+        stop_btn = self._tag("stop_btn")
+        schedule_ui(
+            lambda _t=stop_btn: dpg.configure_item(_t, enabled=False)
+            if dpg.does_item_exist(_t) else None
+        )
