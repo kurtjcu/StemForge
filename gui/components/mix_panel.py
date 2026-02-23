@@ -9,8 +9,8 @@ Track IDs (keys in _track_states)
   "{label}:audio"   — audio stem from Separate tab or manual load
   "{label}:midi"    — MIDI file from MIDI tab or manual load
 
-Tracks can be closed (removed from list) via the × button.  Closed tracks
-are remembered in _dismissed_tracks so they don't reappear on rebuild.
+Tracks can be collapsed (OFF) to hide details and exclude from mixing,
+or expanded (ON) to show controls and include in playback/render.
 
 Inter-panel wiring (set up in gui/app.py)
 -----------------------------------------
@@ -140,9 +140,6 @@ class MixPanel:
 
         # Per-track state  key = track ID, e.g. "Bass:audio" or "Bass:midi"
         self._track_states: dict[str, TrackState] = {}
-
-        # Closed tracks — not re-added on rebuild until explicitly cleared.
-        self._dismissed_tracks: set[str] = set()
 
         # Per-track rendered audio cache: cache_key → (2, samples) float32
         self._track_audio_cache: dict[str, np.ndarray] = {}
@@ -516,8 +513,6 @@ class MixPanel:
         # Build new_states: preserve existing settings, create defaults for new.
         new_states: dict[str, TrackState] = {}
         for tid in wanted_tids:
-            if tid in self._dismissed_tracks:
-                continue
             if tid in self._track_states:
                 new_states[tid] = self._track_states[tid]
             else:
@@ -578,14 +573,17 @@ class MixPanel:
             label = _label_from_tid(tid)
             source = state.source
             safe = _safe(tid)
+            expanded = state.enabled
+
+            src_color = (100, 170, 100, 255) if source == "audio" else (150, 130, 220, 255)
 
             with dpg.group(tag=_t(f"track_{safe}_group"), parent=group_tag):
 
-                # --- Row 1: ON/OFF · label · Play · Stop · knob -------
+                # --- Header row: ON/OFF · label (always visible) -------
                 with dpg.group(horizontal=True):
                     toggle_tag = _t(f"track_{safe}_toggle")
                     dpg.add_button(
-                        label="ON" if state.enabled else "OFF",
+                        label="ON" if expanded else "OFF",
                         tag=toggle_tag,
                         callback=self._on_track_toggle,
                         user_data=tid,
@@ -593,53 +591,47 @@ class MixPanel:
                     )
                     dpg.bind_item_theme(
                         toggle_tag,
-                        on_theme if state.enabled else off_theme,
+                        on_theme if expanded else off_theme,
                     )
-                    with dpg.tooltip(toggle_tag):
-                        dpg.add_text("ON = included in playback / render.")
 
-                    src_color = (100, 150, 100, 255) if source == "audio" else (130, 130, 200, 255)
                     dpg.add_text(
-                        f"  {label}  ({source})",
+                        f"  {label}",
                         color=src_color,
                     )
-                    dpg.add_spacer(width=6)
-                    dpg.add_button(
-                        label="Play",
-                        tag=_t(f"track_{safe}_preview_btn"),
-                        callback=self._on_track_preview,
-                        user_data=tid,
-                        width=50,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "Solo preview: plays only this track while\n"
-                            "advancing time cursor on all other tracks."
-                        )
-                    dpg.add_button(
-                        label="Stop",
-                        tag=_t(f"track_{safe}_stop_btn"),
-                        callback=self._on_track_stop,
-                        user_data=tid,
-                        width=50,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Stop solo preview (or master playback).")
-                    dpg.add_spacer(width=8)
-                    dpg.add_knob_float(
-                        label="Vol",
-                        tag=_t(f"track_{safe}_vol"),
-                        default_value=state.volume * 10.0,
-                        min_value=0.0,
-                        max_value=10.0,
-                        callback=self._on_track_volume,
-                        user_data=tid,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text("Volume: 0 – 10")
 
-                # --- Row 2: instrument (MIDI) · × close at far right ---
-                with dpg.group(horizontal=True):
+                # --- Expandable detail (hidden when collapsed) ---------
+                with dpg.group(
+                    tag=_t(f"track_{safe}_detail"),
+                    show=expanded,
+                ):
+                    # Controls row: Play · Stop · volume knob
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(
+                            label="Play",
+                            tag=_t(f"track_{safe}_preview_btn"),
+                            callback=self._on_track_preview,
+                            user_data=tid,
+                            width=50,
+                        )
+                        dpg.add_button(
+                            label="Stop",
+                            tag=_t(f"track_{safe}_stop_btn"),
+                            callback=self._on_track_stop,
+                            user_data=tid,
+                            width=50,
+                        )
+                        dpg.add_spacer(width=8)
+                        dpg.add_knob_float(
+                            label="Vol",
+                            tag=_t(f"track_{safe}_vol"),
+                            default_value=state.volume * 10.0,
+                            min_value=0.0,
+                            max_value=10.0,
+                            callback=self._on_track_volume,
+                            user_data=tid,
+                        )
+
+                    # Instrument selector (MIDI tracks only)
                     if source == "midi" and not state.is_drum:
                         default_name = (
                             _GM_INSTRUMENTS[state.program]
@@ -650,7 +642,7 @@ class MixPanel:
                             items=_GM_INSTRUMENTS,
                             default_value=default_name,
                             tag=_t(f"track_{safe}_program"),
-                            width=-56,
+                            width=-1,
                             callback=self._on_track_program,
                             user_data=tid,
                         )
@@ -658,98 +650,79 @@ class MixPanel:
                         dpg.add_input_text(
                             default_value="Standard Drums",
                             readonly=True,
-                            width=-56,
-                        )
-                    else:
-                        dpg.add_input_text(
-                            default_value="audio stem",
-                            readonly=True,
-                            width=-56,
-                        )
-                    dpg.add_button(
-                        label="x",
-                        tag=_t(f"track_{safe}_close_btn"),
-                        callback=self._on_track_close,
-                        user_data=tid,
-                        width=50,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "Remove this track from the list.\n"
-                            "It will not reappear until you rerun\n"
-                            "Separate / Extract MIDI."
+                            width=-1,
                         )
 
-                # --- Row 3: waveform (audio) or time bar (MIDI) -------
-                if source == "audio":
-                    wf = WaveformWidget(
-                        tag_prefix=f"mix_{safe}",
-                        on_seek_callback=self._on_waveform_seek,
-                    )
-                    self._track_waveforms[tid] = wf
-                    wf.build_ui(show_controls=False, plot_height=50)
-                    path = self._get_audio_path(label, state)
-                    if path:
-                        wf.load_async(path)
-                else:
-                    # MIDI track: plot with inf_line cursor for click-to-seek
-                    all_midi = self._all_midi()
-                    midi_source = all_midi.get(label)
-                    midi_dur = self._master_duration
-                    if midi_dur == 0.0 and midi_source is not None:
-                        try:
-                            if not isinstance(midi_source, pathlib.Path):
-                                midi_dur = float(midi_source.get_end_time())
-                        except Exception:
-                            pass
-                    if midi_dur == 0.0:
-                        midi_dur = 300.0  # fallback
-                    xaxis_tag = _t(f"track_{safe}_xaxis")
-                    yaxis_tag = _t(f"track_{safe}_yaxis")
-                    cursor_tag = _t(f"track_{safe}_cursor")
-                    with dpg.plot(
-                        tag=_t(f"track_{safe}_plot"),
-                        height=65,
-                        width=-1,
-                        no_menus=True,
-                        no_box_select=True,
-                    ):
-                        dpg.add_plot_axis(
-                            dpg.mvXAxis,
-                            tag=xaxis_tag,
+                    # Waveform (audio) or cursor bar (MIDI)
+                    if source == "audio":
+                        wf = WaveformWidget(
+                            tag_prefix=f"mix_{safe}",
+                            on_seek_callback=self._on_waveform_seek,
                         )
-                        dpg.add_plot_axis(
-                            dpg.mvYAxis,
-                            tag=yaxis_tag,
-                            no_tick_marks=True,
-                            no_tick_labels=True,
-                        )
-                        dpg.add_inf_line_series(
-                            [0.0],
-                            tag=cursor_tag,
-                            parent=yaxis_tag,
-                        )
-                    with dpg.theme() as _ct:
-                        with dpg.theme_component(dpg.mvInfLineSeries):
-                            dpg.add_theme_color(
-                                dpg.mvPlotCol_Line, (255, 210, 0, 220),
-                                category=dpg.mvThemeCat_Plots,
+                        self._track_waveforms[tid] = wf
+                        wf.build_ui(show_controls=False, plot_height=50)
+                        path = self._get_audio_path(label, state)
+                        if path:
+                            wf.load_async(path)
+                    else:
+                        # MIDI track: plot with inf_line cursor
+                        all_midi = self._all_midi()
+                        midi_source = all_midi.get(label)
+                        midi_dur = self._master_duration
+                        if midi_dur == 0.0 and midi_source is not None:
+                            try:
+                                if not isinstance(midi_source, pathlib.Path):
+                                    midi_dur = float(midi_source.get_end_time())
+                            except Exception:
+                                pass
+                        if midi_dur == 0.0:
+                            midi_dur = 300.0  # fallback
+                        xaxis_tag = _t(f"track_{safe}_xaxis")
+                        yaxis_tag = _t(f"track_{safe}_yaxis")
+                        cursor_tag = _t(f"track_{safe}_cursor")
+                        with dpg.plot(
+                            tag=_t(f"track_{safe}_plot"),
+                            height=65,
+                            width=-1,
+                            no_menus=True,
+                            no_box_select=True,
+                        ):
+                            dpg.add_plot_axis(
+                                dpg.mvXAxis,
+                                tag=xaxis_tag,
                             )
-                            dpg.add_theme_style(
-                                dpg.mvPlotStyleVar_LineWeight, 2.0,
-                                category=dpg.mvThemeCat_Plots,
+                            dpg.add_plot_axis(
+                                dpg.mvYAxis,
+                                tag=yaxis_tag,
+                                no_tick_marks=True,
+                                no_tick_labels=True,
                             )
-                    dpg.bind_item_theme(cursor_tag, _ct)
-                    _pf = _get_plot_font()
-                    if _pf is not None:
-                        dpg.bind_item_font(_t(f"track_{safe}_plot"), _pf)
-                    dpg.set_axis_limits(xaxis_tag, 0.0, midi_dur)
-                    dpg.set_axis_limits(yaxis_tag, -1.0, 1.0)
-                    dpg.add_text(
-                        "0:00",
-                        tag=_t(f"track_{safe}_timetext"),
-                        color=(140, 140, 160, 255),
-                    )
+                            dpg.add_inf_line_series(
+                                [0.0],
+                                tag=cursor_tag,
+                                parent=yaxis_tag,
+                            )
+                        with dpg.theme() as _ct:
+                            with dpg.theme_component(dpg.mvInfLineSeries):
+                                dpg.add_theme_color(
+                                    dpg.mvPlotCol_Line, (255, 210, 0, 220),
+                                    category=dpg.mvThemeCat_Plots,
+                                )
+                                dpg.add_theme_style(
+                                    dpg.mvPlotStyleVar_LineWeight, 2.0,
+                                    category=dpg.mvThemeCat_Plots,
+                                )
+                        dpg.bind_item_theme(cursor_tag, _ct)
+                        _pf = _get_plot_font()
+                        if _pf is not None:
+                            dpg.bind_item_font(_t(f"track_{safe}_plot"), _pf)
+                        dpg.set_axis_limits(xaxis_tag, 0.0, midi_dur)
+                        dpg.set_axis_limits(yaxis_tag, -1.0, 1.0)
+                        dpg.add_text(
+                            "0:00",
+                            tag=_t(f"track_{safe}_timetext"),
+                            color=(140, 140, 160, 255),
+                        )
 
                 dpg.add_spacer(height=4)
                 dpg.add_separator()
@@ -765,11 +738,19 @@ class MixPanel:
         if not state:
             return
         state.enabled = not state.enabled
+        expanded = state.enabled
         on_theme, off_theme = _get_toggle_themes()
-        toggle_tag = _t(f"track_{_safe(tid)}_toggle")
+        safe = _safe(tid)
+
+        toggle_tag = _t(f"track_{safe}_toggle")
         if dpg.does_item_exist(toggle_tag):
-            dpg.configure_item(toggle_tag, label="ON" if state.enabled else "OFF")
-            dpg.bind_item_theme(toggle_tag, on_theme if state.enabled else off_theme)
+            dpg.configure_item(toggle_tag, label="ON" if expanded else "OFF")
+            dpg.bind_item_theme(toggle_tag, on_theme if expanded else off_theme)
+
+        detail_tag = _t(f"track_{safe}_detail")
+        if dpg.does_item_exist(detail_tag):
+            dpg.configure_item(detail_tag, show=expanded)
+
         self._master_audio = None  # stale — track set changed
 
     def _on_track_volume(self, sender, app_data, user_data) -> None:
@@ -807,31 +788,6 @@ class MixPanel:
         self._stop_master()
         self._set_status("Stopped")
 
-    def _on_track_close(self, sender, app_data, user_data) -> None:
-        """Remove this track from the list and remember the dismissal."""
-        tid = user_data
-        self._dismissed_tracks.add(tid)
-
-        # Remove state
-        self._track_states.pop(tid, None)
-
-        # Remove waveform widget if present
-        wf = self._track_waveforms.pop(tid, None)
-        if wf and wf in _ALL_WIDGETS:
-            _ALL_WIDGETS.remove(wf)
-
-        # Invalidate master audio
-        self._master_audio = None
-
-        # Delete the DPG group for this track row
-        group_tag = _t(f"track_{_safe(tid)}_group")
-        if dpg.does_item_exist(group_tag):
-            dpg.delete_item(group_tag)
-
-        # Update empty-track hint visibility
-        empty_tag = _t("tracks_empty")
-        if dpg.does_item_exist(empty_tag):
-            dpg.configure_item(empty_tag, show=not bool(self._track_states))
 
     # ------------------------------------------------------------------
     # Callbacks — master transport

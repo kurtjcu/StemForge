@@ -179,6 +179,7 @@ class WaveformWidget:
                     dpg.mvXAxis,
                     tag=self._tag("xaxis"),
                 )
+                dpg.set_axis_limits(self._tag("xaxis"), 0.0, 1.0)
                 dpg.add_plot_axis(
                     dpg.mvYAxis,
                     tag=self._tag("yaxis"),
@@ -238,6 +239,8 @@ class WaveformWidget:
             dpg.set_value(self._tag("wave"), [[], []])
         if dpg.does_item_exist(self._tag("cursor")):
             dpg.set_value(self._tag("cursor"), [[0.0]])
+        if dpg.does_item_exist(self._tag("xaxis")):
+            dpg.set_axis_limits(self._tag("xaxis"), 0.0, 1.0)
         for btn in (self._tag("play_btn"), self._tag("stop_btn"), self._tag("rewind_btn")):
             if dpg.does_item_exist(btn):
                 dpg.configure_item(btn, enabled=False)

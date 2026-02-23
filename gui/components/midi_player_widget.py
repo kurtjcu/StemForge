@@ -1,8 +1,11 @@
-"""Simple MIDI preview widget for StemForge.
+"""MIDI preview widget for StemForge.
 
 Renders a MIDI file to audio using FluidSynth + a GM soundfont, then
 plays via sounddevice.  Follows the WaveformWidget exclusive-playback
 pattern: only one audio source (waveform or MIDI or mix) plays at a time.
+
+Includes a waveform plot of the rendered audio with a playback cursor
+and click-to-seek, visually matching the WaveformWidget style.
 
 Module-level globals
 --------------------
@@ -32,6 +35,8 @@ log = logging.getLogger("stemforge.gui.midi_player_widget")
 # Includes MidiPlayerWidget instances and MixPanel.
 _ALL_MIDI_PLAYERS: list = []
 _active_midi_player = None  # single exclusive MIDI player
+
+_MAX_PLOT_POINTS = 2000
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +116,12 @@ _STEM_IS_DRUM: dict[str, bool] = {
 # ---------------------------------------------------------------------------
 
 class MidiPlayerWidget:
-    """Simple MIDI preview widget with Play / Stop / Rewind controls.
+    """MIDI preview widget with Play/Stop/Rewind, waveform plot, and cursor.
 
     Renders the MIDI file to a numpy audio buffer via pretty_midi.fluidsynth()
-    on a background thread, then plays back with sounddevice.
+    on a background thread, then plays back with sounddevice.  The rendered
+    audio is displayed as a waveform plot with a playback cursor and
+    click-to-seek, matching the WaveformWidget visual style.
     """
 
     def __init__(self, tag_prefix: str) -> None:
@@ -141,52 +148,104 @@ class MidiPlayerWidget:
     # UI construction  (call inside the target dpg parent context)
     # ------------------------------------------------------------------
 
-    def build_ui(self) -> None:
-        """Add MIDI preview controls to the active DPG context."""
-        dpg.add_text("MIDI Preview", color=(175, 175, 255, 255))
-        with dpg.group(horizontal=True):
-            dpg.add_button(
-                label="Play",
-                tag=self._tag("play_btn"),
-                callback=self._on_play,
-                width=70,
-                enabled=False,
+    def build_ui(self, plot_height: int = 60) -> None:
+        """Add Play/Stop/Rewind buttons, waveform plot, and status text."""
+        with dpg.group(horizontal=False):
+            # Control row
+            with dpg.group(horizontal=True):
+                dpg.add_button(
+                    label="Play",
+                    tag=self._tag("play_btn"),
+                    callback=self._on_play,
+                    width=70,
+                    enabled=False,
+                )
+                dpg.add_button(
+                    label="Stop",
+                    tag=self._tag("stop_btn"),
+                    callback=self._on_stop,
+                    width=70,
+                    enabled=False,
+                )
+                dpg.add_button(
+                    label="<<",
+                    tag=self._tag("rewind_btn"),
+                    callback=self._on_rewind,
+                    width=50,
+                    enabled=False,
+                )
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text("Rewind to start")
+                dpg.add_text(
+                    "",
+                    tag=self._tag("time"),
+                    color=(160, 160, 160, 255),
+                )
+
+            # Waveform plot
+            with dpg.plot(
+                tag=self._tag("plot"),
+                height=plot_height,
+                width=-1,
+                no_title=True,
+                no_menus=True,
+                no_box_select=True,
+            ):
+                dpg.add_plot_axis(
+                    dpg.mvXAxis,
+                    tag=self._tag("xaxis"),
+                )
+                dpg.set_axis_limits(self._tag("xaxis"), 0.0, 1.0)
+                dpg.add_plot_axis(
+                    dpg.mvYAxis,
+                    tag=self._tag("yaxis"),
+                    no_tick_marks=True,
+                    no_tick_labels=True,
+                )
+                dpg.add_line_series(
+                    [], [],
+                    tag=self._tag("wave"),
+                    parent=self._tag("yaxis"),
+                )
+                dpg.add_inf_line_series(
+                    [0.0],
+                    tag=self._tag("cursor"),
+                    parent=self._tag("yaxis"),
+                )
+
+            # Cursor theme — bright yellow line
+            with dpg.theme() as cursor_theme:
+                with dpg.theme_component(dpg.mvInfLineSeries):
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_Line, (255, 210, 0, 220),
+                        category=dpg.mvThemeCat_Plots,
+                    )
+                    dpg.add_theme_style(
+                        dpg.mvPlotStyleVar_LineWeight, 2.0,
+                        category=dpg.mvThemeCat_Plots,
+                    )
+            dpg.bind_item_theme(self._tag("cursor"), cursor_theme)
+
+            # Small font for plot tick labels (reuse WaveformWidget's font)
+            from gui.components.waveform_widget import _get_plot_font
+            _pf = _get_plot_font()
+            if _pf is not None:
+                dpg.bind_item_font(self._tag("plot"), _pf)
+
+            # Status text
+            dpg.add_text(
+                "(no MIDI loaded)",
+                tag=self._tag("status"),
+                color=(120, 120, 140, 255),
+                wrap=340,
             )
-            dpg.add_button(
-                label="Stop",
-                tag=self._tag("stop_btn"),
-                callback=self._on_stop,
-                width=70,
-                enabled=False,
-            )
-            dpg.add_button(
-                label="<<",
-                tag=self._tag("rewind_btn"),
-                callback=self._on_rewind,
-                width=50,
-                enabled=False,
-            )
-            with dpg.tooltip(dpg.last_item()):
-                dpg.add_text("Rewind to start")
-            dpg.add_text("", tag=self._tag("time"), color=(160, 160, 160, 255))
-        dpg.add_text(
-            "Status: (no MIDI loaded)",
-            tag=self._tag("status"),
-            color=(120, 120, 140, 255),
-            wrap=340,
-        )
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def load(self, midi_path: pathlib.Path, stem_label: str = "") -> None:
-        """Set the MIDI file and start a background render.
-
-        *stem_label* selects the default GM instrument from
-        _STEM_DEFAULT_PROGRAM.  If no soundfont is found, shows an
-        error in the status text and returns without rendering.
-        """
+        """Set the MIDI file and start a background render."""
         self.clear()
         self._midi_path = midi_path
         self._stem_label = stem_label
@@ -201,11 +260,7 @@ class MidiPlayerWidget:
         ).start()
 
     def load_from_midi(self, midi_obj, stem_label: str = "") -> None:
-        """Load from an in-memory PrettyMIDI object and start background render.
-
-        Use this instead of :meth:`load` when the MIDI data is already in
-        memory (e.g. directly from MidiPipeline.run without disk write).
-        """
+        """Load from an in-memory PrettyMIDI object and start background render."""
         self.clear()
         self._stem_label = stem_label
         if self._sf2_path is None:
@@ -231,10 +286,26 @@ class MidiPlayerWidget:
                 dpg.configure_item(btn, enabled=False)
         if dpg.does_item_exist(self._tag("time")):
             dpg.set_value(self._tag("time"), "")
+        if dpg.does_item_exist(self._tag("wave")):
+            dpg.set_value(self._tag("wave"), [[], []])
+        if dpg.does_item_exist(self._tag("cursor")):
+            dpg.set_value(self._tag("cursor"), [[0.0]])
+        if dpg.does_item_exist(self._tag("xaxis")):
+            dpg.set_axis_limits(self._tag("xaxis"), 0.0, 1.0)
         self._set_status("(no MIDI loaded)")
 
     def tick(self) -> None:
-        """Advance playback time display.  Called once per frame by tick_all_midi()."""
+        """Advance playback cursor and time display.  Called once per frame."""
+        # Click-to-seek
+        if (self._rendered is not None and self._duration > 0
+                and dpg.does_item_exist(self._tag("plot"))
+                and dpg.is_item_hovered(self._tag("plot"))
+                and dpg.is_mouse_button_released(dpg.mvMouseButton_Left)):
+            mouse_pos = dpg.get_plot_mouse_pos()
+            seek = float(mouse_pos[0])
+            if 0.0 <= seek <= self._duration:
+                self._start_play(offset=seek)
+
         if not self._playing:
             return
         pos = self._play_offset + (time.time() - self._play_start)
@@ -242,6 +313,9 @@ class MidiPlayerWidget:
             self._stop()
             self._play_offset = 0.0
             pos = 0.0
+
+        if dpg.does_item_exist(self._tag("cursor")):
+            dpg.set_value(self._tag("cursor"), [[pos]])
         if dpg.does_item_exist(self._tag("time")):
             m, s = divmod(int(pos), 60)
             dm, ds = divmod(int(self._duration), 60)
@@ -278,6 +352,19 @@ class MidiPlayerWidget:
             self._rendered = audio
             self._duration = len(audio) / self._sr
 
+            # Populate the waveform plot
+            samples = len(audio)
+            step = max(1, samples // _MAX_PLOT_POINTS)
+            ys = audio[::step].tolist()
+            xs = np.linspace(0.0, self._duration, len(ys)).tolist()
+
+            if dpg.does_item_exist(self._tag("wave")):
+                dpg.set_value(self._tag("wave"), [xs, ys])
+            if dpg.does_item_exist(self._tag("xaxis")):
+                dpg.set_axis_limits(self._tag("xaxis"), 0.0, self._duration)
+            if dpg.does_item_exist(self._tag("yaxis")):
+                dpg.set_axis_limits(self._tag("yaxis"), -1.0, 1.0)
+
             if dpg.does_item_exist(self._tag("play_btn")):
                 dpg.configure_item(self._tag("play_btn"), enabled=True)
             if dpg.does_item_exist(self._tag("rewind_btn")):
@@ -305,6 +392,8 @@ class MidiPlayerWidget:
             self._start_play(0.0)
         else:
             self._play_offset = 0.0
+            if dpg.does_item_exist(self._tag("cursor")):
+                dpg.set_value(self._tag("cursor"), [[0.0]])
             if dpg.does_item_exist(self._tag("time")) and self._duration > 0:
                 dm, ds = divmod(int(self._duration), 60)
                 dpg.set_value(self._tag("time"), f"0:00 / {dm}:{ds:02d}")
@@ -377,4 +466,4 @@ class MidiPlayerWidget:
     def _set_status(self, msg: str) -> None:
         tag = self._tag("status")
         if dpg.does_item_exist(tag):
-            dpg.set_value(tag, f"Status: {msg}")
+            dpg.set_value(tag, msg)

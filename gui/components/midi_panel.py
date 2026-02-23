@@ -260,24 +260,7 @@ class MidiPanel:
                 )
 
                 dpg.add_spacer(height=6)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Duration (seconds)", color=(140, 140, 180, 255))
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "For stems: notes beyond this point are clipped.\n"
-                            "For text-only: the progression is extended to fill this duration."
-                        )
-                    dpg.add_spacer(width=8)
-                    dpg.add_button(
-                        label="Match duration of input",
-                        callback=self._on_match_duration,
-                        height=20,
-                    )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "Set duration to match the length of the\n"
-                            "currently loaded stem or audio file."
-                        )
+                dpg.add_text("Duration (seconds)", color=(140, 140, 180, 255))
                 dpg.add_slider_float(
                     tag=_t("duration"),
                     default_value=30.0,
@@ -312,11 +295,6 @@ class MidiPanel:
                     # -- Sensitivity knob --
                     with dpg.group():
                         dpg.add_text("Sensitivity", color=(140, 140, 180, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "Onset confidence threshold.\n"
-                                "Higher = fewer false note detections."
-                            )
                         dpg.add_knob_float(
                             tag=_t("onset"),
                             min_value=_BP_ONSET_RANGE[0],
@@ -343,11 +321,6 @@ class MidiPanel:
                     # -- Sustain knob --
                     with dpg.group():
                         dpg.add_text("Sustain", color=(140, 140, 180, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "Frame confidence threshold.\n"
-                                "Higher = shorter detected note durations."
-                            )
                         dpg.add_knob_float(
                             tag=_t("frame"),
                             min_value=_BP_FRAME_RANGE[0],
@@ -577,31 +550,6 @@ class MidiPanel:
             stem = user_data
             if stem in self._available_stems:
                 self._set_duration_from_path(self._available_stems[stem])
-
-    def _on_match_duration(self, sender, app_data, user_data) -> None:
-        """Set duration to the longest of all checked stems and manual files."""
-        candidates: list[float] = []
-
-        for stem, path in self._available_stems.items():
-            check_tag = _t(f"stem_{stem}_check")
-            if dpg.does_item_exist(check_tag) and dpg.get_value(check_tag):
-                if (d := self._read_duration(path)) is not None:
-                    candidates.append(d)
-
-        for label, path in self._manual_stems.items():
-            check_tag = _t(f"manual_{label}_check")
-            if dpg.does_item_exist(check_tag) and dpg.get_value(check_tag):
-                if (d := self._read_duration(path)) is not None:
-                    candidates.append(d)
-
-        # Nothing checked — fall back to all available sources.
-        if not candidates:
-            for path in list(self._available_stems.values()) + list(self._manual_stems.values()):
-                if (d := self._read_duration(path)) is not None:
-                    candidates.append(d)
-
-        if candidates:
-            self._apply_duration(max(candidates))
 
     def _read_duration(self, path: pathlib.Path) -> float | None:
         """Return duration in seconds from audio file metadata, or None on error."""

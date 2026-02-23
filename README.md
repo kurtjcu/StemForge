@@ -104,9 +104,17 @@ to point StemForge at a different `.sf2` file if needed.
 - CPU‑only works everywhere, just slower
 
 ### Audio on WSL (Windows Subsystem for Linux)
-StemForge detects WSL automatically and routes audio through PulseAudio. You are
-responsible for ensuring your WSL environment has a working PulseAudio setup before
-running StemForge.
+StemForge detects WSL automatically and routes audio through PulseAudio. You need
+these system packages installed before running StemForge:
+
+    sudo apt install libportaudio2 pulseaudio-utils libasound2-plugins libfluidsynth3 fluid-soundfont-gm
+
+- **libportaudio2** — PortAudio shared library (required by `sounddevice`)
+- **pulseaudio-utils** — provides `pactl` for verifying the audio server
+- **libasound2-plugins** — ALSA-PulseAudio bridge (Ubuntu 22.04's PortAudio is built
+  against ALSA only; this plugin routes ALSA output through PulseAudio)
+- **libfluidsynth3** — FluidSynth C library (required by `pyfluidsynth` for MIDI preview)
+- **fluid-soundfont-gm** — General MIDI soundfont used by the MIDI and Mix tabs
 
 **Windows 11 (WSLg) — recommended**
 
@@ -128,9 +136,18 @@ to WSL:
 Add that line to your `~/.bashrc` so it persists across sessions. Refer to the
 PulseAudio for Windows documentation for enabling the TCP module in `default.pa`.
 
+**Verify devices are detected**
+
+After installing the packages above, confirm that PortAudio can see PulseAudio:
+
+    python -c "import sounddevice; print(sounddevice.query_devices())"
+
+You should see at least one `pulse` device listed. If the list is empty, restart WSL
+from PowerShell (`wsl --shutdown`) and try again.
+
 **Troubleshooting**
 
-If you get no audio or a driver error on startup, confirm PulseAudio is reachable:
+If you get no audio or a "device -1" error on startup, confirm PulseAudio is reachable:
 
     pactl info 2>/dev/null && echo "Audio OK" || echo "PulseAudio not found"
 

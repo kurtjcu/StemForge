@@ -3,7 +3,11 @@ BasicPitch TFLite model loader for StemForge.
 
 This version removes all TensorFlow and SavedModel dependencies and uses
 `ai-edge-litert` (Google's NumPy-2.x-compatible TFLite runtime) to load
-the vendored BasicPitch `.tflite` model.
+the BasicPitch `.tflite` model.
+
+On first use the model is automatically extracted from the ``basic-pitch``
+PyPI wheel (downloaded to a temporary directory) and cached locally at
+``models/basicpitch/model.tflite``.  The file is gitignored.
 
 The public API is compatible with the pipeline callers in
 `pipelines/basicpitch_pipeline.py` and `models/midi_loader.py`:
@@ -14,7 +18,11 @@ The public API is compatible with the pipeline callers in
 
 import pathlib
 import logging
+import shutil
+import tempfile
+import zipfile
 from typing import List, Optional, Union
+from urllib import request
 
 import numpy as np
 import ai_edge_litert.interpreter as tflite
@@ -36,6 +44,41 @@ log = logging.getLogger("stemforge.models.basicpitch_loader")
 # Number of overlap frames used when windowing audio
 _OVERLAP_LEN: int = DEFAULT_OVERLAPPING_FRAMES * FFT_HOP
 _HOP_SIZE: int = AUDIO_N_SAMPLES - _OVERLAP_LEN
+
+
+_PYPI_WHEEL_URL = (
+    "https://files.pythonhosted.org/packages/c4/cf/"
+    "0b79a28b1e0f60e13e42a3f04115c0321087e3a4a7a37e1d23ee5c8c2f81/"
+    "basic_pitch-0.4.0-py2.py3-none-any.whl"
+)
+_WHEEL_INNER_PATH = "basic_pitch/saved_models/icassp_2022/nmp.tflite"
+
+
+def _ensure_model(dest: pathlib.Path) -> None:
+    """Download the BasicPitch TFLite model from PyPI if *dest* does not exist."""
+    if dest.exists():
+        return
+
+    log.info("BasicPitch model not found at %s — downloading from PyPI …", dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp_dir = tempfile.mkdtemp(prefix="basicpitch_")
+    wheel_path = pathlib.Path(tmp_dir) / "basic_pitch.whl"
+    try:
+        request.urlretrieve(_PYPI_WHEEL_URL, wheel_path)
+        with zipfile.ZipFile(wheel_path) as zf:
+            with zf.open(_WHEEL_INNER_PATH) as src, open(dest, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        log.info("BasicPitch model saved to %s", dest)
+    except Exception as exc:
+        # Clean up partial file so the next attempt doesn't find a corrupt file
+        dest.unlink(missing_ok=True)
+        raise ModelLoadError(
+            f"Failed to download BasicPitch TFLite model: {exc}",
+            model_name="basicpitch",
+        ) from exc
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _suffix_key(detail: dict) -> int:
@@ -64,11 +107,7 @@ class BasicPitchModelLoader:
 
     def _find_tflite_model(self) -> pathlib.Path:
         model_path = pathlib.Path(__file__).parent / "basicpitch" / "model.tflite"
-        if not model_path.exists():
-            raise ModelLoadError(
-                f"BasicPitch TFLite model not found at: {model_path}",
-                model_name="basicpitch",
-            )
+        _ensure_model(model_path)
         return model_path
 
     def load(self) -> "BasicPitchModelLoader":
