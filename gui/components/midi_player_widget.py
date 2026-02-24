@@ -21,6 +21,8 @@ Usage
     # tick_all_midi() called each frame by app.py automatically
 """
 
+import contextlib
+import os
 import pathlib
 import logging
 import threading
@@ -33,6 +35,25 @@ from gui.ui_queue import schedule_ui
 from gui.audio_player import audio_play, audio_stop
 
 log = logging.getLogger("stemforge.gui.midi_player_widget")
+
+
+@contextlib.contextmanager
+def _quiet_fluidsynth():
+    """Redirect C-level stderr to /dev/null during FluidSynth calls.
+
+    FluidSynth emits startup warnings (e.g. 'Modulator with source 1 set
+    to none') directly to file descriptor 2, bypassing Python logging.
+    os.dup2 operates at the fd level so it suppresses those C-level writes.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    saved = os.dup(2)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    try:
+        yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
 
 # Duck-typed: any object with tick() and _stop() may be appended here.
 # Includes MidiPlayerWidget instances and MixPanel.
@@ -413,7 +434,8 @@ class MidiPlayerWidget:
                 elif not inst.is_drum:
                     inst.program = program
 
-            audio = midi.fluidsynth(fs=self._sr, sf2_path=str(self._sf2_path))
+            with _quiet_fluidsynth():
+                audio = midi.fluidsynth(fs=self._sr, sf2_path=str(self._sf2_path))
             self._rendered = audio
             self._duration = len(audio) / self._sr
 
