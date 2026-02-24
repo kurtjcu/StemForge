@@ -41,6 +41,31 @@ _active_midi_player = None  # single exclusive MIDI player
 
 _MAX_PLOT_POINTS = 2000
 
+# Lazy-init border theme for MIDI plots — purple matching MIDI track label color
+_midi_plot_theme: int | None = None
+_midi_plot_theme_tried: bool = False
+
+
+def _get_midi_plot_theme() -> "int | None":
+    """Return a purple-border theme for MIDI plots, created once on first call.
+
+    Purple matches the (150, 130, 220) color used for MIDI track labels in the
+    Mix panel so the plot type is visually consistent with its label.
+    Exported so mix_panel can apply the same theme to its inline MIDI cursor plots.
+    """
+    global _midi_plot_theme, _midi_plot_theme_tried
+    if _midi_plot_theme_tried:
+        return _midi_plot_theme
+    _midi_plot_theme_tried = True
+    try:
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Border, (150, 130, 220, 255))
+        _midi_plot_theme = t
+    except Exception as exc:
+        log.debug("Could not create MIDI plot theme: %s", exc)
+    return _midi_plot_theme
+
 
 # ---------------------------------------------------------------------------
 # Module-level tick / stop
@@ -228,6 +253,11 @@ class MidiPlayerWidget:
                         category=dpg.mvThemeCat_Plots,
                     )
             dpg.bind_item_theme(self._tag("cursor"), cursor_theme)
+
+            # Purple border marks this as a MIDI plot (matches MIDI track label color)
+            _mpt = _get_midi_plot_theme()
+            if _mpt is not None:
+                dpg.bind_item_theme(self._tag("plot"), _mpt)
 
             # Small font for plot tick labels (reuse WaveformWidget's font)
             from gui.components.waveform_widget import _get_plot_font

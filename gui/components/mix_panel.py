@@ -46,6 +46,7 @@ from gui.components.midi_player_widget import (
     find_soundfont,
     _STEM_DEFAULT_PROGRAM,
     _STEM_IS_DRUM,
+    _get_midi_plot_theme,
 )
 
 log = logging.getLogger("stemforge.gui.mix_panel")
@@ -105,6 +106,46 @@ def _label_from_tid(tid: str) -> str:
 
 _TOGGLE_ON_THEME: int | None = None
 _TOGGLE_OFF_THEME: int | None = None
+
+# ---------------------------------------------------------------------------
+# Instrument combo theme + width  (lazy-initialised on first track build)
+# ---------------------------------------------------------------------------
+
+_INSTRUMENT_COMBO_THEME: int | None = None
+_INSTRUMENT_COMBO_WIDTH: int | None = None
+
+
+def _get_instrument_combo_theme() -> "int | None":
+    """Return a dark-yellow text theme for the GM instrument combo, created once."""
+    global _INSTRUMENT_COMBO_THEME
+    if _INSTRUMENT_COMBO_THEME is not None:
+        return _INSTRUMENT_COMBO_THEME
+    try:
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (200, 180, 0, 255))
+        _INSTRUMENT_COMBO_THEME = t
+    except Exception as exc:
+        log.debug("Could not create instrument combo theme: %s", exc)
+    return _INSTRUMENT_COMBO_THEME
+
+
+def _get_instrument_combo_width() -> int:
+    """Return the pixel width needed to display the longest GM instrument name.
+
+    Measures the widest string in _GM_INSTRUMENTS via dpg.get_text_size() and
+    adds 20 px padding for the dropdown arrow.  Falls back to 300 px if the
+    DPG context is not ready or get_text_size raises.
+    """
+    global _INSTRUMENT_COMBO_WIDTH
+    if _INSTRUMENT_COMBO_WIDTH is not None:
+        return _INSTRUMENT_COMBO_WIDTH
+    try:
+        max_w = max(dpg.get_text_size(name)[0] for name in _GM_INSTRUMENTS)
+        _INSTRUMENT_COMBO_WIDTH = int(max_w) + 20
+    except Exception:
+        _INSTRUMENT_COMBO_WIDTH = 300
+    return _INSTRUMENT_COMBO_WIDTH
 
 
 def _get_toggle_themes() -> tuple[int, int]:
@@ -679,14 +720,18 @@ class MixPanel:
                             if 0 <= state.program < len(_GM_INSTRUMENTS)
                             else _GM_INSTRUMENTS[0]
                         )
+                        _combo_tag = _t(f"track_{safe}_program")
                         dpg.add_combo(
                             items=_GM_INSTRUMENTS,
                             default_value=default_name,
-                            tag=_t(f"track_{safe}_program"),
-                            width=-1,
+                            tag=_combo_tag,
+                            width=_get_instrument_combo_width(),
                             callback=self._on_track_program,
                             user_data=tid,
                         )
+                        _ict = _get_instrument_combo_theme()
+                        if _ict is not None:
+                            dpg.bind_item_theme(_combo_tag, _ict)
                     elif source == "midi" and state.is_drum:
                         dpg.add_input_text(
                             default_value="Standard Drums",
@@ -754,6 +799,10 @@ class MixPanel:
                                     category=dpg.mvThemeCat_Plots,
                                 )
                         dpg.bind_item_theme(cursor_tag, _ct)
+                        # Purple border marks this as a MIDI plot
+                        _mpt = _get_midi_plot_theme()
+                        if _mpt is not None:
+                            dpg.bind_item_theme(_t(f"track_{safe}_plot"), _mpt)
                         _pf = _get_plot_font()
                         if _pf is not None:
                             dpg.bind_item_font(_t(f"track_{safe}_plot"), _pf)
