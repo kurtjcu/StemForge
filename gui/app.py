@@ -40,11 +40,14 @@ _VP_HEIGHT = 820
 # Font setup
 # ---------------------------------------------------------------------------
 
+_BUNDLED_FONT = pathlib.Path(__file__).parent.parent / "assets" / "fonts" / "DejaVuSans.ttf"
+
 _FONT_CANDIDATES = [
-    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/TTF/DejaVuSans.ttf",
-    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+    str(_BUNDLED_FONT),                                          # bundled — always checked first
+    "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",        # Fedora
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",          # Debian/Ubuntu
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",                      # Arch
+    "/usr/share/fonts/dejavu/DejaVuSans.ttf",                   # other
 ]
 
 
