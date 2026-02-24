@@ -112,26 +112,14 @@ class MusicGenPanel:
                 )
 
                 dpg.add_spacer(height=12)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("Duration", color=(175, 175, 255, 255))
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "How many seconds of audio to generate.\n"
-                            "Model hard limit is 47 s at 44,100 Hz.\n"
-                            "Longer clips take more time and memory."
-                        )
-                    dpg.add_spacer(width=8)
-                    dpg.add_button(
-                        label="Match duration of input",
-                        tag=_t("match_duration_btn"),
-                        callback=self._on_match_duration,
-                        height=20,
+                dpg.add_text("Duration", color=(175, 175, 255, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "How many seconds of audio to generate.\n"
+                        "Model hard limit is 47 s at 44,100 Hz.\n"
+                        "Longer clips take more time and memory.\n"
+                        "Auto-set when a conditioning source is selected."
                     )
-                    with dpg.tooltip(dpg.last_item()):
-                        dpg.add_text(
-                            "Set duration to match the selected\n"
-                            "audio or MIDI conditioning input."
-                        )
                 dpg.add_slider_int(
                     tag=_t("duration"),
                     min_value=5,
@@ -439,6 +427,7 @@ class MusicGenPanel:
         ):
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, show=visible)
+        self._auto_set_duration(cond)
 
     # ------------------------------------------------------------------
     # Callbacks — audio conditioning
@@ -452,6 +441,7 @@ class MusicGenPanel:
             dpg.configure_item(_t("stem_group"), show=is_stem)
         if dpg.does_item_exist(_t("audio_file_group")):
             dpg.configure_item(_t("audio_file_group"), show=is_file)
+        self._auto_set_duration("Audio")
 
     def _on_midi_source_change(self, sender, app_data, user_data) -> None:
         src = app_data if app_data is not None else dpg.get_value(_t("midi_src"))
@@ -461,6 +451,7 @@ class MusicGenPanel:
             dpg.configure_item(_t("midi_tab_group"), show=is_tab)
         if dpg.does_item_exist(_t("midi_file_group")):
             dpg.configure_item(_t("midi_file_group"), show=is_file)
+        self._auto_set_duration("MIDI")
 
     def _on_stem_radio_change(self, sender, app_data, user_data) -> None:
         label = app_data
@@ -502,14 +493,15 @@ class MusicGenPanel:
         except Exception:
             pass
 
-    def _on_match_duration(self, sender, app_data, user_data) -> None:
-        """Set duration slider to match the active conditioning input."""
-        cond_type = dpg.get_value(_t("cond_type")) if dpg.does_item_exist(_t("cond_type")) else "None"
+    def _auto_set_duration(self, cond_type: str | None = None) -> None:
+        """Auto-set the duration slider from whatever conditioning source is active."""
+        if cond_type is None:
+            cond_type = dpg.get_value(_t("cond_type")) if dpg.does_item_exist(_t("cond_type")) else "None"
 
         if cond_type == "Audio":
-            audio_src = dpg.get_value(_t("audio_src"))
+            audio_src = dpg.get_value(_t("audio_src")) if dpg.does_item_exist(_t("audio_src")) else "None"
             if audio_src == "Stem from Separate tab":
-                label = dpg.get_value(_t("stem_radio"))
+                label = dpg.get_value(_t("stem_radio")) if dpg.does_item_exist(_t("stem_radio")) else "None"
                 if label and label != "None":
                     key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
                     if key and key in self._stem_paths:
@@ -518,7 +510,7 @@ class MusicGenPanel:
                 self._set_duration_from_path(self._loaded_audio_path)
 
         elif cond_type == "MIDI":
-            midi_src = dpg.get_value(_t("midi_src"))
+            midi_src = dpg.get_value(_t("midi_src")) if dpg.does_item_exist(_t("midi_src")) else "None"
             if midi_src == "From MIDI tab" and self._tab_merged_midi_obj is not None:
                 try:
                     secs = int(round(self._tab_merged_midi_obj.get_end_time()))
@@ -552,6 +544,7 @@ class MusicGenPanel:
         self._loaded_midi_path = path
         if dpg.does_item_exist(_t("midi_file_label")):
             dpg.set_value(_t("midi_file_label"), str(path))
+        self._set_duration_from_midi(path)
 
     # ------------------------------------------------------------------
     # Callbacks — run / save
