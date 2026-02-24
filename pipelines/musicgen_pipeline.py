@@ -440,8 +440,8 @@ class MusicGenPipeline:
 
         tensor = torch.from_numpy(waveform_np.astype(np.float32)).unsqueeze(0)  # (1, 2, samples)
         try:
-            device = next(self._pipeline.transformer.parameters()).device
-            tensor = tensor.to(device)
+            param = next(self._pipeline.transformer.parameters())
+            tensor = tensor.to(device=param.device, dtype=param.dtype)
         except Exception:
             pass
         return tensor
