@@ -16,7 +16,9 @@ Inter-panel wiring (set up in gui/app.py)
 -----------------------------------------
     _demucs.add_result_listener(_mix.notify_stems_ready)
     _midi.add_result_listener(_mix.notify_midi_ready)
+    _musicgen.add_result_listener(_mix.notify_musicgen_ready)
     _mix.add_result_listener(_export.notify_mix_ready)
+    _mix.add_result_listener(_musicgen.notify_mix_ready)
 """
 
 from __future__ import annotations
@@ -450,6 +452,17 @@ class MixPanel:
     ) -> None:
         """Called by MIDI panel after successful extraction (may be bg thread)."""
         self._midi_stems_data = dict(stem_midi_data)
+        schedule_ui(self._rebuild_tracks)
+
+    def notify_musicgen_ready(self, audio_path: pathlib.Path) -> None:
+        """Called by MusicGenPanel after a successful generation (may be bg thread).
+
+        Adds the generated audio as a manual track so it can be mixed with
+        stems, rendered, and sent back to Generate for another pass.
+        The path stem is used as the track label so multiple generations
+        appear as distinct tracks rather than overwriting each other.
+        """
+        self._manual_audio[audio_path.stem] = audio_path
         schedule_ui(self._rebuild_tracks)
 
     # ------------------------------------------------------------------

@@ -196,6 +196,7 @@ def main() -> None:
     _midi.add_result_listener(_mix.notify_midi_ready)
     _midi.add_result_listener(_musicgen.notify_midi_ready)
     _midi.add_result_listener(_export.notify_midi_ready)
+    _musicgen.add_result_listener(_mix.notify_musicgen_ready)
     _musicgen.add_result_listener(_export.notify_musicgen_ready)
     _mix.add_result_listener(_export.notify_mix_ready)
     _mix.add_result_listener(_musicgen.notify_mix_ready)
