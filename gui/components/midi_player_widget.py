@@ -78,17 +78,23 @@ def _make_midi_themes() -> None:
         # Normal: dim border so hover state is clearly distinct
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border,         (r, g, b, 120))
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (0, 0, 0, 0))
-                dpg.add_theme_color(dpg.mvPlotCol_FrameBg,         (r, g, b, 30),
+                dpg.add_theme_color(dpg.mvThemeCol_Border,          (r, g, b, 120))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg,          (r, g, b, 30),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_AxisBgHovered,    (0, 0, 0, 0),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_AxisBgActive,     (0, 0, 0, 0),
                                     category=dpg.mvThemeCat_Plots)
         _midi_plot_theme = t
-        # Hover: bright border only — FrameBg stays identical so axis labels don't flash
+        # Hover: bright border only — FrameBg and AxisBg stay identical so axis labels don't flash
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border,         (r, g, b, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (0, 0, 0, 0))
-                dpg.add_theme_color(dpg.mvPlotCol_FrameBg,         (r, g, b, 30),
+                dpg.add_theme_color(dpg.mvThemeCol_Border,          (r, g, b, 255))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg,          (r, g, b, 30),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_AxisBgHovered,    (0, 0, 0, 0),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_AxisBgActive,     (0, 0, 0, 0),
                                     category=dpg.mvThemeCat_Plots)
         _midi_plot_hover_theme = t
     except Exception as exc:
