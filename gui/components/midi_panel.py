@@ -594,6 +594,9 @@ class MidiPanel:
             return
         # Capture all UI values on the main thread before spawning bg work
         ui_vals = self._capture_run_inputs()
+        if not ui_vals["stems"] and not ui_vals["prompt"]:
+            set_widget_text(_t("status"), "Must select at least one input.")
+            return
         self._thread = threading.Thread(target=self._run, args=(ui_vals,), daemon=True)
         self._thread.start()
 
