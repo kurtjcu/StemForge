@@ -69,10 +69,11 @@ class ExportPanel:
             # ---- Left column: artefacts + settings --------------------
             with dpg.child_window(width=340, height=-1, border=False):
 
-                dpg.add_text("Files to export", color=(175, 175, 255, 255))
+                dpg.add_text("Export as sound files", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
                         "Tick the pipeline outputs you want to save.\n"
+                        "All audio is written in the chosen sound format.\n"
                         "Items are greyed out until the pipeline that\n"
                         "produces them has finished successfully."
                     )
