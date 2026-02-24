@@ -27,7 +27,7 @@ from gui.components.musicgen_panel import MusicGenPanel
 from gui.components.export_panel import ExportPanel
 from gui.components.waveform_widget import tick_all
 from gui.components.midi_player_widget import tick_all_midi
-from gui.icons import load_icons
+from gui.icons import load_icons, LOGO_TAG, LOGO_SIZE
 
 
 log = logging.getLogger("stemforge.gui.app")
@@ -217,12 +217,16 @@ def main() -> None:
     # ---- Primary window ------------------------------------------------
     with dpg.window(tag="primary_window"):
 
-        # App title
-        dpg.add_text("StemForge", color=(175, 175, 255, 255))
-        dpg.add_text(
-            "Stem separation  |  MIDI extraction  |  Mix  |  Generation",
-            color=(100, 100, 120, 255),
-        )
+        # App header — logo + tagline
+        with dpg.group(horizontal=True):
+            if dpg.does_item_exist(LOGO_TAG):
+                dpg.add_image(LOGO_TAG, width=LOGO_SIZE, height=LOGO_SIZE)
+            with dpg.group():
+                dpg.add_spacer(height=16)
+                dpg.add_text(
+                    "Stem | Midi | Mix | AI",
+                    color=(180, 150, 90, 255),
+                )
         dpg.add_separator()
         dpg.add_spacer(height=4)
 
@@ -250,12 +254,18 @@ def main() -> None:
                 _export.build_ui()
 
     # ---- Viewport & render loop ----------------------------------------
+    _icon_dir = pathlib.Path(__file__).parent.parent / "assets" / "icons"
+    _icon_32  = str(_icon_dir / "logo_32.png")
+    _icon_256 = str(_icon_dir / "logo_256.png")
+
     dpg.create_viewport(
         title="StemForge",
         width=_VP_WIDTH,
         height=_VP_HEIGHT,
         min_width=900,
         min_height=600,
+        small_icon=_icon_32  if (_icon_dir / "logo_32.png").exists()  else "",
+        large_icon=_icon_256 if (_icon_dir / "logo_256.png").exists() else "",
     )
     dpg.setup_dearpygui()
     dpg.show_viewport()
