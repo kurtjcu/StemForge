@@ -75,18 +75,20 @@ def _make_midi_themes() -> None:
         return
     r, g, b = _MIDI_COLOR
     try:
+        # Normal: dim border so hover state is clearly distinct
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Border,         (r, g, b, 120))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg,         (r, g, b, 30),
+                                    category=dpg.mvThemeCat_Plots)
+        _midi_plot_theme = t
+        # Hover: bright border only — FrameBg stays identical so axis labels don't flash
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_color(dpg.mvThemeCol_Border,         (r, g, b, 255))
                 dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (0, 0, 0, 0))
                 dpg.add_theme_color(dpg.mvPlotCol_FrameBg,         (r, g, b, 30),
-                                    category=dpg.mvThemeCat_Plots)
-        _midi_plot_theme = t
-        with dpg.theme() as t:
-            with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border,         (r, g, b, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (0, 0, 0, 0))
-                dpg.add_theme_color(dpg.mvPlotCol_FrameBg,         (r, g, b, 80),
                                     category=dpg.mvThemeCat_Plots)
         _midi_plot_hover_theme = t
     except Exception as exc:
