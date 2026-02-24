@@ -24,6 +24,7 @@ Inter-panel wiring (set up in gui/app.py)
 from __future__ import annotations
 
 import logging
+import math
 import pathlib
 import threading
 import time
@@ -50,6 +51,20 @@ from gui.components.midi_player_widget import (
 log = logging.getLogger("stemforge.gui.mix_panel")
 
 _P = "mix"
+
+
+def _db_to_linear(db: float) -> float:
+    """Convert dB to linear amplitude. -60 dB floor maps to silence."""
+    if db <= -60.0:
+        return 0.0
+    return 10.0 ** (db / 20.0)
+
+
+def _linear_to_db(linear: float) -> float:
+    """Convert linear amplitude to dB, clamped to -60 dB floor."""
+    if linear < 1e-6:
+        return -60.0
+    return 20.0 * math.log10(linear)
 
 # Reverse map: display label → internal Demucs/Roformer stem name
 _REVERSE_STEM_LABEL: dict[str, str] = {v: k for k, v in _STEM_LABEL.items()}
@@ -636,15 +651,26 @@ class MixPanel:
                             width=50,
                         )
                         dpg.add_spacer(width=8)
-                        dpg.add_knob_float(
-                            label="Vol",
-                            tag=_t(f"track_{safe}_vol"),
-                            default_value=state.volume * 10.0,
-                            min_value=0.0,
-                            max_value=10.0,
-                            callback=self._on_track_volume,
-                            user_data=tid,
-                        )
+                        _init_db = _linear_to_db(state.volume)
+                        with dpg.group():
+                            dpg.add_knob_float(
+                                label="Vol",
+                                tag=_t(f"track_{safe}_vol_knob"),
+                                default_value=_init_db,
+                                min_value=-60.0,
+                                max_value=6.0,
+                                enabled=False,
+                            )
+                            dpg.add_slider_float(
+                                tag=_t(f"track_{safe}_vol_slider"),
+                                default_value=_init_db,
+                                min_value=-60.0,
+                                max_value=6.0,
+                                format="%.1f dB",
+                                width=120,
+                                callback=self._on_track_volume_slider,
+                                user_data=tid,
+                            )
 
                     # Instrument selector (MIDI tracks only)
                     if source == "midi" and not state.is_drum:
@@ -768,10 +794,14 @@ class MixPanel:
 
         self._master_audio = None  # stale — track set changed
 
-    def _on_track_volume(self, sender, app_data, user_data) -> None:
+    def _on_track_volume_slider(self, sender, app_data, user_data) -> None:
         tid = user_data
+        db_val = float(app_data)
         if tid in self._track_states:
-            self._track_states[tid].volume = float(app_data) / 10.0
+            self._track_states[tid].volume = _db_to_linear(db_val)
+        knob_tag = _t(f"track_{_safe(tid)}_vol_knob")
+        if dpg.does_item_exist(knob_tag):
+            dpg.set_value(knob_tag, db_val)
         self._master_audio = None
 
     def _on_track_program(self, sender, app_data, user_data) -> None:

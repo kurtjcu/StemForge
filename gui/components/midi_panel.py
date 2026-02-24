@@ -301,21 +301,17 @@ class MidiPanel:
                             min_value=_BP_ONSET_RANGE[0],
                             max_value=_BP_ONSET_RANGE[1],
                             default_value=_BP_ONSET_DEFAULT,
-                            callback=self._on_onset_knob,
+                            enabled=False,
                         )
-                        with dpg.group(horizontal=True):
-                            dpg.add_text(f"{_BP_ONSET_RANGE[0]:.2f}", color=(100, 100, 130, 255))
-                            dpg.add_drag_float(
-                                tag=_t("onset_val"),
-                                default_value=_BP_ONSET_DEFAULT,
-                                min_value=_BP_ONSET_RANGE[0],
-                                max_value=_BP_ONSET_RANGE[1],
-                                speed=0.005,
-                                format="%.2f",
-                                width=62,
-                                callback=self._on_onset_drag,
-                            )
-                            dpg.add_text(f"{_BP_ONSET_RANGE[1]:.2f}", color=(100, 100, 130, 255))
+                        dpg.add_slider_float(
+                            tag=_t("onset_val"),
+                            default_value=_BP_ONSET_DEFAULT,
+                            min_value=_BP_ONSET_RANGE[0],
+                            max_value=_BP_ONSET_RANGE[1],
+                            format="%.2f",
+                            width=140,
+                            callback=self._on_onset_slider,
+                        )
 
                     dpg.add_spacer(width=16)
 
@@ -327,21 +323,17 @@ class MidiPanel:
                             min_value=_BP_FRAME_RANGE[0],
                             max_value=_BP_FRAME_RANGE[1],
                             default_value=_BP_FRAME_DEFAULT,
-                            callback=self._on_frame_knob,
+                            enabled=False,
                         )
-                        with dpg.group(horizontal=True):
-                            dpg.add_text(f"{_BP_FRAME_RANGE[0]:.2f}", color=(100, 100, 130, 255))
-                            dpg.add_drag_float(
-                                tag=_t("frame_val"),
-                                default_value=_BP_FRAME_DEFAULT,
-                                min_value=_BP_FRAME_RANGE[0],
-                                max_value=_BP_FRAME_RANGE[1],
-                                speed=0.005,
-                                format="%.2f",
-                                width=62,
-                                callback=self._on_frame_drag,
-                            )
-                            dpg.add_text(f"{_BP_FRAME_RANGE[1]:.2f}", color=(100, 100, 130, 255))
+                        dpg.add_slider_float(
+                            tag=_t("frame_val"),
+                            default_value=_BP_FRAME_DEFAULT,
+                            min_value=_BP_FRAME_RANGE[0],
+                            max_value=_BP_FRAME_RANGE[1],
+                            format="%.2f",
+                            width=140,
+                            callback=self._on_frame_slider,
+                        )
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("Shortest note", color=(140, 140, 180, 255))
@@ -578,19 +570,11 @@ class MidiPanel:
         if (d := self._read_duration(path)) is not None:
             self._apply_duration(d)
 
-    def _on_onset_knob(self, sender, app_data, user_data) -> None:
-        if dpg.does_item_exist(_t("onset_val")):
-            dpg.set_value(_t("onset_val"), app_data)
-
-    def _on_onset_drag(self, sender, app_data, user_data) -> None:
+    def _on_onset_slider(self, sender, app_data, user_data) -> None:
         if dpg.does_item_exist(_t("onset")):
             dpg.set_value(_t("onset"), app_data)
 
-    def _on_frame_knob(self, sender, app_data, user_data) -> None:
-        if dpg.does_item_exist(_t("frame_val")):
-            dpg.set_value(_t("frame_val"), app_data)
-
-    def _on_frame_drag(self, sender, app_data, user_data) -> None:
+    def _on_frame_slider(self, sender, app_data, user_data) -> None:
         if dpg.does_item_exist(_t("frame")):
             dpg.set_value(_t("frame"), app_data)
 
@@ -623,9 +607,9 @@ class MidiPanel:
         time_sig = dpg.get_value(_t("time_sig")) if dpg.does_item_exist(_t("time_sig")) else "4/4"
         bpm      = float(dpg.get_value(_t("bpm")))      if dpg.does_item_exist(_t("bpm"))      else 120.0
         duration = float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 30.0
-        onset    = dpg.get_value(_t("onset"))    if dpg.does_item_exist(_t("onset"))    else 0.5
-        frame    = dpg.get_value(_t("frame"))    if dpg.does_item_exist(_t("frame"))    else 0.3
-        min_note = dpg.get_value(_t("min_note")) if dpg.does_item_exist(_t("min_note")) else 58.0
+        onset    = dpg.get_value(_t("onset_val")) if dpg.does_item_exist(_t("onset_val")) else 0.5
+        frame    = dpg.get_value(_t("frame_val")) if dpg.does_item_exist(_t("frame_val")) else 0.3
+        min_note = dpg.get_value(_t("min_note"))  if dpg.does_item_exist(_t("min_note"))  else 58.0
 
         # Determine which stems are checked
         stems: dict[str, pathlib.Path] = {}
