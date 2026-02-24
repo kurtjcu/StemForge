@@ -47,10 +47,15 @@ _midi_plot_theme_tried: bool = False
 
 
 def _get_midi_plot_theme() -> "int | None":
-    """Return a purple-border theme for MIDI plots, created once on first call.
+    """Return a purple theme for MIDI plots, created once on first call.
 
-    Purple matches the (150, 130, 220) color used for MIDI track labels in the
-    Mix panel so the plot type is visually consistent with its label.
+    Purple = (150, 130, 220), matching MIDI track label color in mix_panel.
+    Three colours are set on the bound plot item:
+      - mvThemeCol_Border       — outer 1-px border, always visible (full opacity)
+      - mvThemeCol_FrameBgHovered — entire widget background on hover (matches border)
+      - mvPlotCol_FrameBg       — fill of the frame area surrounding the MIDI
+                                   data canvas (axis-label margin) so the border
+                                   colour wraps the whole visualisation.
     Exported so mix_panel can apply the same theme to its inline MIDI cursor plots.
     """
     global _midi_plot_theme, _midi_plot_theme_tried
@@ -60,7 +65,12 @@ def _get_midi_plot_theme() -> "int | None":
     try:
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border, (150, 130, 220, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_Border,          (150, 130, 220, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  (150, 130, 220,  80))
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_FrameBg, (150, 130, 220, 50),
+                    category=dpg.mvThemeCat_Plots,
+                )
         _midi_plot_theme = t
     except Exception as exc:
         log.debug("Could not create MIDI plot theme: %s", exc)

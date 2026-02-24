@@ -59,10 +59,15 @@ _wav_plot_theme_tried: bool = False
 
 
 def _get_wav_plot_theme() -> "int | None":
-    """Return a green-border theme for WAV plots, created once on first call.
+    """Return a green theme for WAV plots, created once on first call.
 
-    Green matches the (100, 170, 100) color used for audio track labels in the
-    Mix panel so the plot type is visually consistent with its label.
+    Green = (100, 170, 100), matching audio track label color in mix_panel.
+    Three colours are set on the bound plot item:
+      - mvThemeCol_Border       — outer 1-px border, always visible (full opacity)
+      - mvThemeCol_FrameBgHovered — entire widget background on hover (matches border)
+      - mvPlotCol_FrameBg       — fill of the frame area surrounding the waveform
+                                   data canvas (axis-label margin) so the border
+                                   colour wraps the whole visualisation.
     """
     global _wav_plot_theme, _wav_plot_theme_tried
     if _wav_plot_theme_tried:
@@ -71,7 +76,12 @@ def _get_wav_plot_theme() -> "int | None":
     try:
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border, (100, 170, 100, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_Border,          (100, 170, 100, 255))
+                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  (100, 170, 100,  80))
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_FrameBg, (100, 170, 100, 50),
+                    category=dpg.mvThemeCat_Plots,
+                )
         _wav_plot_theme = t
     except Exception as exc:
         log.debug("Could not create WAV plot theme: %s", exc)
