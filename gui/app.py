@@ -13,6 +13,7 @@ waveform cursors animate smoothly.
 import logging
 import os
 import pathlib
+import subprocess
 
 import dearpygui.dearpygui as dpg
 from dotenv import load_dotenv
@@ -27,7 +28,7 @@ from gui.components.musicgen_panel import MusicGenPanel
 from gui.components.export_panel import ExportPanel
 from gui.components.waveform_widget import tick_all
 from gui.components.midi_player_widget import tick_all_midi
-from gui.icons import load_icons, LOGO_TAG, LOGO_SIZE
+from gui.icons import load_icons, LOGO_TAG, LOGO_SIZE, LOGO_TAG_256, LOGO_SIZE_256
 
 
 log = logging.getLogger("stemforge.gui.app")
@@ -126,6 +127,114 @@ def _build_theme() -> int:
 
 
 # ---------------------------------------------------------------------------
+# About box
+# ---------------------------------------------------------------------------
+
+_ABOUT_TAG    = "about_window"
+_PROJECT_ROOT = pathlib.Path(__file__).parent.parent
+_LICENSE_PATH = _PROJECT_ROOT / "LICENSE"
+_LICENSE_COMM = _PROJECT_ROOT / "LICENSE-COMMERCIAL"
+
+_APP_VERSION   = "1.0.0"
+_COPYRIGHT     = "Copyright © 2026 Todd Green"
+_LICENSE_SHORT = "PolyForm Noncommercial License 1.0.0"
+_CONTACT       = "tsondo@gmail.com"
+
+
+def _open_file(path: pathlib.Path) -> None:
+    """Open *path* in the system default viewer (xdg-open on Linux)."""
+    try:
+        subprocess.Popen(["xdg-open", str(path)])
+    except Exception as exc:
+        log.warning("Could not open %s: %s", path, exc)
+
+
+def _build_about_window() -> None:
+    """Create the hidden About modal.  Call once before the render loop."""
+    with dpg.window(
+        tag=_ABOUT_TAG,
+        label="About StemForge",
+        modal=True,
+        show=False,
+        no_resize=True,
+        width=420,
+        min_size=(420, 200),
+    ):
+        # Logo centred
+        if dpg.does_item_exist(LOGO_TAG_256):
+            pad = max(0, (420 - LOGO_SIZE_256) // 2 - 16)   # approx centre
+            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=pad)
+                dpg.add_image(LOGO_TAG_256, width=LOGO_SIZE_256, height=LOGO_SIZE_256)
+
+        dpg.add_spacer(height=8)
+
+        # App name + version
+        dpg.add_text("StemForge", color=(200, 175, 100, 255))
+        dpg.add_text(f"Version {_APP_VERSION}", color=(160, 160, 180, 255))
+        dpg.add_text(
+            "AI-powered audio processing — source separation,\n"
+            "MIDI extraction, mixing, and generative audio.",
+            color=(140, 140, 160, 255),
+            wrap=390,
+        )
+
+        dpg.add_spacer(height=10)
+        dpg.add_separator()
+        dpg.add_spacer(height=6)
+
+        # Copyright
+        dpg.add_text(_COPYRIGHT, color=(200, 200, 210, 255))
+
+        dpg.add_spacer(height=8)
+
+        # License — free tier
+        dpg.add_text("License", color=(175, 175, 255, 255))
+        dpg.add_text(
+            f"Free for personal and non-commercial use under\nthe {_LICENSE_SHORT}.",
+            color=(140, 140, 160, 255),
+            wrap=390,
+        )
+        dpg.add_spacer(height=4)
+        dpg.add_button(
+            label="Open LICENSE",
+            callback=lambda: _open_file(_LICENSE_PATH),
+            width=160,
+        )
+
+        dpg.add_spacer(height=8)
+
+        # Commercial license
+        dpg.add_text("Commercial licensing", color=(175, 175, 255, 255))
+        dpg.add_text(
+            f"A separate commercial licence is available.\nContact: {_CONTACT}",
+            color=(140, 140, 160, 255),
+            wrap=390,
+        )
+        dpg.add_spacer(height=4)
+        dpg.add_button(
+            label="Open LICENSE-COMMERCIAL",
+            callback=lambda: _open_file(_LICENSE_COMM),
+            width=220,
+        )
+
+        dpg.add_spacer(height=12)
+        dpg.add_separator()
+        dpg.add_spacer(height=8)
+
+        # Close button
+        dpg.add_button(
+            label="  Close  ",
+            callback=lambda: dpg.configure_item(_ABOUT_TAG, show=False),
+            width=-1,
+        )
+
+
+def _show_about() -> None:
+    dpg.configure_item(_ABOUT_TAG, show=True)
+
+
+# ---------------------------------------------------------------------------
 # Application entry point
 # ---------------------------------------------------------------------------
 
@@ -207,6 +316,7 @@ def main() -> None:
     _loader.add_on_load_callback(_demucs.on_file_loaded)
 
     # ---- Top-level dialogs / browser (must live outside all windows) ---
+    _build_about_window()
     _loader.build_file_browser()
     _demucs.build_save_dialog()
     _midi.build_browsers()
@@ -217,10 +327,19 @@ def main() -> None:
     # ---- Primary window ------------------------------------------------
     with dpg.window(tag="primary_window"):
 
-        # App header — logo + tagline
+        # App header — logo (clickable → About) + tagline
         with dpg.group(horizontal=True):
             if dpg.does_item_exist(LOGO_TAG):
-                dpg.add_image(LOGO_TAG, width=LOGO_SIZE, height=LOGO_SIZE)
+                dpg.add_image_button(
+                    LOGO_TAG,
+                    width=LOGO_SIZE,
+                    height=LOGO_SIZE,
+                    callback=_show_about,
+                    tag="header_logo_btn",
+                    frame_padding=0,
+                )
+                with dpg.tooltip("header_logo_btn"):
+                    dpg.add_text("About StemForge")
             with dpg.group():
                 dpg.add_spacer(height=16)
                 dpg.add_text(

@@ -15,7 +15,8 @@ Icon tags
 
 Logo textures (project-level assets/icons/)
 ---------
-  logo_64  — 64×64 app logo (used in the app header)
+  logo_64   — 64×64  app logo (used in the app header)
+  logo_256  — 256×256 app logo (used in the About box)
 """
 
 import pathlib
@@ -31,10 +32,13 @@ _ASSETS_DIR = pathlib.Path(__file__).parent / "assets" / "icons"
 # Project-level assets (logo icons generated from StemForgeLogo.png)
 _PROJECT_ASSETS_DIR = pathlib.Path(__file__).parent.parent / "assets" / "icons"
 
-# Logo texture tag and source file used in the app header
-LOGO_TAG  = "logo_64"
-LOGO_SIZE = 64
-_LOGO_FILE = _PROJECT_ASSETS_DIR / "logo_64.png"
+# Logo texture tags
+LOGO_TAG      = "logo_64"
+LOGO_SIZE     = 64
+LOGO_TAG_256  = "logo_256"
+LOGO_SIZE_256 = 256
+_LOGO_FILE     = _PROJECT_ASSETS_DIR / "logo_64.png"
+_LOGO_FILE_256 = _PROJECT_ASSETS_DIR / "logo_256.png"
 
 # (logical kind, png filename, dpg tag)
 _ICON_DEFS: tuple[tuple[str, str, str], ...] = (
@@ -72,16 +76,17 @@ def load_icons() -> None:
         except Exception as exc:
             log.error("Failed to load icon %s: %s", filename, exc)
 
-    # Logo texture
-    if _LOGO_FILE.exists():
-        try:
-            w, h, _channels, data = dpg.load_image(str(_LOGO_FILE))
-            dpg.add_static_texture(w, h, data, tag=LOGO_TAG)
-            log.debug("Logo loaded: %s  tag=%s  %dx%d", _LOGO_FILE.name, LOGO_TAG, w, h)
-        except Exception as exc:
-            log.error("Failed to load logo %s: %s", _LOGO_FILE, exc)
-    else:
-        log.warning("Logo not found: %s", _LOGO_FILE)
+    # Logo textures (64px header, 256px about box)
+    for logo_file, logo_tag in ((_LOGO_FILE, LOGO_TAG), (_LOGO_FILE_256, LOGO_TAG_256)):
+        if logo_file.exists():
+            try:
+                w, h, _channels, data = dpg.load_image(str(logo_file))
+                dpg.add_static_texture(w, h, data, tag=logo_tag)
+                log.debug("Logo loaded: %s  tag=%s  %dx%d", logo_file.name, logo_tag, w, h)
+            except Exception as exc:
+                log.error("Failed to load logo %s: %s", logo_file, exc)
+        else:
+            log.warning("Logo not found: %s", logo_file)
 
 
 def get_icon_tag(kind: str) -> str | None:
