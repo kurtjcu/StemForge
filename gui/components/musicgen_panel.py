@@ -23,6 +23,7 @@ import soundfile as sf
 import dearpygui.dearpygui as dpg
 
 from pipelines.musicgen_pipeline import MusicGenPipeline, MusicGenConfig, MusicGenResult
+from utils.errors import ModelLoadError
 from gui.state import app_state, set_widget_text, make_copy_callback
 from gui.constants import _MUSICGEN_DIR, _MIDI_DIR
 from gui.ui_queue import schedule_ui
@@ -632,9 +633,21 @@ class MusicGenPanel:
                 except Exception:
                     pass
 
+        except ModelLoadError as exc:
+            log.error("Model load failed: %s", exc)
+            msg = str(exc)
+            if any(kw in msg.lower() for kw in ("gated", "403", "401", "authorized", "token", "login")):
+                set_widget_text(
+                    _t("status"),
+                    "HuggingFace auth required — set HF_TOKEN in .env "
+                    "or run: huggingface-cli login",
+                )
+            else:
+                set_widget_text(_t("status"), "Model load failed — see log for details")
+            schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         except Exception as exc:
             log.exception("Generation failed")
-            set_widget_text(_t("status"), f"Error: {exc}")
+            set_widget_text(_t("status"), f"Error — see log for details: {type(exc).__name__}")
             schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         finally:
             schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=True))

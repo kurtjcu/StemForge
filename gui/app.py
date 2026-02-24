@@ -11,9 +11,11 @@ waveform cursors animate smoothly.
 """
 
 import logging
+import os
 import pathlib
 
 import dearpygui.dearpygui as dpg
+from dotenv import load_dotenv
 
 from utils.wsl import configure_audio as _configure_wsl_audio
 from gui.constants import _STEMS_DIR, _MIDI_DIR, _MUSICGEN_DIR, _MIX_DIR, _EXPORT_DIR
@@ -124,12 +126,39 @@ def _build_theme() -> int:
 # Application entry point
 # ---------------------------------------------------------------------------
 
+def _load_env_and_login() -> None:
+    """Load .env from the project root and set API credentials as env vars.
+
+    Does NOT make any network calls — token validation happens lazily when
+    a model is first downloaded.  This keeps startup fast and ensures the
+    GUI is fully initialised before any auth error can surface.
+    """
+    _env_file = pathlib.Path(__file__).parent.parent / ".env"
+    if _env_file.exists():
+        load_dotenv(_env_file, override=False)
+        logging.getLogger("stemforge.gui.app").info("Loaded environment from %s", _env_file)
+
+    # Log token presence so the user can confirm their .env was picked up,
+    # but never log the token value itself.
+    if os.environ.get("HF_TOKEN", "").strip():
+        logging.getLogger("stemforge.gui.app").info(
+            "HF_TOKEN present — will be used for gated model downloads"
+        )
+    else:
+        logging.getLogger("stemforge.gui.app").debug(
+            "HF_TOKEN not set; falling back to ~/.cache/huggingface/token if present"
+        )
+
+
 def main() -> None:
     """Create the DearPyGUI viewport and run the manual render loop."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s  %(levelname)-8s  %(name)s: %(message)s",
     )
+
+    # ---- Environment / auth (before any model or network access) --------
+    _load_env_and_login()
 
     # ---- WSL audio routing (must run before any sounddevice call) ------
     wsl_msg = _configure_wsl_audio()

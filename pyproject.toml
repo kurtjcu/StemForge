@@ -96,6 +96,9 @@ dependencies = [
 
     # Config (tomllib for Python 3.10)
     "tomli>=2.0.0; python_version < '3.11'",
+
+    # .env loading
+    "python-dotenv>=1.0.0",
 ]
 
 # ---------------------------------------------------------------------------
