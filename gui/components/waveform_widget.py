@@ -53,39 +53,60 @@ _PLOT_FONT_CANDIDATES = [
 _plot_font: int | None = None
 _plot_font_tried: bool = False
 
-# Lazy-init border theme for WAV plots — green matching audio track label color
-_wav_plot_theme: int | None = None
-_wav_plot_theme_tried: bool = False
+# ---------------------------------------------------------------------------
+# Per-type plot themes — two variants each so tick() can swap on hover.
+#
+# mvThemeCol_FrameBgHovered does NOT work for ImPlot widgets: ImPlot renders
+# its own frame and canvas, bypassing ImGui's FrameBgHovered entirely.
+# Hover colour is achieved by detecting dpg.is_item_hovered() in tick() and
+# calling dpg.bind_item_theme() only when the state changes (efficient).
+#
+# Both mvPlotCol_FrameBg (axis-label margin) and mvPlotCol_PlotBg (data
+# canvas) must be set to fill the entire visualiser, not just the lower
+# axis-label strip that FrameBg alone covers.
+# ---------------------------------------------------------------------------
+
+_WAV_COLOR = (100, 170, 100)   # green — matches audio track labels in mix_panel
+
+_wav_plot_theme:       int | None = None
+_wav_plot_hover_theme: int | None = None
 
 
-def _get_wav_plot_theme() -> "int | None":
-    """Return a green theme for WAV plots, created once on first call.
-
-    Green = (100, 170, 100), matching audio track label color in mix_panel.
-    Three colours are set on the bound plot item:
-      - mvThemeCol_Border       — outer 1-px border, always visible (full opacity)
-      - mvThemeCol_FrameBgHovered — entire widget background on hover (matches border)
-      - mvPlotCol_FrameBg       — fill of the frame area surrounding the waveform
-                                   data canvas (axis-label margin) so the border
-                                   colour wraps the whole visualisation.
-    """
-    global _wav_plot_theme, _wav_plot_theme_tried
-    if _wav_plot_theme_tried:
-        return _wav_plot_theme
-    _wav_plot_theme_tried = True
+def _make_wav_themes() -> None:
+    """Create (once) the normal and hover themes for WAV plots."""
+    global _wav_plot_theme, _wav_plot_hover_theme
+    if _wav_plot_theme is not None:
+        return
+    r, g, b = _WAV_COLOR
     try:
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border,          (100, 170, 100, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  (100, 170, 100,  80))
-                dpg.add_theme_color(
-                    dpg.mvPlotCol_FrameBg, (100, 170, 100, 50),
-                    category=dpg.mvThemeCat_Plots,
-                )
+                dpg.add_theme_color(dpg.mvThemeCol_Border, (r, g, b, 255))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg, (r, g, b, 30),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_PlotBg,  (r, g, b, 15),
+                                    category=dpg.mvThemeCat_Plots)
         _wav_plot_theme = t
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Border, (r, g, b, 255))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg, (r, g, b, 80),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_PlotBg,  (r, g, b, 55),
+                                    category=dpg.mvThemeCat_Plots)
+        _wav_plot_hover_theme = t
     except Exception as exc:
-        log.debug("Could not create WAV plot theme: %s", exc)
+        log.debug("Could not create WAV plot themes: %s", exc)
+
+
+def _get_wav_plot_theme() -> "int | None":
+    _make_wav_themes()
     return _wav_plot_theme
+
+
+def _get_wav_plot_hover_theme() -> "int | None":
+    _make_wav_themes()
+    return _wav_plot_hover_theme
 
 
 def _get_plot_font() -> int | None:
@@ -142,6 +163,7 @@ class WaveformWidget:
         self._playing: bool = False
         self._play_start: float = 0.0    # wall-clock time when play started
         self._play_offset: float = 0.0   # seek offset in seconds
+        self._plot_hovered: bool = False  # tracks last hover state for theme swap
         # Optional external seek handler — used by Mix tab for synchronized display.
         # When set, clicking the plot calls this callback instead of starting play.
         self._on_seek_callback = on_seek_callback
@@ -290,6 +312,17 @@ class WaveformWidget:
 
     def tick(self) -> None:
         """Advance playback cursor; called once per render frame by tick_all()."""
+        # Hover-state theme swap — ImPlot ignores FrameBgHovered, so we
+        # detect hover ourselves and bind the appropriate pre-built theme.
+        plot_tag = self._tag("plot")
+        if dpg.does_item_exist(plot_tag):
+            hovered = dpg.is_item_hovered(plot_tag)
+            if hovered != self._plot_hovered:
+                self._plot_hovered = hovered
+                theme = _get_wav_plot_hover_theme() if hovered else _get_wav_plot_theme()
+                if theme is not None:
+                    dpg.bind_item_theme(plot_tag, theme)
+
         # Click-to-seek: check while the plot is hovered in the render thread
         if (self._waveform is not None and self._duration > 0
                 and dpg.does_item_exist(self._tag("plot"))

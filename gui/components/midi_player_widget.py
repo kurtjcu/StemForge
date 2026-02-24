@@ -41,40 +41,52 @@ _active_midi_player = None  # single exclusive MIDI player
 
 _MAX_PLOT_POINTS = 2000
 
-# Lazy-init border theme for MIDI plots — purple matching MIDI track label color
-_midi_plot_theme: int | None = None
-_midi_plot_theme_tried: bool = False
+_MIDI_COLOR = (150, 130, 220)  # purple — matches MIDI track labels in mix_panel
+
+_midi_plot_theme:       int | None = None
+_midi_plot_hover_theme: int | None = None
 
 
-def _get_midi_plot_theme() -> "int | None":
-    """Return a purple theme for MIDI plots, created once on first call.
-
-    Purple = (150, 130, 220), matching MIDI track label color in mix_panel.
-    Three colours are set on the bound plot item:
-      - mvThemeCol_Border       — outer 1-px border, always visible (full opacity)
-      - mvThemeCol_FrameBgHovered — entire widget background on hover (matches border)
-      - mvPlotCol_FrameBg       — fill of the frame area surrounding the MIDI
-                                   data canvas (axis-label margin) so the border
-                                   colour wraps the whole visualisation.
-    Exported so mix_panel can apply the same theme to its inline MIDI cursor plots.
-    """
-    global _midi_plot_theme, _midi_plot_theme_tried
-    if _midi_plot_theme_tried:
-        return _midi_plot_theme
-    _midi_plot_theme_tried = True
+def _make_midi_themes() -> None:
+    """Create (once) the normal and hover themes for MIDI plots."""
+    global _midi_plot_theme, _midi_plot_hover_theme
+    if _midi_plot_theme is not None:
+        return
+    r, g, b = _MIDI_COLOR
     try:
         with dpg.theme() as t:
             with dpg.theme_component(dpg.mvAll):
-                dpg.add_theme_color(dpg.mvThemeCol_Border,          (150, 130, 220, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  (150, 130, 220,  80))
-                dpg.add_theme_color(
-                    dpg.mvPlotCol_FrameBg, (150, 130, 220, 50),
-                    category=dpg.mvThemeCat_Plots,
-                )
+                dpg.add_theme_color(dpg.mvThemeCol_Border, (r, g, b, 255))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg, (r, g, b, 30),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_PlotBg,  (r, g, b, 15),
+                                    category=dpg.mvThemeCat_Plots)
         _midi_plot_theme = t
+        with dpg.theme() as t:
+            with dpg.theme_component(dpg.mvAll):
+                dpg.add_theme_color(dpg.mvThemeCol_Border, (r, g, b, 255))
+                dpg.add_theme_color(dpg.mvPlotCol_FrameBg, (r, g, b, 80),
+                                    category=dpg.mvThemeCat_Plots)
+                dpg.add_theme_color(dpg.mvPlotCol_PlotBg,  (r, g, b, 55),
+                                    category=dpg.mvThemeCat_Plots)
+        _midi_plot_hover_theme = t
     except Exception as exc:
-        log.debug("Could not create MIDI plot theme: %s", exc)
+        log.debug("Could not create MIDI plot themes: %s", exc)
+
+
+def _get_midi_plot_theme() -> "int | None":
+    """Return the normal purple theme for MIDI plots.
+
+    Exported so mix_panel can apply it to inline MIDI cursor plots.
+    """
+    _make_midi_themes()
     return _midi_plot_theme
+
+
+def _get_midi_plot_hover_theme() -> "int | None":
+    """Return the hover purple theme for MIDI plots."""
+    _make_midi_themes()
+    return _midi_plot_hover_theme
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +185,7 @@ class MidiPlayerWidget:
         self._midi_path: "pathlib.Path | None" = None
         self._stem_label: str = ""
         self._sf2_path: "pathlib.Path | None" = find_soundfont()
+        self._plot_hovered: bool = False  # tracks last hover state for theme swap
         _ALL_MIDI_PLAYERS.append(self)
 
     # ------------------------------------------------------------------
@@ -339,6 +352,17 @@ class MidiPlayerWidget:
 
     def tick(self) -> None:
         """Advance playback cursor and time display.  Called once per frame."""
+        # Hover-state theme swap — ImPlot ignores FrameBgHovered, so we
+        # detect hover ourselves and bind the appropriate pre-built theme.
+        plot_tag = self._tag("plot")
+        if dpg.does_item_exist(plot_tag):
+            hovered = dpg.is_item_hovered(plot_tag)
+            if hovered != self._plot_hovered:
+                self._plot_hovered = hovered
+                theme = _get_midi_plot_hover_theme() if hovered else _get_midi_plot_theme()
+                if theme is not None:
+                    dpg.bind_item_theme(plot_tag, theme)
+
         # Click-to-seek
         if (self._rendered is not None and self._duration > 0
                 and dpg.does_item_exist(self._tag("plot"))
