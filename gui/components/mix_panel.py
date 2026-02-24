@@ -47,6 +47,7 @@ from gui.components.midi_player_widget import (
     _STEM_DEFAULT_PROGRAM,
     _STEM_IS_DRUM,
     _get_midi_plot_theme,
+    _get_midi_plot_hover_theme,
 )
 
 log = logging.getLogger("stemforge.gui.mix_panel")
@@ -206,6 +207,9 @@ class MixPanel:
 
         # Per-track WaveformWidget instances (audio tracks only), keyed by tid
         self._track_waveforms: dict[str, WaveformWidget] = {}
+
+        # Per-MIDI-plot hover state for border theme swapping (same pattern as MidiPlayerWidget)
+        self._midi_plot_hovered: dict[str, bool] = {}  # tid → last hovered state
 
         # Master clock — drives "Play All" and per-track waveform cursors
         self._master_playing: bool = False
@@ -1275,6 +1279,19 @@ class MixPanel:
                         if 0.0 <= seek <= self._master_duration:
                             self._on_waveform_seek(seek)
                         break
+
+        # Hover theme swap for MIDI track plots (matches MidiPlayerWidget behaviour)
+        for tid, state in self._track_states.items():
+            if state.source == "midi":
+                plot_tag = _t(f"track_{_safe(tid)}_plot")
+                if not dpg.does_item_exist(plot_tag):
+                    continue
+                hovered = dpg.is_item_hovered(plot_tag)
+                if hovered != self._midi_plot_hovered.get(tid, False):
+                    self._midi_plot_hovered[tid] = hovered
+                    theme = _get_midi_plot_hover_theme() if hovered else _get_midi_plot_theme()
+                    if theme is not None:
+                        dpg.bind_item_theme(plot_tag, theme)
 
         pos: float | None = None
         duration: float = self._master_duration
