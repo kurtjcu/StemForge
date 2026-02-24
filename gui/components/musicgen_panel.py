@@ -35,6 +35,7 @@ from gui.components.demucs_panel import _STEM_LABEL
 log = logging.getLogger("stemforge.gui.musicgen_panel")
 
 _STABLE_AUDIO_MODEL = "stabilityai/stable-audio-open-1.0"
+_COND_TYPES    = ("None", "Audio", "MIDI", "Mix")
 _AUDIO_SOURCES = ("None", "Stem from Separate tab", "Load audio file")
 _MIDI_SOURCES  = ("None", "From MIDI tab", "Load MIDI file")
 
@@ -63,6 +64,7 @@ class MusicGenPanel:
         # Manually loaded paths
         self._loaded_audio_path: pathlib.Path | None = None
         self._loaded_midi_path: pathlib.Path | None = None
+        self._mix_path: pathlib.Path | None = None
 
         # File browsers (created in build_save_dialog)
         self._save_browser: FileBrowser | None = None
@@ -173,105 +175,118 @@ class MusicGenPanel:
                     format="%.1f",
                 )
 
-                # --- Audio conditioning ---
+                # --- Conditioning (mutually exclusive) ---
                 dpg.add_spacer(height=14)
                 dpg.add_separator()
                 dpg.add_spacer(height=6)
-                dpg.add_text("Audio conditioning  (optional)", color=(175, 175, 255, 255))
+                dpg.add_text("Conditioning  (optional)", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
-                        "Provide a reference audio clip to guide generation.\n"
-                        "The model encodes it and blends the latent\n"
-                        "with the text-conditioned generation.\n\n"
-                        "Stem — use a separated stem from the Separate tab.\n"
-                        "Load  — browse for any WAV/FLAC/MP3."
+                        "Choose one conditioning input to guide generation.\n\n"
+                        "Audio — reference audio clip (stem or file).\n"
+                        "        The model blends its latent with your prompt.\n\n"
+                        "MIDI  — MIDI file provides BPM, key, and instruments\n"
+                        "        which are appended to your text prompt.\n\n"
+                        "Mix   — use the rendered mix from the Mix tab as the\n"
+                        "        audio conditioning reference."
                     )
                 dpg.add_combo(
-                    items=list(_AUDIO_SOURCES),
-                    default_value=_AUDIO_SOURCES[0],
-                    tag=_t("audio_src"),
-                    callback=self._on_audio_source_change,
+                    items=list(_COND_TYPES),
+                    default_value=_COND_TYPES[0],
+                    tag=_t("cond_type"),
+                    callback=self._on_cond_type_change,
                     width=-1,
                 )
 
-                # Stem picker (visible when audio_src = "Stem from Separate tab")
-                with dpg.group(tag=_t("stem_group"), show=False):
-                    dpg.add_spacer(height=4)
-                    dpg.add_text(
-                        "Run Separate first to see stems here.",
-                        tag=_t("stem_hint"),
-                        color=(140, 140, 140, 255),
-                    )
-                    dpg.add_radio_button(
-                        items=["None"],
-                        default_value="None",
-                        tag=_t("stem_radio"),
-                        callback=self._on_stem_radio_change,
-                    )
-
-                # File browse (visible when audio_src = "Load audio file")
-                with dpg.group(tag=_t("audio_file_group"), show=False):
-                    dpg.add_spacer(height=4)
-                    dpg.add_button(
-                        label="  Browse…  ",
-                        tag=_t("audio_browse_btn"),
-                        callback=self._on_browse_audio,
+                # ---- Audio sub-group ----
+                with dpg.group(tag=_t("audio_cond_group"), show=False):
+                    dpg.add_spacer(height=6)
+                    dpg.add_text("Source", color=(140, 140, 160, 255))
+                    dpg.add_combo(
+                        items=list(_AUDIO_SOURCES),
+                        default_value=_AUDIO_SOURCES[0],
+                        tag=_t("audio_src"),
+                        callback=self._on_audio_source_change,
                         width=-1,
                     )
-                    dpg.add_text(
-                        "No file selected",
-                        tag=_t("audio_file_label"),
-                        color=(140, 140, 140, 255),
-                        wrap=340,
-                    )
+                    # Stem picker (visible when audio_src = "Stem from Separate tab")
+                    with dpg.group(tag=_t("stem_group"), show=False):
+                        dpg.add_spacer(height=4)
+                        dpg.add_text(
+                            "Run Separate first to see stems here.",
+                            tag=_t("stem_hint"),
+                            color=(140, 140, 140, 255),
+                        )
+                        dpg.add_radio_button(
+                            items=["None"],
+                            default_value="None",
+                            tag=_t("stem_radio"),
+                            callback=self._on_stem_radio_change,
+                        )
+                    # File browse (visible when audio_src = "Load audio file")
+                    with dpg.group(tag=_t("audio_file_group"), show=False):
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(
+                            label="  Browse…  ",
+                            tag=_t("audio_browse_btn"),
+                            callback=self._on_browse_audio,
+                            width=-1,
+                        )
+                        dpg.add_text(
+                            "No file selected",
+                            tag=_t("audio_file_label"),
+                            color=(140, 140, 140, 255),
+                            wrap=340,
+                        )
 
-                # --- MIDI conditioning ---
-                dpg.add_spacer(height=14)
-                dpg.add_separator()
-                dpg.add_spacer(height=6)
-                dpg.add_text("MIDI conditioning  (optional)", color=(175, 175, 255, 255))
-                with dpg.tooltip(dpg.last_item()):
-                    dpg.add_text(
-                        "Extract BPM, key, and instruments from a MIDI file\n"
-                        "and append them to your text prompt so the model\n"
-                        "stays in key and at the right tempo."
-                    )
-                dpg.add_combo(
-                    items=list(_MIDI_SOURCES),
-                    default_value=_MIDI_SOURCES[0],
-                    tag=_t("midi_src"),
-                    callback=self._on_midi_source_change,
-                    width=-1,
-                )
-
-                # MIDI tab picker (visible when midi_src = "From MIDI tab")
-                with dpg.group(tag=_t("midi_tab_group"), show=False):
-                    dpg.add_spacer(height=4)
-                    dpg.add_text(
-                        "Run Extract MIDI first to see options here.",
-                        tag=_t("midi_hint"),
-                        color=(140, 140, 140, 255),
-                    )
-                    dpg.add_radio_button(
-                        items=["All stems"],
-                        default_value="All stems",
-                        tag=_t("midi_radio"),
-                        callback=self._on_midi_radio_change,
-                        enabled=False,
-                    )
-
-                # MIDI file browse (visible when midi_src = "Load MIDI file")
-                with dpg.group(tag=_t("midi_file_group"), show=False):
-                    dpg.add_spacer(height=4)
-                    dpg.add_button(
-                        label="  Browse…  ",
-                        tag=_t("midi_browse_btn"),
-                        callback=self._on_browse_midi,
+                # ---- MIDI sub-group ----
+                with dpg.group(tag=_t("midi_cond_group"), show=False):
+                    dpg.add_spacer(height=6)
+                    dpg.add_text("Source", color=(140, 140, 160, 255))
+                    dpg.add_combo(
+                        items=list(_MIDI_SOURCES),
+                        default_value=_MIDI_SOURCES[0],
+                        tag=_t("midi_src"),
+                        callback=self._on_midi_source_change,
                         width=-1,
                     )
+                    # MIDI tab picker (visible when midi_src = "From MIDI tab")
+                    with dpg.group(tag=_t("midi_tab_group"), show=False):
+                        dpg.add_spacer(height=4)
+                        dpg.add_text(
+                            "Run Extract MIDI first to see options here.",
+                            tag=_t("midi_hint"),
+                            color=(140, 140, 140, 255),
+                        )
+                        dpg.add_radio_button(
+                            items=["All stems"],
+                            default_value="All stems",
+                            tag=_t("midi_radio"),
+                            callback=self._on_midi_radio_change,
+                            enabled=False,
+                        )
+                    # MIDI file browse (visible when midi_src = "Load MIDI file")
+                    with dpg.group(tag=_t("midi_file_group"), show=False):
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(
+                            label="  Browse…  ",
+                            tag=_t("midi_browse_btn"),
+                            callback=self._on_browse_midi,
+                            width=-1,
+                        )
+                        dpg.add_text(
+                            "No file selected",
+                            tag=_t("midi_file_label"),
+                            color=(140, 140, 140, 255),
+                            wrap=340,
+                        )
+
+                # ---- Mix sub-group ----
+                with dpg.group(tag=_t("mix_cond_group"), show=False):
+                    dpg.add_spacer(height=6)
                     dpg.add_text(
-                        "No file selected",
-                        tag=_t("midi_file_label"),
+                        "Render a mix in the Mix tab first.",
+                        tag=_t("mix_status_label"),
                         color=(140, 140, 140, 255),
                         wrap=340,
                     )
@@ -395,6 +410,15 @@ class MusicGenPanel:
                     self._on_midi_source_change(None, "From MIDI tab", None)
         schedule_ui(_update)
 
+    def notify_mix_ready(self, mix_path: pathlib.Path) -> None:
+        """Called by MixPanel after a successful render (may be bg thread)."""
+        self._mix_path = mix_path
+        label = mix_path.name if mix_path else "No mix rendered yet"
+        def _update():
+            if dpg.does_item_exist(_t("mix_status_label")):
+                dpg.set_value(_t("mix_status_label"), label)
+        schedule_ui(_update)
+
     def add_result_listener(
         self,
         callback: Callable[[pathlib.Path], None],
@@ -402,6 +426,19 @@ class MusicGenPanel:
         """Register *callback* invoked with the output audio path after a successful run."""
         self._result_listeners.append(callback)
 
+    # ------------------------------------------------------------------
+    # Callbacks — conditioning type selector
+    # ------------------------------------------------------------------
+
+    def _on_cond_type_change(self, sender, app_data, user_data) -> None:
+        cond = app_data if app_data is not None else dpg.get_value(_t("cond_type"))
+        for tag, visible in (
+            (_t("audio_cond_group"), cond == "Audio"),
+            (_t("midi_cond_group"),  cond == "MIDI"),
+            (_t("mix_cond_group"),   cond == "Mix"),
+        ):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=visible)
 
     # ------------------------------------------------------------------
     # Callbacks — audio conditioning
@@ -467,20 +504,22 @@ class MusicGenPanel:
 
     def _on_match_duration(self, sender, app_data, user_data) -> None:
         """Set duration slider to match the active conditioning input."""
-        audio_src = dpg.get_value(_t("audio_src"))
-        if audio_src == "Stem from Separate tab":
-            label = dpg.get_value(_t("stem_radio"))
-            if label and label != "None":
-                key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
-                if key and key in self._stem_paths:
-                    self._set_duration_from_path(self._stem_paths[key])
-                    return
-        elif audio_src == "Load audio file" and self._loaded_audio_path:
-            self._set_duration_from_path(self._loaded_audio_path)
-            return
-        midi_src = dpg.get_value(_t("midi_src"))
-        if midi_src == "From MIDI tab":
-            if self._tab_merged_midi_obj is not None:
+        cond_type = dpg.get_value(_t("cond_type")) if dpg.does_item_exist(_t("cond_type")) else "None"
+
+        if cond_type == "Audio":
+            audio_src = dpg.get_value(_t("audio_src"))
+            if audio_src == "Stem from Separate tab":
+                label = dpg.get_value(_t("stem_radio"))
+                if label and label != "None":
+                    key = next((k for k, v in _STEM_LABEL.items() if v == label), None)
+                    if key and key in self._stem_paths:
+                        self._set_duration_from_path(self._stem_paths[key])
+            elif audio_src == "Load audio file" and self._loaded_audio_path:
+                self._set_duration_from_path(self._loaded_audio_path)
+
+        elif cond_type == "MIDI":
+            midi_src = dpg.get_value(_t("midi_src"))
+            if midi_src == "From MIDI tab" and self._tab_merged_midi_obj is not None:
                 try:
                     secs = int(round(self._tab_merged_midi_obj.get_end_time()))
                     secs = max(5, min(600, secs))
@@ -488,8 +527,12 @@ class MusicGenPanel:
                         dpg.set_value(_t("duration"), secs)
                 except Exception:
                     pass
-        elif midi_src == "Load MIDI file" and self._loaded_midi_path:
-            self._set_duration_from_midi(self._loaded_midi_path)
+            elif midi_src == "Load MIDI file" and self._loaded_midi_path:
+                self._set_duration_from_midi(self._loaded_midi_path)
+
+        elif cond_type == "Mix":
+            if self._mix_path and self._mix_path.exists():
+                self._set_duration_from_path(self._mix_path)
 
     def _on_browse_audio(self, sender, app_data, user_data) -> None:
         if self._audio_browser:
@@ -524,16 +567,17 @@ class MusicGenPanel:
 
     def _capture_run_inputs(self) -> dict:
         """Read all DPG widget values needed by _run() — main thread only."""
-        prompt   = dpg.get_value(_t("prompt")).strip() if dpg.does_item_exist(_t("prompt")) else ""
-        duration = float(dpg.get_value(_t("duration"))) if dpg.does_item_exist(_t("duration")) else 30.0
-        steps    = int(dpg.get_value(_t("steps")))      if dpg.does_item_exist(_t("steps"))    else 100
-        cfg      = float(dpg.get_value(_t("cfg")))      if dpg.does_item_exist(_t("cfg"))      else 7.0
-        audio_src = dpg.get_value(_t("audio_src"))       if dpg.does_item_exist(_t("audio_src")) else "None"
-        midi_src  = dpg.get_value(_t("midi_src"))        if dpg.does_item_exist(_t("midi_src"))  else "None"
-        stem_label = dpg.get_value(_t("stem_radio"))     if dpg.does_item_exist(_t("stem_radio")) else "None"
+        prompt     = dpg.get_value(_t("prompt")).strip()   if dpg.does_item_exist(_t("prompt"))     else ""
+        duration   = float(dpg.get_value(_t("duration")))  if dpg.does_item_exist(_t("duration"))   else 30.0
+        steps      = int(dpg.get_value(_t("steps")))        if dpg.does_item_exist(_t("steps"))      else 100
+        cfg        = float(dpg.get_value(_t("cfg")))        if dpg.does_item_exist(_t("cfg"))        else 7.0
+        cond_type  = dpg.get_value(_t("cond_type"))         if dpg.does_item_exist(_t("cond_type"))  else "None"
+        audio_src  = dpg.get_value(_t("audio_src"))         if dpg.does_item_exist(_t("audio_src"))  else "None"
+        midi_src   = dpg.get_value(_t("midi_src"))          if dpg.does_item_exist(_t("midi_src"))   else "None"
+        stem_label = dpg.get_value(_t("stem_radio"))        if dpg.does_item_exist(_t("stem_radio")) else "None"
         return dict(
             prompt=prompt, duration=duration, steps=steps, cfg=cfg,
-            audio_src=audio_src, midi_src=midi_src, stem_label=stem_label,
+            cond_type=cond_type, audio_src=audio_src, midi_src=midi_src, stem_label=stem_label,
         )
 
     def _on_save_click(self, sender, app_data, user_data) -> None:
@@ -574,30 +618,35 @@ class MusicGenPanel:
             duration   = ui["duration"]
             steps      = ui["steps"]
             cfg        = ui["cfg"]
+            cond_type  = ui["cond_type"]
             audio_src  = ui["audio_src"]
             midi_src   = ui["midi_src"]
             stem_label = ui["stem_label"]
 
-            # Audio conditioning
             init_audio_path: pathlib.Path | None = None
-            if audio_src == "Stem from Separate tab":
-                if stem_label and stem_label != "None":
-                    key = next((k for k, v in _STEM_LABEL.items() if v == stem_label), None)
-                    if key and key in self._stem_paths:
-                        init_audio_path = self._stem_paths[key]
-            elif audio_src == "Load audio file":
-                init_audio_path = self._loaded_audio_path
-
-            # MIDI conditioning
             midi_path: pathlib.Path | None = None
-            if midi_src == "From MIDI tab":
-                if self._tab_merged_midi_obj is not None:
-                    import time as _time
-                    _MIDI_DIR.mkdir(parents=True, exist_ok=True)
-                    midi_path = _MIDI_DIR / f"merged_tmp_{int(_time.time())}.mid"
-                    self._tab_merged_midi_obj.write(str(midi_path))
-            elif midi_src == "Load MIDI file":
-                midi_path = self._loaded_midi_path
+
+            if cond_type == "Audio":
+                if audio_src == "Stem from Separate tab":
+                    if stem_label and stem_label != "None":
+                        key = next((k for k, v in _STEM_LABEL.items() if v == stem_label), None)
+                        if key and key in self._stem_paths:
+                            init_audio_path = self._stem_paths[key]
+                elif audio_src == "Load audio file":
+                    init_audio_path = self._loaded_audio_path
+
+            elif cond_type == "MIDI":
+                if midi_src == "From MIDI tab":
+                    if self._tab_merged_midi_obj is not None:
+                        import time as _time
+                        _MIDI_DIR.mkdir(parents=True, exist_ok=True)
+                        midi_path = _MIDI_DIR / f"merged_tmp_{int(_time.time())}.mid"
+                        self._tab_merged_midi_obj.write(str(midi_path))
+                elif midi_src == "Load MIDI file":
+                    midi_path = self._loaded_midi_path
+
+            elif cond_type == "Mix":
+                init_audio_path = self._mix_path
 
             config = MusicGenConfig(
                 model_name       = _STABLE_AUDIO_MODEL,

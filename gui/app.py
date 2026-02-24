@@ -198,6 +198,7 @@ def main() -> None:
     _midi.add_result_listener(_export.notify_midi_ready)
     _musicgen.add_result_listener(_export.notify_musicgen_ready)
     _mix.add_result_listener(_export.notify_mix_ready)
+    _mix.add_result_listener(_musicgen.notify_mix_ready)
     # Auto-trigger Roformer analysis when a new file is loaded
     _loader.add_on_load_callback(_demucs.on_file_loaded)
 
