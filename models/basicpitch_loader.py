@@ -16,6 +16,7 @@ The public API is compatible with the pipeline callers in
     a list of raw note events ``(start_s, end_s, pitch_midi, amplitude, ...)``.
 """
 
+import json
 import pathlib
 import logging
 import shutil
@@ -46,12 +47,21 @@ _OVERLAP_LEN: int = DEFAULT_OVERLAPPING_FRAMES * FFT_HOP
 _HOP_SIZE: int = AUDIO_N_SAMPLES - _OVERLAP_LEN
 
 
-_PYPI_WHEEL_URL = (
-    "https://files.pythonhosted.org/packages/c4/cf/"
-    "0b79a28b1e0f60e13e42a3f04115c0321087e3a4a7a37e1d23ee5c8c2f81/"
-    "basic_pitch-0.4.0-py2.py3-none-any.whl"
-)
+_PYPI_JSON_URL = "https://pypi.org/pypi/basic-pitch/0.4.0/json"
 _WHEEL_INNER_PATH = "basic_pitch/saved_models/icassp_2022/nmp.tflite"
+
+
+def _get_wheel_url() -> str:
+    """Resolve the basic-pitch 0.4.0 wheel URL from the PyPI JSON API."""
+    with request.urlopen(_PYPI_JSON_URL, timeout=15) as resp:
+        data = json.loads(resp.read())
+    for url_info in data.get("urls", []):
+        if url_info.get("filename", "").endswith(".whl"):
+            return url_info["url"]
+    raise ModelLoadError(
+        "Could not find a wheel file for basic-pitch 0.4.0 on PyPI",
+        model_name="basicpitch",
+    )
 
 
 def _ensure_model(dest: pathlib.Path) -> None:
@@ -59,17 +69,22 @@ def _ensure_model(dest: pathlib.Path) -> None:
     if dest.exists():
         return
 
-    log.info("BasicPitch model not found at %s — downloading from PyPI …", dest)
+    log.info("BasicPitch model not found at %s — resolving wheel URL from PyPI …", dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
 
     tmp_dir = tempfile.mkdtemp(prefix="basicpitch_")
     wheel_path = pathlib.Path(tmp_dir) / "basic_pitch.whl"
     try:
-        request.urlretrieve(_PYPI_WHEEL_URL, wheel_path)
+        wheel_url = _get_wheel_url()
+        log.info("Downloading BasicPitch wheel from %s", wheel_url)
+        request.urlretrieve(wheel_url, wheel_path)
         with zipfile.ZipFile(wheel_path) as zf:
             with zf.open(_WHEEL_INNER_PATH) as src, open(dest, "wb") as dst:
                 shutil.copyfileobj(src, dst)
         log.info("BasicPitch model saved to %s", dest)
+    except ModelLoadError:
+        dest.unlink(missing_ok=True)
+        raise
     except Exception as exc:
         # Clean up partial file so the next attempt doesn't find a corrupt file
         dest.unlink(missing_ok=True)
