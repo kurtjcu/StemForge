@@ -111,6 +111,94 @@ class MusicGenPanel:
                     width=-1,
                 )
 
+                # --- Vocal Preservation Mode ----------------------------
+                dpg.add_spacer(height=14)
+                dpg.add_separator()
+                dpg.add_spacer(height=6)
+                with dpg.group(horizontal=True):
+                    dpg.add_checkbox(
+                        label="Vocal Preservation Mode",
+                        tag=_t("vp_enabled"),
+                        default_value=False,
+                        callback=self._on_vp_enable_change,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Tune how strongly the conditioning audio guides generation.\n\n"
+                            "Works with Audio or Mix conditioning.\n"
+                            "For best vocal results:\n"
+                            "  1. Separate vocals in the Separate tab.\n"
+                            "  2. Optionally extract MIDI in the MIDI tab.\n"
+                            "  3. Blend wav + MIDI in the Mix tab.\n"
+                            "  4. Select Mix as conditioning here."
+                        )
+
+                with dpg.group(tag=_t("vp_group"), show=False):
+                    dpg.add_spacer(height=6)
+
+                    dpg.add_text("Conditioning Strength", color=(140, 140, 160, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Scales the conditioning audio amplitude before the\n"
+                            "model encodes it.  1.0 = full reference influence.\n"
+                            "0.0 = conditioning ignored (same as no audio source)."
+                        )
+                    dpg.add_slider_float(
+                        tag=_t("vp_strength"),
+                        min_value=0.0,
+                        max_value=1.0,
+                        default_value=0.7,
+                        width=-1,
+                        format="%.2f",
+                    )
+
+                    dpg.add_spacer(height=6)
+                    dpg.add_checkbox(
+                        label="Timing Lock",
+                        tag=_t("vp_timing_lock"),
+                        default_value=True,
+                        callback=self._on_timing_lock_change,
+                    )
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Generate audio window-by-window, each conditioned\n"
+                            "on the corresponding slice of the source audio.\n"
+                            "Preserves rhythmic alignment across the full clip."
+                        )
+
+                    with dpg.group(tag=_t("vp_window_group")):
+                        dpg.add_spacer(height=4)
+                        dpg.add_text("Window Size", color=(140, 140, 160, 255))
+                        with dpg.tooltip(dpg.last_item()):
+                            dpg.add_text(
+                                "Duration of each generation window.\n"
+                                "Shorter = tighter temporal alignment, more boundaries.\n"
+                                "Longer = smoother but less aligned."
+                            )
+                        dpg.add_combo(
+                            items=["5 s", "10 s", "15 s", "30 s"],
+                            default_value="10 s",
+                            tag=_t("vp_window_size"),
+                            width=-1,
+                        )
+
+                    dpg.add_spacer(height=6)
+                    dpg.add_text("Negative Prompt", color=(140, 140, 160, 255))
+                    with dpg.tooltip(dpg.last_item()):
+                        dpg.add_text(
+                            "Describe characteristics to avoid in the output.\n"
+                            "Passed to the model as a negative guidance signal."
+                        )
+                    dpg.add_input_text(
+                        tag=_t("vp_negative_prompt"),
+                        default_value=(
+                            "distorted vocals, off-key singing, robotic artifacts, "
+                            "background noise, clipping"
+                        ),
+                        multiline=False,
+                        width=-1,
+                    )
+
                 dpg.add_spacer(height=12)
                 dpg.add_text("Duration", color=(175, 175, 255, 255))
                 with dpg.tooltip(dpg.last_item()):
@@ -430,6 +518,20 @@ class MusicGenPanel:
         self._auto_set_duration(cond)
 
     # ------------------------------------------------------------------
+    # Callbacks — Vocal Preservation Mode
+    # ------------------------------------------------------------------
+
+    def _on_vp_enable_change(self, sender, app_data, user_data) -> None:
+        enabled = app_data if app_data is not None else dpg.get_value(_t("vp_enabled"))
+        if dpg.does_item_exist(_t("vp_group")):
+            dpg.configure_item(_t("vp_group"), show=bool(enabled))
+
+    def _on_timing_lock_change(self, sender, app_data, user_data) -> None:
+        locked = app_data if app_data is not None else dpg.get_value(_t("vp_timing_lock"))
+        if dpg.does_item_exist(_t("vp_window_group")):
+            dpg.configure_item(_t("vp_window_group"), enabled=bool(locked))
+
+    # ------------------------------------------------------------------
     # Callbacks — audio conditioning
     # ------------------------------------------------------------------
 
@@ -568,9 +670,18 @@ class MusicGenPanel:
         audio_src  = dpg.get_value(_t("audio_src"))         if dpg.does_item_exist(_t("audio_src"))  else "None"
         midi_src   = dpg.get_value(_t("midi_src"))          if dpg.does_item_exist(_t("midi_src"))   else "None"
         stem_label = dpg.get_value(_t("stem_radio"))        if dpg.does_item_exist(_t("stem_radio")) else "None"
+        # Vocal Preservation Mode
+        vp_enabled  = bool(dpg.get_value(_t("vp_enabled")))         if dpg.does_item_exist(_t("vp_enabled"))         else False
+        vp_strength = float(dpg.get_value(_t("vp_strength")))       if dpg.does_item_exist(_t("vp_strength"))        else 0.7
+        vp_lock     = bool(dpg.get_value(_t("vp_timing_lock")))     if dpg.does_item_exist(_t("vp_timing_lock"))     else True
+        vp_win_str  = dpg.get_value(_t("vp_window_size"))           if dpg.does_item_exist(_t("vp_window_size"))     else "10 s"
+        vp_neg      = dpg.get_value(_t("vp_negative_prompt")).strip() if dpg.does_item_exist(_t("vp_negative_prompt")) else ""
+        vp_win_sec  = float(vp_win_str.rstrip(" s") or "10")
         return dict(
             prompt=prompt, duration=duration, steps=steps, cfg=cfg,
             cond_type=cond_type, audio_src=audio_src, midi_src=midi_src, stem_label=stem_label,
+            vp_enabled=vp_enabled, vp_strength=vp_strength, vp_lock=vp_lock,
+            vp_win_sec=vp_win_sec, vp_neg=vp_neg,
         )
 
     def _on_save_click(self, sender, app_data, user_data) -> None:
@@ -641,15 +752,24 @@ class MusicGenPanel:
             elif cond_type == "Mix":
                 init_audio_path = self._mix_path
 
+            vp_enabled = ui["vp_enabled"]
+            # When VP is active, its negative prompt overrides the default.
+            effective_neg = ui["vp_neg"] if vp_enabled and ui["vp_neg"] else "low quality, distorted, noise, clipping"
+
             config = MusicGenConfig(
-                model_name       = _STABLE_AUDIO_MODEL,
-                prompt           = prompt,
-                duration_seconds = duration,
-                steps            = steps,
-                cfg_scale        = cfg,
-                init_audio_path  = init_audio_path,
-                midi_path        = midi_path,
-                output_dir       = _MUSICGEN_DIR,
+                model_name             = _STABLE_AUDIO_MODEL,
+                prompt                 = prompt,
+                duration_seconds       = duration,
+                steps                  = steps,
+                cfg_scale              = cfg,
+                negative_prompt        = effective_neg,
+                init_audio_path        = init_audio_path,
+                midi_path              = midi_path,
+                output_dir             = _MUSICGEN_DIR,
+                vocal_preservation     = vp_enabled,
+                conditioning_strength  = ui["vp_strength"],
+                timing_lock            = ui["vp_lock"],
+                window_size_seconds    = ui["vp_win_sec"],
             )
             self._pipeline.configure(config)
             self._pipeline.set_progress_callback(_progress)

@@ -174,16 +174,36 @@ class MusicGenConfig:
         the text prompt.
     output_dir:
         Directory where the generated WAV is written.
+    vocal_preservation:
+        Enable Vocal Preservation Mode.  When True and *init_audio_path* is
+        set, applies *conditioning_strength* scaling and optional per-window
+        generation (timing_lock).  Degrades gracefully to negative-prompt-
+        only when no audio conditioning source is provided.
+    conditioning_strength:
+        Scales the init audio waveform amplitude before VAE encoding.
+        1.0 = full reference, 0.0 = effectively no audio conditioning.
+        Only applied when *init_audio_path* is set.
+    timing_lock:
+        When True (and *vocal_preservation* is True), divides the source
+        audio into *window_size_seconds* windows and generates each window
+        separately so rhythmic alignment is preserved.  Chunks are joined
+        with a 50 ms crossfade.
+    window_size_seconds:
+        Window length in seconds for timing-locked generation.
     """
-    model_name:       str   = "stabilityai/stable-audio-open-1.0"
-    prompt:           str   = ""
-    duration_seconds: float = 30.0
-    steps:            int   = 100
-    cfg_scale:        float = 7.0
-    negative_prompt:  str   = "low quality, distorted, noise, clipping"
-    init_audio_path:  pathlib.Path | None = None
-    midi_path:        pathlib.Path | None = None
-    output_dir:       pathlib.Path | None = None
+    model_name:            str   = "stabilityai/stable-audio-open-1.0"
+    prompt:                str   = ""
+    duration_seconds:      float = 30.0
+    steps:                 int   = 100
+    cfg_scale:             float = 7.0
+    negative_prompt:       str   = "low quality, distorted, noise, clipping"
+    init_audio_path:       pathlib.Path | None = None
+    midi_path:             pathlib.Path | None = None
+    output_dir:            pathlib.Path | None = None
+    vocal_preservation:    bool  = False
+    conditioning_strength: float = 0.7
+    timing_lock:           bool  = True
+    window_size_seconds:   float = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -293,19 +313,6 @@ class MusicGenPipeline:
         assert self._model_config is not None
         sample_rate: int = self._model_config["sample_rate"]
 
-        # Chunked generation: split durations > 47 s into equal pieces.
-        n_chunks  = max(1, math.ceil(cfg.duration_seconds / _MAX_CHUNK_SECONDS))
-        chunk_dur = cfg.duration_seconds / n_chunks   # evenly distributed
-
-        # Audio init conditioning — truncated to one chunk length.
-        # Only applied to the first chunk so the reference timbre isn't
-        # repeated every 47 s.
-        init_audio_waveforms: torch.Tensor | None = None
-        if cfg.init_audio_path and cfg.init_audio_path.exists():
-            init_audio_waveforms = self._load_init_audio(
-                cfg.init_audio_path, sample_rate, chunk_dur
-            )
-
         # Detect device via transformer parameters
         try:
             device_str = next(self._pipeline.transformer.parameters()).device.type
@@ -314,63 +321,19 @@ class MusicGenPipeline:
 
         self._progress(10.0, f"Generating on {device_str.upper()} …")
 
-        steps = cfg.steps
-        progress_cb = self._progress_cb
-        chunks: list[np.ndarray] = []
+        # ------------------------------------------------------------------
+        # Vocal Preservation Mode — windowed per-window generation
+        # ------------------------------------------------------------------
+        has_audio_cond = cfg.init_audio_path and cfg.init_audio_path.exists()
 
-        for i in range(n_chunks):
-            # Map this chunk's diffusion steps into the 10–90 % progress band.
-            band_start = 10.0 + i       * (80.0 / n_chunks)
-            band_end   = 10.0 + (i + 1) * (80.0 / n_chunks)
-
-            if n_chunks > 1:
-                self._progress(band_start, f"Generating chunk {i + 1}/{n_chunks}…")
-
-            # Capture band values so the closure doesn't read the loop variable.
-            def _step_callback(
-                step: int,
-                timestep: int,
-                latents: torch.Tensor,
-                _ps: float = band_start,
-                _pe: float = band_end,
-            ) -> None:
-                if progress_cb is not None:
-                    pct = _ps + (step / max(steps, 1)) * (_pe - _ps)
-                    try:
-                        progress_cb(pct, f"Generating… {step + 1}/{steps}")
-                    except Exception:
-                        pass
-
-            use_init = init_audio_waveforms if i == 0 else None
-
-            try:
-                pipe_output = self._pipeline(
-                    prompt                     = prompt,
-                    negative_prompt            = cfg.negative_prompt,
-                    audio_end_in_s             = chunk_dur,
-                    num_inference_steps        = cfg.steps,
-                    guidance_scale             = cfg.cfg_scale,
-                    num_waveforms_per_prompt   = 1,
-                    initial_audio_waveforms    = use_init,
-                    initial_audio_sampling_rate=(
-                        torch.tensor(sample_rate) if use_init is not None else None
-                    ),
-                    callback                   = _step_callback,
-                    callback_steps             = 1,
-                    output_type                = "pt",
-                )
-            except Exception as exc:
-                raise PipelineExecutionError(
-                    f"Generation failed on chunk {i + 1}/{n_chunks}: {exc}",
-                    pipeline_name="musicgen",
-                ) from exc
-
-            # audios shape: (1, 2, samples)
-            chunks.append(pipe_output.audios[0].float().cpu().numpy())  # (2, samples)
+        if cfg.vocal_preservation and cfg.timing_lock and has_audio_cond:
+            chunks = self._run_vp_windowed(cfg, prompt, sample_rate)
+        else:
+            chunks = self._run_standard(cfg, prompt, sample_rate, has_audio_cond)
 
         self._progress(92.0, "Writing audio …")
 
-        waveform_np: np.ndarray = np.concatenate(chunks, axis=1)  # (2, total_samples)
+        waveform_np: np.ndarray = self._crossfade_chunks(chunks, sample_rate)
 
         out_dir = cfg.output_dir or (pathlib.Path.home() / "Music" / "StemForge")
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -419,13 +382,232 @@ class MusicGenPipeline:
             except Exception:
                 pass
 
+    # ------------------------------------------------------------------
+    # Generation workers
+    # ------------------------------------------------------------------
+
+    def _make_step_callback(
+        self,
+        steps: int,
+        band_start: float,
+        band_end: float,
+    ) -> Callable:
+        """Return a diffusion step callback scoped to a progress band."""
+        progress_cb = self._progress_cb
+
+        def _cb(step: int, timestep: int, latents: torch.Tensor) -> None:
+            if progress_cb is not None:
+                pct = band_start + (step / max(steps, 1)) * (band_end - band_start)
+                try:
+                    progress_cb(pct, f"Generating… {step + 1}/{steps}")
+                except Exception:
+                    pass
+
+        return _cb
+
+    def _call_pipeline(
+        self,
+        prompt: str,
+        negative_prompt: str,
+        duration: float,
+        steps: int,
+        cfg_scale: float,
+        sample_rate: int,
+        init_waveforms: torch.Tensor | None,
+        step_callback: Callable,
+        chunk_label: str,
+    ) -> np.ndarray:
+        """Call the StableAudioPipeline for one segment, return (2, samples)."""
+        try:
+            pipe_output = self._pipeline(
+                prompt                      = prompt,
+                negative_prompt             = negative_prompt,
+                audio_end_in_s              = duration,
+                num_inference_steps         = steps,
+                guidance_scale              = cfg_scale,
+                num_waveforms_per_prompt    = 1,
+                initial_audio_waveforms     = init_waveforms,
+                initial_audio_sampling_rate = (
+                    torch.tensor(sample_rate) if init_waveforms is not None else None
+                ),
+                callback                    = step_callback,
+                callback_steps              = 1,
+                output_type                 = "pt",
+            )
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"Generation failed on {chunk_label}: {exc}",
+                pipeline_name="musicgen",
+            ) from exc
+        return pipe_output.audios[0].float().cpu().numpy()  # (2, samples)
+
+    def _run_standard(
+        self,
+        cfg: "MusicGenConfig",
+        prompt: str,
+        sample_rate: int,
+        has_audio_cond: bool,
+    ) -> list[np.ndarray]:
+        """Standard chunked generation (durations > 47 s split into pieces).
+
+        Audio conditioning is applied to the first chunk only so the
+        reference timbre is not repeated on every 47-second boundary.
+        """
+        n_chunks  = max(1, math.ceil(cfg.duration_seconds / _MAX_CHUNK_SECONDS))
+        chunk_dur = cfg.duration_seconds / n_chunks
+
+        strength = cfg.conditioning_strength if cfg.vocal_preservation else 1.0
+        init_audio: torch.Tensor | None = None
+        if has_audio_cond:
+            init_audio = self._load_init_audio(
+                cfg.init_audio_path, sample_rate, chunk_dur, strength=strength
+            )
+
+        chunks: list[np.ndarray] = []
+        for i in range(n_chunks):
+            band_start = 10.0 + i       * (80.0 / n_chunks)
+            band_end   = 10.0 + (i + 1) * (80.0 / n_chunks)
+            if n_chunks > 1:
+                self._progress(band_start, f"Generating chunk {i + 1}/{n_chunks}…")
+            chunk = self._call_pipeline(
+                prompt          = prompt,
+                negative_prompt = cfg.negative_prompt,
+                duration        = chunk_dur,
+                steps           = cfg.steps,
+                cfg_scale       = cfg.cfg_scale,
+                sample_rate     = sample_rate,
+                init_waveforms  = init_audio if i == 0 else None,
+                step_callback   = self._make_step_callback(cfg.steps, band_start, band_end),
+                chunk_label     = f"chunk {i + 1}/{n_chunks}",
+            )
+            chunks.append(chunk)
+        return chunks
+
+    def _run_vp_windowed(
+        self,
+        cfg: "MusicGenConfig",
+        prompt: str,
+        sample_rate: int,
+    ) -> list[np.ndarray]:
+        """Vocal Preservation windowed generation.
+
+        Divides the source audio into ``cfg.window_size_seconds`` windows.
+        Each window is generated separately conditioned on the corresponding
+        audio slice, preserving rhythmic alignment across the full duration.
+        """
+        win_sec = min(cfg.window_size_seconds, _MAX_CHUNK_SECONDS)
+        n_windows = max(1, math.ceil(cfg.duration_seconds / win_sec))
+
+        # Load full source audio once
+        full_np, _ = read_audio(cfg.init_audio_path, mono=False, target_rate=sample_rate)
+        if full_np.shape[0] == 1:
+            full_np = np.concatenate([full_np, full_np], axis=0)
+        full_np = full_np.astype(np.float32) * float(cfg.conditioning_strength)
+
+        win_samples = int(win_sec * sample_rate)
+        chunks: list[np.ndarray] = []
+
+        for i in range(n_windows):
+            band_start = 10.0 + i       * (80.0 / n_windows)
+            band_end   = 10.0 + (i + 1) * (80.0 / n_windows)
+            self._progress(band_start, f"VP window {i + 1}/{n_windows}…")
+
+            src_start = i * win_samples
+            src_end   = src_start + win_samples
+            if src_start < full_np.shape[1]:
+                window_np = full_np[:, src_start:src_end]
+                # Pad with silence if the source is shorter than the window
+                if window_np.shape[1] < win_samples:
+                    pad = np.zeros((2, win_samples - window_np.shape[1]), dtype=np.float32)
+                    window_np = np.concatenate([window_np, pad], axis=1)
+            else:
+                # Source exhausted — generate without audio conditioning
+                window_np = None  # type: ignore[assignment]
+
+            init_tensor = self._array_to_tensor(window_np) if window_np is not None else None
+
+            chunk = self._call_pipeline(
+                prompt          = prompt,
+                negative_prompt = cfg.negative_prompt,
+                duration        = win_sec,
+                steps           = cfg.steps,
+                cfg_scale       = cfg.cfg_scale,
+                sample_rate     = sample_rate,
+                init_waveforms  = init_tensor,
+                step_callback   = self._make_step_callback(cfg.steps, band_start, band_end),
+                chunk_label     = f"VP window {i + 1}/{n_windows}",
+            )
+            chunks.append(chunk)
+        return chunks
+
+    # ------------------------------------------------------------------
+    # Tensor / audio helpers
+    # ------------------------------------------------------------------
+
+    def _array_to_tensor(self, waveform_np: np.ndarray) -> torch.Tensor:
+        """Convert a (2, samples) float32 array to a pipeline-compatible tensor.
+
+        Returns shape ``(1, 2, samples)`` on the model's device and dtype.
+        """
+        tensor = torch.from_numpy(waveform_np.astype(np.float32)).unsqueeze(0)
+        try:
+            param = next(self._pipeline.transformer.parameters())
+            tensor = tensor.to(device=param.device, dtype=param.dtype)
+        except Exception:
+            pass
+        return tensor
+
+    def _crossfade_chunks(
+        self,
+        chunks: list[np.ndarray],
+        sr: int,
+        fade_ms: float = 50.0,
+    ) -> np.ndarray:
+        """Join a list of (2, samples) arrays with a linear crossfade.
+
+        Parameters
+        ----------
+        chunks:
+            List of stereo arrays to join in order.
+        sr:
+            Sample rate, used to convert *fade_ms* to samples.
+        fade_ms:
+            Crossfade duration in milliseconds (default 50 ms).
+        """
+        if len(chunks) == 1:
+            return chunks[0]
+        fade_n = min(int(fade_ms / 1000.0 * sr), chunks[0].shape[1] // 2)
+        if fade_n == 0:
+            return np.concatenate(chunks, axis=1)
+
+        fade_out = np.linspace(1.0, 0.0, fade_n, dtype=np.float32)
+        fade_in  = np.linspace(0.0, 1.0, fade_n, dtype=np.float32)
+
+        result = chunks[0]
+        for nxt in chunks[1:]:
+            tail   = result[:, -fade_n:] * fade_out
+            head   = nxt[:, :fade_n]     * fade_in
+            overlap = tail + head
+            result = np.concatenate(
+                [result[:, :-fade_n], overlap, nxt[:, fade_n:]],
+                axis=1,
+            )
+        return result
+
     def _load_init_audio(
         self,
         path: pathlib.Path,
         target_sr: int,
         seconds: float,
+        strength: float = 1.0,
     ) -> torch.Tensor:
         """Load *path*, resample to *target_sr*, truncate to *seconds*.
+
+        Parameters
+        ----------
+        strength:
+            Multiplier applied to the waveform before encoding.
+            1.0 = full reference, 0.0 = silence.
 
         Returns a tensor of shape ``(1, 2, samples)`` on the pipeline's
         device, suitable for ``initial_audio_waveforms``.
@@ -437,11 +619,6 @@ class MusicGenPipeline:
         # Truncate to target duration
         target_samples = int(target_sr * seconds)
         waveform_np = waveform_np[:, :target_samples]
-
-        tensor = torch.from_numpy(waveform_np.astype(np.float32)).unsqueeze(0)  # (1, 2, samples)
-        try:
-            param = next(self._pipeline.transformer.parameters())
-            tensor = tensor.to(device=param.device, dtype=param.dtype)
-        except Exception:
-            pass
-        return tensor
+        if strength != 1.0:
+            waveform_np = waveform_np * float(strength)
+        return self._array_to_tensor(waveform_np)
