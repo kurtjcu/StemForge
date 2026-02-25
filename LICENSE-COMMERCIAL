@@ -1,113 +1,186 @@
-StemForge Commercial License Agreement
+# StemForge Licensing & Pricing
 
-[ TEMPLATE — TERMS NOT YET FINALIZED ]
-
-For licensing inquiries contact: tsondo@gmail.com
+StemForge uses a hybrid licensing model designed to support hobbyists, researchers, indie developers, and commercial teams. Non‑commercial use is free. Commercial and enterprise use require a paid license.
 
 ---
 
-This Commercial License Agreement ("Agreement") is entered into between
-[LICENSOR NAME] ("Licensor") and the entity or individual identified in
-the Order Form ("Licensee").
+## License Tiers
+
+### Non‑Commercial License — Free
+For personal, academic, research, and hobby use. No revenue may be generated from products or services using StemForge.
+
+Rights included:
+- Use StemForge locally
+- Modify for personal or research use
+- Publish non‑commercial results
+
+Restrictions:
+- No commercial distribution
+- No integration into paid products or services
 
 ---
+
+### Commercial License — $2,000/year
+For individuals, startups, and small teams using StemForge in a revenue‑generating product or service.
+
+Rights included:
+- Commercial use
+- Internal modification
+- Distribution as part of a commercial product
+- Use in cloud/on‑prem deployments
+- Access to updates and bug fixes
+
+Restrictions:
+- No sublicensing
+- No redistribution of the standalone model or weights
+- No competing products built on top of StemForge
+
+---
+
+### Enterprise License — $10,000/year
+For companies requiring scale, support, or redistribution rights.
+
+Everything in Commercial, plus:
+- Priority support
+- Faster response times
+- Multi‑deployment rights
+- Internal redistribution across teams
+- Optional custom terms
+
+---
+
+### OEM / Custom Licensing — $25,000+
+For hardware vendors, DAW companies, cloud platforms, or large-scale integrations.
+
+Includes:
+- Full redistribution rights
+- Source‑level access (optional)
+- Dedicated support
+- Custom SLAs
+- Long‑term licensing options
+
+Contact: **tsondo@gmail.com**
+
+---
+
+## How to Purchase
+Submit the Order Form below to initiate licensing. Invoices are issued with **Net 30** payment terms.
+
+---
+
+# StemForge Commercial Order Form
+
+**StemForge Commercial License — Order Form**
+
+**Company Name:** ___________________________________________
+
+**Contact Name:** ___________________________________________
+
+**Email:** _________________________________________________
+
+**Address:** _______________________________________________
+
+**License Tier (select one):**
+- ☐ Commercial License — $2,000/year
+- ☐ Enterprise License — $10,000/year
+- ☐ OEM / Custom — Contact for quote
+
+**Intended Product or Service:**
+_____________________________________________________________
+
+**Number of Deployments (if applicable):**
+_____________________________________________________________
+
+**Effective Date:** __________________________________________
+
+**Payment Method:**
+- ☐ Bank transfer
+- ☐ Credit card
+- ☐ Other: ________________________________________________
+
+**Signature (Licensee):** ____________________________________
+**Date:** ___________________
+
+**Signature (Licensor):** ____________________________________
+**Date:** ___________________
+
+---
+
+# StemForge Commercial License Agreement
+
+This Commercial License Agreement (“Agreement”) is entered into between **[LICENSOR NAME]** (“Licensor”) and the entity or individual identified in the Order Form (“Licensee”).
 
 ## 1. Grant of License
+Upon payment of applicable fees, Licensor grants Licensee a **non‑exclusive**, **worldwide**, **non‑transferable**, **non‑sublicensable** license to:
 
-Subject to the terms of this Agreement and payment of applicable fees,
-Licensor grants Licensee a [SCOPE: e.g. non-exclusive / exclusive],
-[TERRITORY: e.g. worldwide], non-sublicensable license to:
+- Use StemForge in a commercial product or service
+- Modify StemForge for internal commercial use
+- Distribute StemForge only as an integrated component of Licensee’s product
+- Receive updates and bug fixes during the license term
 
-- [ ] Use StemForge in a commercial product or service
-- [ ] Distribute StemForge as part of a product or service
-- [ ] Modify StemForge for internal commercial use
-- [ ] Other: _______________
+No rights are granted except those expressly stated.
 
 ## 2. License Scope
+The license tier selected in the Order Form determines permitted usage:
 
-[ DEFINE: per-seat / per-deployment / per-revenue-tier / site license / OEM ]
+- **Commercial License ($2,000/year):** single organization, unlimited internal users, distribution as part of one commercial product.
+- **Enterprise License ($10,000/year):** multi‑team internal use, multi‑deployment rights, priority support.
+- **OEM / Custom ($25,000+):** redistribution rights, large‑scale integration, optional source access.
 
-Number of authorized users/seats: _______________
-Product or service licensed for: _______________
+Any use outside the selected tier requires a separate license.
 
 ## 3. Fees and Payment
+Fees are specified in the Order Form.
 
-[ DEFINE: one-time fee / annual subscription / revenue share / other ]
-
-License fee: _______________
-Payment schedule: _______________
-Late payment terms: _______________
+- Payment terms: **Net 30**
+- Fees are **non‑refundable**
+- Late payments accrue **1.5% monthly interest** or the maximum allowed by law
 
 ## 4. Term
-
-This Agreement begins on the Effective Date and continues for
-[ DEFINE: perpetual / 1 year / other ] unless terminated earlier under
-Section 7.
+This Agreement begins on the Effective Date and continues for **one (1) year**, automatically renewing unless either party provides 30 days’ written notice.
 
 ## 5. Restrictions
-
 Licensee may not:
 
-- Sublicense or resell this license without written consent from Licensor
-- Remove or alter copyright notices or attribution in the software
-- Use the software in a manner that competes directly with Licensor's
-  commercial offerings
-- [ ADD any product-specific restrictions ]
+- Sublicense or resell StemForge
+- Redistribute the standalone model, weights, or source code
+- Remove copyright notices
+- Use StemForge to build a directly competing product
+- Exceed the scope of the selected license tier
 
 ## 6. Intellectual Property
-
-All title and intellectual property rights in the software remain with
-Licensor. This Agreement does not transfer ownership of the software.
+StemForge remains the sole property of Licensor. No ownership rights are transferred.
 
 ## 7. Termination
+Licensor may terminate this Agreement if Licensee:
 
-Licensor may terminate this Agreement immediately on written notice if:
+- Fails to pay fees within 45 days
+- Materially breaches this Agreement and fails to cure within 30 days
+- Becomes insolvent or enters bankruptcy
 
-- Licensee materially breaches this Agreement and fails to cure within
-  30 days of written notice
-- Licensee becomes insolvent or files for bankruptcy
-- [ ADD other termination triggers ]
-
-Upon termination, Licensee must cease all use and destroy all copies of
-the software.
+Upon termination, Licensee must cease all use and destroy all copies.
 
 ## 8. Warranty and Support
+StemForge is provided **“as is”**.
 
-[ DEFINE: as-is / limited warranty / support SLA ]
+Support levels depend on license tier:
 
-The software is provided _______________. Licensor [ will / will not ]
-provide:
-
-- Bug fixes: _______________
-- Feature updates: _______________
-- Email/ticket support: _______________
-- Response time SLA: _______________
+- Commercial: updates + reasonable‑effort bug fixes
+- Enterprise: priority support + faster response times
+- OEM: custom SLA
 
 ## 9. Limitation of Liability
-
-[ DEFINE cap — typically license fees paid in prior 12 months ]
-
-In no event will either party be liable for indirect, incidental, or
-consequential damages. Licensor's total liability will not exceed
-_______________.
+Licensor’s total liability is limited to **fees paid in the preceding 12 months**. Neither party is liable for indirect or consequential damages.
 
 ## 10. Governing Law
-
-This Agreement is governed by the laws of [ JURISDICTION ], without
-regard to conflict of law principles.
+This Agreement is governed by the laws of **Delaware, USA**, unless otherwise agreed in writing.
 
 ## 11. Entire Agreement
-
-This Agreement, together with any Order Form, constitutes the entire
-agreement between the parties regarding the subject matter hereof and
-supersedes all prior agreements.
+This Agreement and the Order Form constitute the entire agreement between the parties.
 
 ---
 
-Licensor: ___________________________  Date: ____________
-
-Licensee: ___________________________  Date: ____________
-
-Title:    ___________________________
-
-Company:  ___________________________
+**Licensor:** ___________________________ Date: ____________
+**Licensee:** ___________________________ Date: ____________
+**Title:** ___________________________
+**Company:** ___________________________
