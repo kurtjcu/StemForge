@@ -31,8 +31,6 @@ GUI is **DearPyGUI** (`gui/app.py`). Run with `stemforge` console script or `pyt
    - Add `BasicPitchPanel.notify_stems_ready(stem_paths)` to update the combo items to only the available stems and show a "ready" status line.
    - Wire them in `app.py`: `_demucs.add_result_listener(_basicpitch.notify_stems_ready)`.
 
-2. **Font size too small** — DearPyGUI renders at its default tiny size. Fix: add a `_setup_fonts()` function in `app.py` that loads a system TTF (e.g. `/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf`) at ~16px via `dpg.add_font_registry()` and `dpg.bind_font()`. Need to verify font paths on Fedora 43 first (`fc-list`).
-
 ---
 
 ## Project structure
@@ -112,7 +110,7 @@ All under `~/.local/share/stemforge/output/`:
 
 ## DearPyGUI UI (`gui/app.py`)
 
-Viewport: 1280 × 820, min 900 × 600. Four tabs plus a persistent top bar.
+Viewport: screen-aware via `_get_viewport_size()` (~90% of primary monitor, fallback 1280 × 820), min 900 × 600. Four tabs plus a persistent top bar.
 
 | Tab label | Panel | Status |
 |---|---|---|
@@ -121,7 +119,7 @@ Viewport: 1280 × 820, min 900 × 600. Four tabs plus a persistent top bar.
 | Generate | `MusicGenPanel` | stub |
 | Export | `ExportPanel` | stub |
 
-Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button.
+Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button. Header row also contains a **UI Scale** slider (0.8–2.0, default 1.3) that calls `dpg.set_global_font_scale()`.
 
 File dialogs are registered at top level (outside all windows) before the render loop.
 
@@ -199,7 +197,7 @@ Default sample rates:
 `demucs>=4.0.0`, `basic-pitch>=0.3.0`, `audiocraft>=1.3.0`, `torch>=2.1.0`,
 `torchaudio>=2.1.0`, `numpy>=1.24.0`, `scipy>=1.11.0`, `librosa>=0.10.0`,
 `soundfile>=0.12.0`, `mido>=1.3.2`, `dearpygui>=1.11.0`, `sounddevice>=0.4.0`,
-`tomli>=2.0.0; python_version < '3.11'`
+`screeninfo>=0.8.0`, `tomli>=2.0.0; python_version < '3.11'`
 
 Optional: `[cuda]` for GPU wheels, `[dev]` for pytest/ruff/mypy/pre-commit.
 

@@ -36,8 +36,23 @@ from gui.icons import load_icons, LOGO_TAG, LOGO_SIZE, LOGO_TAG_256, LOGO_SIZE_2
 
 log = logging.getLogger("stemforge.gui.app")
 
-_VP_WIDTH  = 1280
-_VP_HEIGHT = 820
+_VP_FALLBACK = (1280, 820)
+
+
+def _get_viewport_size() -> tuple[int, int]:
+    """Return (width, height) at ~90% of the primary monitor, or fallback."""
+    try:
+        import screeninfo
+        monitors = screeninfo.get_monitors()
+        if monitors:
+            primary = next(
+                (m for m in monitors if getattr(m, "is_primary", False)),
+                monitors[0],
+            )
+            return int(primary.width * 0.9), int(primary.height * 0.9)
+    except Exception as exc:
+        log.debug("screeninfo monitor detection failed: %s", exc)
+    return _VP_FALLBACK
 
 
 # ---------------------------------------------------------------------------
@@ -61,7 +76,7 @@ _FONT_CANDIDATES = [
 
 
 def _setup_fonts() -> None:
-    """Load DejaVuSans at 18 px and bind it as the global default font."""
+    """Load DejaVuSans at 18 px, bind it as the global default font, and set initial scale."""
     font_path: pathlib.Path | None = None
     for candidate in _FONT_CANDIDATES:
         p = pathlib.Path(candidate)
@@ -71,12 +86,13 @@ def _setup_fonts() -> None:
 
     if font_path is None:
         log.warning("DejaVuSans.ttf not found — using DearPyGUI built-in font size")
-        return
+    else:
+        with dpg.font_registry():
+            default_font = dpg.add_font(str(font_path), 18)
+        dpg.bind_font(default_font)
+        log.info("Loaded font: %s", font_path)
 
-    with dpg.font_registry():
-        default_font = dpg.add_font(str(font_path), 18)
-    dpg.bind_font(default_font)
-    log.info("Loaded font: %s", font_path)
+    dpg.set_global_font_scale(1.3)
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +352,7 @@ def main() -> None:
     # ---- Primary window ------------------------------------------------
     with dpg.window(tag="primary_window"):
 
-        # App header — logo (clickable → About) + tagline
+        # App header — logo (clickable → About) + tagline + UI Scale slider
         with dpg.group(horizontal=True):
             if dpg.does_item_exist(LOGO_TAG):
                 dpg.add_image_button(
@@ -355,6 +371,20 @@ def main() -> None:
                     "Stem | Midi | Mix | AI",
                     color=(180, 150, 90, 255),
                 )
+            dpg.add_spacer(width=24)
+            with dpg.group():
+                dpg.add_spacer(height=14)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("UI Scale", color=(160, 160, 180, 255))
+                    dpg.add_slider_float(
+                        tag="ui_scale_slider",
+                        default_value=1.3,
+                        min_value=0.8,
+                        max_value=2.0,
+                        format="%.1f",
+                        width=110,
+                        callback=lambda s, v, u: dpg.set_global_font_scale(v),
+                    )
         dpg.add_separator()
         dpg.add_spacer(height=4)
 
@@ -386,10 +416,11 @@ def main() -> None:
     _icon_32  = str(_icon_dir / "logo_32.png")
     _icon_256 = str(_icon_dir / "logo_256.png")
 
+    _vp_w, _vp_h = _get_viewport_size()
     dpg.create_viewport(
         title="StemForge",
-        width=_VP_WIDTH,
-        height=_VP_HEIGHT,
+        width=_vp_w,
+        height=_vp_h,
         min_width=900,
         min_height=600,
         small_icon=_icon_32  if (_icon_dir / "logo_32.png").exists()  else "",
