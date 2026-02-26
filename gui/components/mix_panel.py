@@ -355,13 +355,13 @@ class MixPanel:
             dpg.add_spacer(width=6)
             sf2_str = (
                 str(self._sf2_path) if self._sf2_path
-                else "(none — install fluid-soundfont-gm)"
+                else "(none - install fluid-soundfont-gm)"
             )
             dpg.add_input_text(
                 tag=_t("sf2_path"),
                 default_value=sf2_str,
                 readonly=True,
-                width=400,
+                width=-110,
             )
             dpg.add_spacer(width=6)
             dpg.add_button(
@@ -440,18 +440,18 @@ class MixPanel:
             dpg.add_button(
                 label="Copy path",
                 callback=make_copy_callback(_t("result_file")),
-                width=80,
+                width=130,
             )
             dpg.add_button(
                 label="Save as",
                 tag=_t("save_btn"),
                 callback=self._on_save_as,
-                width=80,
+                width=110,
                 enabled=False,
             )
         dpg.add_spacer(height=4)
         dpg.add_text(
-            "Note: vocal MIDI uses GM choir — no lyrics.",
+            "Note: vocal MIDI uses GM choir - no lyrics.",
             color=(100, 100, 120, 255),
         )
 
@@ -1127,7 +1127,7 @@ class MixPanel:
                     pass
 
             dm, ds = divmod(int(self._mix_duration), 60)
-            self._set_status(f"Done — {dm}:{ds:02d}")
+            self._set_status(f"Done - {dm}:{ds:02d}")
 
             dur_text = f"Duration: {self._mix_duration:.1f} s · 44100 Hz · FLAC"
             path_str = str(out_path)
@@ -1167,7 +1167,7 @@ class MixPanel:
 
         if state.source == "midi" and label in all_midi:
             if self._sf2_path is None:
-                self._set_status("No soundfont — install fluid-soundfont-gm.")
+                self._set_status("No soundfont - install fluid-soundfont-gm.")
                 return None
             try:
                 import copy

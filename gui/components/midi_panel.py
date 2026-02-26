@@ -705,7 +705,7 @@ class MidiPanel:
                     dpg.add_button(
                         label="Save as...",
                         callback=self._make_save_cb(midi_obj),
-                        width=90,
+                        width=130,
                     )
 
                     dpg.add_separator()
@@ -845,7 +845,7 @@ class MidiPanel:
                 dpg.set_value(_t("progress"), 1.0)
             schedule_ui(_show_results)
 
-            set_widget_text(_t("midi_file"), "(not saved — click Save merged to write)")
+            set_widget_text(_t("midi_file"), "(not saved - click Save merged to write)")
             set_widget_text(
                 _t("status"),
                 f"Done - {total} notes, {track_count} track(s)",

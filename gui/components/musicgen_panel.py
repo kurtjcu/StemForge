@@ -259,11 +259,11 @@ class MusicGenPanel:
                 with dpg.tooltip(dpg.last_item()):
                     dpg.add_text(
                         "Choose one conditioning input to guide generation.\n\n"
-                        "Audio — reference audio clip (stem or file).\n"
+                        "Audio - reference audio clip (stem or file).\n"
                         "        The model blends its latent with your prompt.\n\n"
-                        "MIDI  — MIDI file provides BPM, key, and instruments\n"
+                        "MIDI  - MIDI file provides BPM, key, and instruments\n"
                         "        which are appended to your text prompt.\n\n"
-                        "Mix   — use the rendered mix from the Mix tab as the\n"
+                        "Mix   - use the rendered mix from the Mix tab as the\n"
                         "        audio conditioning reference."
                     )
                 dpg.add_combo(
@@ -788,7 +788,7 @@ class MusicGenPanel:
             set_widget_text(_t("audio_file"), str(result.audio_path))
             self._waveform.load_async(result.audio_path)
             schedule_ui(lambda: dpg.configure_item(_t("save_btn"), enabled=True))
-            _progress(100.0, f"Done — {result.duration_seconds:.1f} s")
+            _progress(100.0, f"Done - {result.duration_seconds:.1f} s")
             for cb in self._result_listeners:
                 try:
                     cb(result.audio_path)
@@ -801,15 +801,15 @@ class MusicGenPanel:
             if any(kw in msg.lower() for kw in ("gated", "403", "401", "authorized", "token", "login")):
                 set_widget_text(
                     _t("status"),
-                    "HuggingFace auth required — set HF_TOKEN in .env "
+                    "HuggingFace auth required - set HF_TOKEN in .env "
                     "or run: huggingface-cli login",
                 )
             else:
-                set_widget_text(_t("status"), "Model load failed — see log for details")
+                set_widget_text(_t("status"), "Model load failed - see log for details")
             schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         except Exception as exc:
             log.exception("Generation failed")
-            set_widget_text(_t("status"), f"Error — see log for details: {type(exc).__name__}")
+            set_widget_text(_t("status"), f"Error - see log for details: {type(exc).__name__}")
             schedule_ui(lambda: dpg.set_value(_t("progress"), 0.0))
         finally:
             schedule_ui(lambda: dpg.configure_item(_t("run_btn"), enabled=True))
