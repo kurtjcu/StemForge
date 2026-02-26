@@ -82,7 +82,7 @@ class LoaderPanel:
             dpg.add_button(
                 label="Copy",
                 callback=make_copy_callback(_TAG_INFO),
-                width=50,
+                width=90,
             )
             dpg.add_text(default_value="", tag=_TAG_INFO, color=(160, 160, 160, 255))
 

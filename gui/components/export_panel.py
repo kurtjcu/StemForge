@@ -150,7 +150,7 @@ class ExportPanel:
                     dpg.add_button(
                         label="Copy",
                         callback=make_copy_callback(_t("status")),
-                        width=50,
+                        width=90,
                     )
                     dpg.add_text(default_value="", tag=_t("status"), color=(160, 160, 160, 255))
 

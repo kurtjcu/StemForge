@@ -417,7 +417,7 @@ class MidiPanel:
                     dpg.add_button(
                         label="Copy",
                         callback=make_copy_callback(_t("status")),
-                        width=50,
+                        width=90,
                     )
                     dpg.add_text(
                         default_value="",
@@ -456,7 +456,7 @@ class MidiPanel:
                         label="Save merged",
                         tag=_t("save_merged_btn"),
                         callback=self._on_save_merged_click,
-                        width=150,
+                        width=180,
                         enabled=False,
                     )
                     with dpg.tooltip(dpg.last_item()):
