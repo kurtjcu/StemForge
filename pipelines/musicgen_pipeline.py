@@ -459,8 +459,10 @@ class MusicGenPipeline:
         strength = cfg.conditioning_strength if cfg.vocal_preservation else 1.0
         init_audio: torch.Tensor | None = None
         if has_audio_cond:
+            # Pass a full _MAX_CHUNK_SECONDS window so the model's internal
+            # buffer is filled and no silence padding dilutes conditioning.
             init_audio = self._load_init_audio(
-                cfg.init_audio_path, sample_rate, chunk_dur, strength=strength
+                cfg.init_audio_path, sample_rate, _MAX_CHUNK_SECONDS, strength=strength
             )
 
         chunks: list[np.ndarray] = []
@@ -504,7 +506,10 @@ class MusicGenPipeline:
             full_np = np.concatenate([full_np, full_np], axis=0)
         full_np = full_np.astype(np.float32) * float(cfg.conditioning_strength)
 
-        win_samples = int(win_sec * sample_rate)
+        win_samples  = int(win_sec * sample_rate)
+        # Always give the model a full _MAX_CHUNK_SECONDS conditioning slice
+        # so its internal buffer is filled and no silence dilutes the signal.
+        cond_samples = int(_MAX_CHUNK_SECONDS * sample_rate)
         chunks: list[np.ndarray] = []
 
         for i in range(n_windows):
@@ -513,12 +518,11 @@ class MusicGenPipeline:
             self._progress(band_start, f"VP window {i + 1}/{n_windows}…")
 
             src_start = i * win_samples
-            src_end   = src_start + win_samples
             if src_start < full_np.shape[1]:
-                window_np = full_np[:, src_start:src_end]
-                # Pad with silence if the source is shorter than the window
-                if window_np.shape[1] < win_samples:
-                    pad = np.zeros((2, win_samples - window_np.shape[1]), dtype=np.float32)
+                window_np = full_np[:, src_start:src_start + cond_samples]
+                # Pad with silence only if the source ends before cond_samples
+                if window_np.shape[1] < cond_samples:
+                    pad = np.zeros((2, cond_samples - window_np.shape[1]), dtype=np.float32)
                     window_np = np.concatenate([window_np, pad], axis=1)
             else:
                 # Source exhausted — generate without audio conditioning
