@@ -336,7 +336,7 @@ class MixPanel:
             dpg.add_button(
                 label="Copy",
                 callback=make_copy_callback(_t("status")),
-                width=46,
+                width=80,
             )
             dpg.add_text(
                 "Ready",
@@ -367,7 +367,6 @@ class MixPanel:
             dpg.add_button(
                 label="Browse",
                 callback=self._on_sf2_browse,
-                height=22,
             )
 
         dpg.add_spacer(height=8)
@@ -381,7 +380,6 @@ class MixPanel:
             dpg.add_button(
                 label="+ Audio file",
                 callback=self._on_add_audio_click,
-                height=22,
             )
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text("Load an audio file (wav/flac/mp3) as an additional track.")
@@ -389,7 +387,6 @@ class MixPanel:
             dpg.add_button(
                 label="+ MIDI file",
                 callback=self._on_add_midi_click,
-                height=22,
             )
             with dpg.tooltip(dpg.last_item()):
                 dpg.add_text("Load a MIDI file as an additional track.")
