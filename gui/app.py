@@ -176,6 +176,21 @@ def _open_file(path: pathlib.Path) -> None:
 
 def _build_about_window() -> None:
     """Create the hidden About modal.  Call once before the render loop."""
+    # Inner content width = window width minus default WindowPadding (8px each side).
+    # Used to compute centred indent for headings and buttons.
+    _IW = 404  # 420 - 2*8
+
+    def _heading(label: str, color: tuple) -> None:
+        """Render *label* horizontally centred using approximate char-width estimation."""
+        # DejaVuSans at 20 px with global scale 1.3 => ~26 px effective.
+        # Average proportional char width is roughly 14 px at that size.
+        indent = max(0, int((_IW - len(label) * 14) // 2))
+        dpg.add_text(label, color=color, indent=indent)
+
+    def _centered_button(label: str, width: int, callback) -> None:
+        indent = max(0, (_IW - width) // 2)
+        dpg.add_button(label=label, width=width, indent=indent, callback=callback)
+
     with dpg.window(
         tag=_ABOUT_TAG,
         label="About StemForge",
@@ -187,18 +202,18 @@ def _build_about_window() -> None:
     ):
         # Logo centred
         if dpg.does_item_exist(LOGO_TAG_256):
-            pad = max(0, (420 - LOGO_SIZE_256) // 2 - 16)   # approx centre
+            pad = max(0, (420 - LOGO_SIZE_256) // 2 - 16)
             with dpg.group(horizontal=True):
                 dpg.add_spacer(width=pad)
                 dpg.add_image(LOGO_TAG_256, width=LOGO_SIZE_256, height=LOGO_SIZE_256)
 
         dpg.add_spacer(height=8)
 
-        # App name + version
-        dpg.add_text("StemForge", color=(200, 175, 100, 255))
-        dpg.add_text(f"Version {_APP_VERSION}", color=(160, 160, 180, 255))
+        # App name + version (centred headings)
+        _heading("StemForge", color=(200, 175, 100, 255))
+        _heading(f"Version {_APP_VERSION}", color=(160, 160, 180, 255))
         dpg.add_text(
-            "AI-powered audio processing — source separation,\n"
+            "AI-powered audio processing - source separation,\n"
             "MIDI extraction, mixing, and generative audio.",
             color=(140, 140, 160, 255),
             wrap=390,
@@ -208,46 +223,38 @@ def _build_about_window() -> None:
         dpg.add_separator()
         dpg.add_spacer(height=6)
 
-        # Copyright
+        # Copyright (left-justified body text)
         dpg.add_text(_COPYRIGHT, color=(200, 200, 210, 255))
 
         dpg.add_spacer(height=8)
 
         # License — free tier
-        dpg.add_text("License", color=(175, 175, 255, 255))
+        _heading("License", color=(175, 175, 255, 255))
         dpg.add_text(
             f"Free for personal and non-commercial use under\nthe {_LICENSE_SHORT}.",
             color=(140, 140, 160, 255),
             wrap=390,
         )
         dpg.add_spacer(height=4)
-        dpg.add_button(
-            label="Open LICENSE",
-            callback=lambda: _open_file(_LICENSE_PATH),
-            width=160,
-        )
+        _centered_button("Open LICENSE", 220, lambda: _open_file(_LICENSE_PATH))
 
         dpg.add_spacer(height=8)
 
         # Commercial license
-        dpg.add_text("Commercial licensing", color=(175, 175, 255, 255))
+        _heading("Commercial licensing", color=(175, 175, 255, 255))
         dpg.add_text(
             f"A separate commercial licence is available.\nContact: {_CONTACT}",
             color=(140, 140, 160, 255),
             wrap=390,
         )
         dpg.add_spacer(height=4)
-        dpg.add_button(
-            label="Open LICENSE-COMMERCIAL",
-            callback=lambda: _open_file(_LICENSE_COMM),
-            width=220,
-        )
+        _centered_button("Open LICENSE-COMMERCIAL", 340, lambda: _open_file(_LICENSE_COMM))
 
         dpg.add_spacer(height=12)
         dpg.add_separator()
         dpg.add_spacer(height=8)
 
-        # Close button
+        # Close button — full width, naturally centred
         dpg.add_button(
             label="  Close  ",
             callback=lambda: dpg.configure_item(_ABOUT_TAG, show=False),
