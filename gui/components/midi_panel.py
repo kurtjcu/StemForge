@@ -291,84 +291,41 @@ class MidiPanel:
                         dpg.add_text("Restore Sensitivity, Sustain, and Shortest note to defaults.")
                 dpg.add_spacer(height=8)
 
-                with dpg.group(horizontal=True):
-                    # -- Sensitivity knob --
-                    with dpg.group():
-                        dpg.add_text("Sensitivity", color=(140, 140, 180, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How easily new notes are detected.\n"
-                                "Lower: picks up quiet or soft attacks.\n"
-                                "Higher: only strong, clear onsets register."
-                            )
-                        dpg.add_knob_float(
-                            tag=_t("onset"),
-                            min_value=_BP_ONSET_RANGE[0],
-                            max_value=_BP_ONSET_RANGE[1],
-                            default_value=_BP_ONSET_DEFAULT,
-                            enabled=False,
-                        )
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How easily new notes are detected.\n"
-                                "Lower: picks up quiet or soft attacks.\n"
-                                "Higher: only strong, clear onsets register."
-                            )
-                        dpg.add_slider_float(
-                            tag=_t("onset_val"),
-                            default_value=_BP_ONSET_DEFAULT,
-                            min_value=_BP_ONSET_RANGE[0],
-                            max_value=_BP_ONSET_RANGE[1],
-                            format="%.2f",
-                            width=140,
-                            callback=self._on_onset_slider,
-                        )
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How easily new notes are detected.\n"
-                                "Lower: picks up quiet or soft attacks.\n"
-                                "Higher: only strong, clear onsets register."
-                            )
+                # -- Sensitivity --
+                dpg.add_text("Sensitivity", color=(140, 140, 180, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "How easily new notes are detected.\n"
+                        "Lower: picks up quiet or soft attacks.\n"
+                        "Higher: only strong, clear onsets register."
+                    )
+                dpg.add_slider_float(
+                    tag=_t("onset_val"),
+                    default_value=_BP_ONSET_DEFAULT,
+                    min_value=_BP_ONSET_RANGE[0],
+                    max_value=_BP_ONSET_RANGE[1],
+                    format="%.2f",
+                    width=-1,
+                )
 
-                    dpg.add_spacer(width=16)
+                dpg.add_spacer(height=6)
 
-                    # -- Sustain knob --
-                    with dpg.group():
-                        dpg.add_text("Sustain", color=(140, 140, 180, 255))
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How long detected notes are held.\n"
-                                "Lower: notes ring longer, more sustain.\n"
-                                "Higher: notes cut off sooner, less bleed."
-                            )
-                        dpg.add_knob_float(
-                            tag=_t("frame"),
-                            min_value=_BP_FRAME_RANGE[0],
-                            max_value=_BP_FRAME_RANGE[1],
-                            default_value=_BP_FRAME_DEFAULT,
-                            enabled=False,
-                        )
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How long detected notes are held.\n"
-                                "Lower: notes ring longer, more sustain.\n"
-                                "Higher: notes cut off sooner, less bleed."
-                            )
-                        dpg.add_slider_float(
-                            tag=_t("frame_val"),
-                            default_value=_BP_FRAME_DEFAULT,
-                            min_value=_BP_FRAME_RANGE[0],
-                            max_value=_BP_FRAME_RANGE[1],
-                            format="%.2f",
-                            width=140,
-                            callback=self._on_frame_slider,
-                        )
-                        with dpg.tooltip(dpg.last_item()):
-                            dpg.add_text(
-                                "How long detected notes are held.\n"
-                                "Lower: notes ring longer, more sustain.\n"
-                                "Higher: notes cut off sooner, less bleed."
-                            )
+                # -- Sustain --
+                dpg.add_text("Sustain", color=(140, 140, 180, 255))
+                with dpg.tooltip(dpg.last_item()):
+                    dpg.add_text(
+                        "How long detected notes are held.\n"
+                        "Lower: notes ring longer, more sustain.\n"
+                        "Higher: notes cut off sooner, less bleed."
+                    )
+                dpg.add_slider_float(
+                    tag=_t("frame_val"),
+                    default_value=_BP_FRAME_DEFAULT,
+                    min_value=_BP_FRAME_RANGE[0],
+                    max_value=_BP_FRAME_RANGE[1],
+                    format="%.2f",
+                    width=-1,
+                )
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("Shortest note", color=(140, 140, 180, 255))
@@ -605,19 +562,9 @@ class MidiPanel:
         if (d := self._read_duration(path)) is not None:
             self._apply_duration(d)
 
-    def _on_onset_slider(self, sender, app_data, user_data) -> None:
-        if dpg.does_item_exist(_t("onset")):
-            dpg.set_value(_t("onset"), app_data)
-
-    def _on_frame_slider(self, sender, app_data, user_data) -> None:
-        if dpg.does_item_exist(_t("frame")):
-            dpg.set_value(_t("frame"), app_data)
-
     def _on_reset_note_detection(self, sender, app_data, user_data) -> None:
         for tag, val in (
-            (_t("onset"),     _BP_ONSET_DEFAULT),
             (_t("onset_val"), _BP_ONSET_DEFAULT),
-            (_t("frame"),     _BP_FRAME_DEFAULT),
             (_t("frame_val"), _BP_FRAME_DEFAULT),
             (_t("min_note"),  _BP_MIN_NOTE_DEFAULT),
         ):
