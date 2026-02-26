@@ -10,8 +10,11 @@ global Stop button.  The manual render loop calls tick_all() every frame so
 waveform cursors animate smoothly.
 """
 
-import logging
 import os
+import sys
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+
+import logging
 import pathlib
 import subprocess
 
@@ -45,6 +48,11 @@ _BUNDLED_FONT = pathlib.Path(__file__).parent.parent / "assets" / "fonts" / "Dej
 
 _FONT_CANDIDATES = [
     str(_BUNDLED_FONT),                                          # bundled — always checked first
+    # macOS
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/SFNSMono.ttf",
+    "/Library/Fonts/Arial.ttf",
+    # Linux
     "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",        # Fedora
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",          # Debian/Ubuntu
     "/usr/share/fonts/TTF/DejaVuSans.ttf",                      # Arch
@@ -142,9 +150,10 @@ _CONTACT       = "tsondo@gmail.com"
 
 
 def _open_file(path: pathlib.Path) -> None:
-    """Open *path* in the system default viewer (xdg-open on Linux)."""
+    """Open *path* in the system default viewer."""
     try:
-        subprocess.Popen(["xdg-open", str(path)])
+        cmd = "open" if sys.platform == "darwin" else "xdg-open"
+        subprocess.Popen([cmd, str(path)])
     except Exception as exc:
         log.warning("Could not open %s: %s", path, exc)
 

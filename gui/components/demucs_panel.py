@@ -49,7 +49,10 @@ log = logging.getLogger("stemforge.gui.demucs_panel")
 # Constants
 # ---------------------------------------------------------------------------
 
-DEMUCS_MODELS: tuple[str, ...] = tuple(s.model_id for s in list_specs(DemucsSpec))
+DEMUCS_MODELS: tuple[str, ...] = tuple(
+    s.model_id for s in list_specs(DemucsSpec)
+    if not (sys.platform == "darwin" and s.model_id == "mdx_extra_q")
+)
 ROFORMER_MODELS: tuple[str, ...] = tuple(s.model_id for s in list_specs(RoformerSpec))
 
 _DEMUCS_DESC: dict[str, str] = {s.model_id: s.description for s in list_specs(DemucsSpec)}

@@ -155,6 +155,42 @@ StemForge will not attempt JACK or direct ALSA output under WSL.
 
 ---
 
+## macOS Support
+
+macOS on **Apple Silicon** (M1/M2/M3) is supported via MPS acceleration.
+Intel Macs will run CPU-only.
+
+### Setup
+
+**Step 1** — Copy the macOS pyproject file before installing:
+
+    cp pyproject.toml.MAC pyproject.toml
+    uv sync
+
+**Step 2** — Install FluidSynth:
+
+    brew install fluid-synth
+
+**Step 3** — Set the library path so pyfluidsynth can find it:
+
+    export DYLD_LIBRARY_PATH="$(brew --prefix fluid-synth)/lib:$DYLD_LIBRARY_PATH"
+
+Add the `export` line to your `~/.zshrc` so it persists across sessions.
+
+### macOS limitations
+
+- **`mdx_extra_q` Demucs model** is not available on macOS (requires `diffq`, which does not build on macOS). The model is automatically hidden from the UI.
+- **BasicPitch MIDI extraction** may have limited functionality on macOS — `ai-edge-litert` (the TFLite runtime) is a Linux-only package. The MIDI tab will surface a clear error if this is attempted.
+- **Vocal MIDI** (faster-whisper) works on macOS.
+- **Stable Audio Open** generation works on macOS via MPS.
+
+### Performance
+
+MPS acceleration is used automatically when available (Apple Silicon).
+Expect significantly faster inference than CPU-only, but slower than CUDA on a discrete GPU.
+
+---
+
 ## HuggingFace Authentication (required for the Generate tab)
 
 The Generate tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),

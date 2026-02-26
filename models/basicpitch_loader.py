@@ -22,11 +22,17 @@ import logging
 import shutil
 import tempfile
 import zipfile
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 from urllib import request
 
 import numpy as np
-import ai_edge_litert.interpreter as tflite
+
+try:
+    import ai_edge_litert.interpreter as tflite
+    _HAS_LITERT = True
+except ImportError:
+    tflite = None  # type: ignore[assignment]
+    _HAS_LITERT = False
 
 from utils.errors import ModelLoadError, PipelineExecutionError
 from models.basicpitch.constants import (
@@ -115,7 +121,7 @@ class BasicPitchModelLoader:
 
     def __init__(self, preferred_format: str = "tflite") -> None:
         self.preferred_format = preferred_format
-        self._interpreter: tflite.Interpreter | None = None
+        self._interpreter: Any = None
         self._input_details = None
         self._output_details = None
         self._model_path = None
@@ -127,6 +133,14 @@ class BasicPitchModelLoader:
 
     def load(self) -> "BasicPitchModelLoader":
         """Load the TFLite interpreter. Returns self (idempotent)."""
+        if not _HAS_LITERT:
+            raise ModelLoadError(
+                "ai-edge-litert is not installed.\n"
+                "BasicPitch MIDI extraction requires ai-edge-litert, which is only "
+                "available on Linux. On macOS, use a different MIDI extraction method.",
+                model_name="basicpitch",
+            )
+
         if self._interpreter is not None:
             log.debug("Returning cached BasicPitch TFLite interpreter")
             return self

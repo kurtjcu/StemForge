@@ -123,6 +123,32 @@ Loaders must:
 
 ---
 
+## Contributing from macOS
+
+**Setup**
+
+Copy the macOS pyproject file before syncing:
+
+    cp pyproject.toml.MAC pyproject.toml
+    uv sync
+
+Install FluidSynth and set the library path:
+
+    brew install fluid-synth
+    export DYLD_LIBRARY_PATH="$(brew --prefix fluid-synth)/lib:$DYLD_LIBRARY_PATH"
+
+Add the `export` to your `~/.zshrc`.
+
+**Rules for macOS-compatible code**
+
+- When using PyTorch device selection, always use `from utils.device import get_device` — never hardcode `"cuda"`.
+- When using app data paths, always use `from utils.platform import get_data_dir` — never hardcode `~/.local/share/`.
+- Avoid `torch.float16` unconditionally — use `is_mps()` from `utils.device` and fall back to `float32` on MPS.
+- Avoid operations that break on MPS; test with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set automatically by the app).
+- Do NOT commit a `pyproject.toml` derived from `pyproject.toml.MAC` — the canonical `pyproject.toml` is the Linux/CUDA version.
+
+---
+
 ## Pull Requests
 
 1. Create a feature branch  

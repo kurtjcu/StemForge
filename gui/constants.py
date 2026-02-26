@@ -7,7 +7,9 @@ panels need the paths at module load time, but app.py imports the panels.
 
 import pathlib
 
-_OUTPUT_BASE  = pathlib.Path.home() / ".local" / "share" / "stemforge" / "output"
+from utils.platform import get_data_dir
+
+_OUTPUT_BASE  = get_data_dir() / "output"
 _STEMS_DIR    = _OUTPUT_BASE / "stems"
 _MIDI_DIR     = pathlib.Path.home() / "Music" / "StemForge"
 _MUSICGEN_DIR = _OUTPUT_BASE / "musicgen"

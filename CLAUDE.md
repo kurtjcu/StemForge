@@ -46,7 +46,9 @@ StemForge/
 │   ├── errors.py                      # Custom exception hierarchy
 │   ├── audio_io.py                    # read_audio / write_audio / helpers  [implemented]
 │   ├── midi_io.py                     # read_midi / write_midi / notes_to_midi [implemented]
-│   └── logging.py                     # configure_logging / get_logger  [implemented]
+│   ├── logging.py                     # configure_logging / get_logger  [implemented]
+│   ├── device.py                      # get_device / is_mps — platform-aware torch device [NEW]
+│   └── platform.py                    # get_data_dir — OS-idiomatic data paths [NEW]
 ├── models/
 │   ├── demucs_loader.py               # DemucsModelLoader  [implemented]
 │   ├── basicpitch_loader.py           # BasicPitchModelLoader  [implemented]
@@ -77,7 +79,8 @@ utils/  →  models/  →  pipelines/  →  gui/components/  →  gui/app.py
 ```
 
 `config.py` is imported by any layer that needs settings. It only imports from `utils.errors`.
-`gui/state.py` and `gui/constants.py` import nothing from the project — safe for any layer.
+`gui/state.py` imports nothing from the project — safe for any layer.
+`gui/constants.py` imports from `utils.platform` (no circular dependency risk: utils is the base layer).
 
 ---
 
@@ -199,6 +202,19 @@ Default sample rates:
 `tomli>=2.0.0; python_version < '3.11'`
 
 Optional: `[cuda]` for GPU wheels, `[dev]` for pytest/ruff/mypy/pre-commit.
+
+---
+
+## Platform support
+
+- **Linux + CUDA**: primary target, uses `pyproject.toml`
+- **macOS + MPS**: supported, uses `pyproject.toml.MAC`
+- **Device selection**: always use `utils.device.get_device()`, never hardcode `"cuda"`
+- **Data paths**: always use `utils.platform.get_data_dir()`, never hardcode `~/.local/share/`
+- **MPS workaround**: use `float32` instead of `float16` on MPS — `is_mps()` helper in `utils.device`
+- `PYTORCH_ENABLE_MPS_FALLBACK=1` is set in `gui/app.py` before any torch imports
+- `mdx_extra_q` Demucs model is filtered out on macOS (requires `diffq`, not available on macOS)
+- `ai-edge-litert` (BasicPitch TFLite runtime) is Linux-only; `BasicPitchModelLoader.load()` raises `ModelLoadError` with a helpful message on macOS
 
 ---
 

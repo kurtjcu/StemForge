@@ -26,6 +26,7 @@ import torch
 
 from models.demucs_loader import DemucsModelLoader
 from utils.audio_io import read_audio, write_audio, convert_channels
+from utils.device import get_device
 from utils.errors import AudioProcessingError, InvalidInputError, ModelLoadError, PipelineExecutionError
 from pipelines.resample import Resampler
 
@@ -228,9 +229,10 @@ class DemucsPipeline:
                 model_name=self._config.model_name,
             ) from exc
 
-        # Move model to GPU once at load time so each run() call is fast.
-        self._device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._model = self._model.to(self._device)
+        # Move model to best available device once at load time so each run() call is fast.
+        _device = get_device()
+        self._device = _device.type
+        self._model = self._model.to(_device)
         log.info("DemucsPipeline: model '%s' on %s", self._config.model_name, self._device)
         self.is_loaded = True
 

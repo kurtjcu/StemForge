@@ -16,6 +16,7 @@ from typing import Any
 
 import torch
 
+from utils.device import get_device
 from utils.errors import ModelLoadError
 
 
@@ -83,8 +84,9 @@ class MusicGenModelLoader:
                 model_name=model_name,
             ) from exc
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        dtype  = torch.float16 if device == "cuda" else torch.float32
+        device = get_device()
+        # MPS does not support float16 reliably; use float32 on MPS and CPU.
+        dtype  = torch.float16 if device.type == "cuda" else torch.float32
 
         # Resolve HuggingFace auth token (needed for gated models).
         # Checks HF_TOKEN env var and ~/.cache/huggingface/token (written by
