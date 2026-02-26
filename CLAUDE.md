@@ -119,7 +119,9 @@ Viewport: screen-aware via `_get_viewport_size()` (~90% of primary monitor, fall
 | Generate | `MusicGenPanel` | stub |
 | Export | `ExportPanel` | stub |
 
-Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button. Header row also contains a **UI Scale** slider (0.8–2.0, default 1.3) that calls `dpg.set_global_font_scale()`.
+Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button.
+
+Font: DejaVuSans 20 px, `dpg.set_global_font_scale(1.3)` applied at startup. A proper per-user UI scale control is planned for a future release — a simple float slider is insufficient because DPG scales text but not button/widget sizes, requiring a full layout reflow to implement correctly.
 
 File dialogs are registered at top level (outside all windows) before the render loop.
 

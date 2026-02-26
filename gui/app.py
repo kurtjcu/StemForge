@@ -88,7 +88,7 @@ def _setup_fonts() -> None:
         log.warning("DejaVuSans.ttf not found — using DearPyGUI built-in font size")
     else:
         with dpg.font_registry():
-            default_font = dpg.add_font(str(font_path), 18)
+            default_font = dpg.add_font(str(font_path), 20)
         dpg.bind_font(default_font)
         log.info("Loaded font: %s", font_path)
 
@@ -352,7 +352,7 @@ def main() -> None:
     # ---- Primary window ------------------------------------------------
     with dpg.window(tag="primary_window"):
 
-        # App header — logo (clickable → About) + tagline + UI Scale slider
+        # App header — logo (clickable → About) + tagline
         with dpg.group(horizontal=True):
             if dpg.does_item_exist(LOGO_TAG):
                 dpg.add_image_button(
@@ -371,20 +371,6 @@ def main() -> None:
                     "Stem | Midi | Mix | AI",
                     color=(180, 150, 90, 255),
                 )
-            dpg.add_spacer(width=24)
-            with dpg.group():
-                dpg.add_spacer(height=14)
-                with dpg.group(horizontal=True):
-                    dpg.add_text("UI Scale", color=(160, 160, 180, 255))
-                    dpg.add_slider_float(
-                        tag="ui_scale_slider",
-                        default_value=1.3,
-                        min_value=0.8,
-                        max_value=2.0,
-                        format="%.1f",
-                        width=110,
-                        callback=lambda s, v, u: dpg.set_global_font_scale(v),
-                    )
         dpg.add_separator()
         dpg.add_spacer(height=4)
 
