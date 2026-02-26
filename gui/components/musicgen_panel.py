@@ -395,7 +395,7 @@ class MusicGenPanel:
                     dpg.add_button(
                         label="Copy",
                         callback=make_copy_callback(_t("status")),
-                        width=50,
+                        width=80,
                     )
                     dpg.add_text(default_value="", tag=_t("status"), color=(160, 160, 160, 255))
 
@@ -414,7 +414,7 @@ class MusicGenPanel:
                     label="  Save as  ",
                     tag=_t("save_btn"),
                     callback=self._on_save_click,
-                    width=110,
+                    width=150,
                     enabled=False,
                 )
                 with dpg.tooltip(dpg.last_item()):

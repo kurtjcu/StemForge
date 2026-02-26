@@ -252,7 +252,7 @@ class DemucsPanel:
                         label="Stop All",
                         tag=_t("stop_all_btn"),
                         callback=lambda s, a, u: _stop_all_audio(),
-                        width=80,
+                        width=120,
                     )
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text("Stop playback on all stems.")

@@ -266,7 +266,7 @@ class MixPanel:
                 label="Play All",
                 tag=_t("master_play_btn"),
                 callback=self._on_master_play,
-                width=82,
+                width=120,
                 height=32,
             )
             with dpg.tooltip(dpg.last_item()):
@@ -275,7 +275,7 @@ class MixPanel:
                 label="Stop All",
                 tag=_t("master_stop_btn"),
                 callback=self._on_master_stop,
-                width=82,
+                width=120,
                 height=32,
             )
             dpg.add_button(

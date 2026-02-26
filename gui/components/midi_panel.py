@@ -165,7 +165,7 @@ class MidiPanel:
         with dpg.group(horizontal=True):
 
             # ---- Left column: controls --------------------------------
-            with dpg.child_window(width=370, height=-1, border=False):
+            with dpg.child_window(width=555, height=-1, border=False):
 
                 # -- Stems section --
                 dpg.add_text("Stems", color=(175, 175, 255, 255))
@@ -173,7 +173,7 @@ class MidiPanel:
                     "Run Separate first, or load a file below.",
                     tag=_t("stems_status"),
                     color=(160, 160, 160, 255),
-                    wrap=340,
+                    wrap=520,
                 )
                 dpg.add_spacer(height=4)
 
@@ -286,11 +286,10 @@ class MidiPanel:
                     dpg.add_button(
                         label="Reset to defaults",
                         callback=self._on_reset_note_detection,
-                        height=20,
                     )
                     with dpg.tooltip(dpg.last_item()):
                         dpg.add_text("Restore Sensitivity, Sustain, and Shortest note to defaults.")
-                dpg.add_spacer(height=4)
+                dpg.add_spacer(height=8)
 
                 with dpg.group(horizontal=True):
                     # -- Sensitivity knob --
@@ -451,13 +450,13 @@ class MidiPanel:
                     dpg.add_button(
                         label="Copy path",
                         callback=make_copy_callback(_t("midi_file")),
-                        width=90,
+                        width=130,
                     )
                     dpg.add_button(
                         label="Save merged",
                         tag=_t("save_merged_btn"),
                         callback=self._on_save_merged_click,
-                        width=100,
+                        width=150,
                         enabled=False,
                     )
                     with dpg.tooltip(dpg.last_item()):
