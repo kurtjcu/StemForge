@@ -752,6 +752,21 @@ class MusicGenPanel:
             elif cond_type == "Mix":
                 init_audio_path = self._mix_path
 
+            # Cap duration to the audio source's actual length so the model
+            # never has to pad a conditioning clip.  Also syncs the slider.
+            if init_audio_path and init_audio_path.exists():
+                try:
+                    _info = sf.info(str(init_audio_path))
+                    _audio_secs = _info.frames / _info.samplerate
+                    if duration > _audio_secs:
+                        duration = max(5.0, float(int(round(_audio_secs))))
+                        schedule_ui(lambda _d=int(duration): (
+                            dpg.set_value(_t("duration"), _d)
+                            if dpg.does_item_exist(_t("duration")) else None
+                        ))
+                except Exception:
+                    pass
+
             vp_enabled = ui["vp_enabled"]
             # When VP is active, its negative prompt overrides the default.
             effective_neg = ui["vp_neg"] if vp_enabled and ui["vp_neg"] else "low quality, distorted, noise, clipping"
