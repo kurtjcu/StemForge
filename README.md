@@ -23,6 +23,8 @@ StemForge is a local, GPU‑accelerated desktop application for AI‑powered aud
 
 Everything runs locally with deterministic environments via uv.
 
+See [Future Plans](docs/FUTURE_PLANS.md) for the roadmap, including voice transformation and native packaging.
+
 ---
 
 ## Requirements
@@ -196,7 +198,7 @@ Expect significantly faster inference than CPU-only, but slower than CUDA on a d
 
 The Generate tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
 a gated model. You must accept its license and authenticate before StemForge can download it.
-See [GENERATE.md](GENERATE.md) for full documentation on conditioning modes, parameters,
+See [docs/GENERATE.md](docs/GENERATE.md) for full documentation on conditioning modes, parameters,
 and Vocal Preservation Mode.
 
 **Step 1 — Accept the license**
@@ -242,6 +244,10 @@ Run:
 
     StemForge/
     ├── config.py                       # Aggregate config, env/file loading
+    │
+    ├── docs/
+    │   ├── GENERATE.md                 # Generate tab deep-dive (conditioning, params, vocal stems)
+    │   └── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
     │
     ├── gui/
     │   ├── app.py                      # Main window + theme + render loop
@@ -331,8 +337,8 @@ Optional audio conditioning from a separated stem or loaded file.
 Optional MIDI conditioning — BPM, key, and instrument families are appended to the prompt.
 Duration up to 600 s (chunked generation, 47 s per chunk).
 Includes Vocal Preservation Mode with conditioning strength, timing lock, and windowed generation.
-See [GENERATE.md](GENERATE.md) for detailed documentation on all conditioning modes, parameters,
-and what to expect when using vocal stems as input.
+See [docs/GENERATE.md](docs/GENERATE.md) for detailed documentation on all conditioning modes,
+parameters, and what to expect when using vocal stems as input.
 
 ### Export
 Select any combination of stems, MIDI, mix render, and generated audio.
