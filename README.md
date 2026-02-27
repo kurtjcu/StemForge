@@ -94,7 +94,8 @@ Arch / Manjaro:
 
     sudo pacman -S fluidsynth soundfont-fluid
 
-The GM soundfont is auto-discovered at startup.  On Fedora it installs to
+The GM soundfont is auto-discovered at startup.
+On Fedora it installs to
 `/usr/share/soundfonts/FluidR3_GM.sf2`; use the Browse button on the Mix tab
 to point StemForge at a different `.sf2` file if needed.
 
@@ -195,6 +196,8 @@ Expect significantly faster inference than CPU-only, but slower than CUDA on a d
 
 The Generate tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
 a gated model. You must accept its license and authenticate before StemForge can download it.
+See [GENERATE.md](GENERATE.md) for full documentation on conditioning modes, parameters,
+and Vocal Preservation Mode.
 
 **Step 1 — Accept the license**
 
@@ -327,6 +330,9 @@ Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
 Optional audio conditioning from a separated stem or loaded file.
 Optional MIDI conditioning — BPM, key, and instrument families are appended to the prompt.
 Duration up to 600 s (chunked generation, 47 s per chunk).
+Includes Vocal Preservation Mode with conditioning strength, timing lock, and windowed generation.
+See [GENERATE.md](GENERATE.md) for detailed documentation on all conditioning modes, parameters,
+and what to expect when using vocal stems as input.
 
 ### Export
 Select any combination of stems, MIDI, mix render, and generated audio.

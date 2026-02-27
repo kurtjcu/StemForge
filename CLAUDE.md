@@ -7,11 +7,17 @@
 
 ## What this project is
 
+AI-powered audio processing desktop application with five core pipelines:
+- **Demucs** — source separation (vocals, drums, bass, other) — 4 models
+- **BS-Roformer** — high-quality separation with 2-stem, 4-stem, and 6-stem (guitar + piano) models
+- **BasicPitch** — polyphonic MIDI extraction from separated stems (instruments)
+- **Vocal MIDI** — vocal pitch-to-MIDI via faster-whisper + PYIN pitch tracking
+- **Stable Audio Open** — text-conditioned audio generation with optional audio and MIDI conditioning
 
-AI-powered audio processing desktop application with three pipelines:
-- **Demucs** — source separation (vocals, drums, bass, other)
-- **BasicPitch** — MIDI extraction from separated stems
-- **MusicGen** — text-prompted audio generation with optional melody conditioning
+Additional systems:
+- **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, GUI metadata, and pipeline defaults
+- **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
+- **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, solo, and FLAC render
 
 GUI is **DearPyGUI** (`gui/app.py`). Run with `stemforge` console script or `python -m gui.app`.
 
@@ -19,17 +25,20 @@ GUI is **DearPyGUI** (`gui/app.py`). Run with `stemforge` console script or `pyt
 
 ## Current state
 
-- **Demucs pipeline** — fully implemented and working in the GUI.
-- **BasicPitch pipeline** — fully implemented. Two GUI UX issues remain (see below).
-- **MusicGen pipeline** — stub only; implementation is the next phase.
-- **Export panel** — stub only.
+All pipelines and the full GUI are implemented and working:
 
-### Pending GUI fixes (next session)
-
-1. **Stem handoff UX** — After Demucs runs, the MIDI tab gives no visual indication of which stems are available. The mechanism works (via `app_state.stem_paths`) but the user can't tell without just trying. Fix plan:
-   - Implement `DemucsPanel.add_result_listener` to store and call callbacks after a successful run.
-   - Add `BasicPitchPanel.notify_stems_ready(stem_paths)` to update the combo items to only the available stems and show a "ready" status line.
-   - Wire them in `app.py`: `_demucs.add_result_listener(_basicpitch.notify_stems_ready)`.
+- Demucs separation — 4 models (htdemucs, htdemucs_ft, mdx_extra, mdx_extra_q), CUDA fallback for MDX-Net
+- BS-Roformer separation — 6 models including ViperX vocals (SDR 12.97), KJ vocals, ZFTurbo 4-stem, jarredou 6-stem
+- Automatic engine/model recommendation from spectral audio analysis
+- MIDI extraction — BasicPitch for instruments, faster-whisper + PYIN pitch for vocals
+- MIDI preview — per-stem FluidSynth playback with default GM instruments, in-memory until saved
+- Mix tab — per-track instrument/volume controls, solo preview, click-to-seek master timeline, FLAC render
+- Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
+- Export panel — all pipeline outputs including mix, 4 audio formats (wav/flac/mp3/ogg), auto-refresh on pipeline completion
+- Waveform and MIDI visualizers with second-labeled ruler ticks and click-to-seek on all plots
+- WSL audio support — auto-detects WSL via `/proc/version`, routes through WSLg PulseAudio socket
+- Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
+- macOS support via MPS acceleration (separate `pyproject.toml.MAC`)
 
 ---
 
@@ -37,35 +46,58 @@ GUI is **DearPyGUI** (`gui/app.py`). Run with `stemforge` console script or `pyt
 
 ```
 StemForge/
-├── config.py                          # StemForgeConfig — aggregate config, env/file loading
+├── config.py                       # StemForgeConfig — aggregate config, env/file loading
 ├── pyproject.toml
+├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
 ├── .gitignore
-├── utils/
-│   ├── errors.py                      # Custom exception hierarchy
-│   ├── audio_io.py                    # read_audio / write_audio / helpers  [implemented]
-│   ├── midi_io.py                     # read_midi / write_midi / notes_to_midi [implemented]
-│   ├── logging.py                     # configure_logging / get_logger  [implemented]
-│   ├── device.py                      # get_device / is_mps — platform-aware torch device [NEW]
-│   └── platform.py                    # get_data_dir — OS-idiomatic data paths [NEW]
-├── models/
-│   ├── demucs_loader.py               # DemucsModelLoader  [implemented]
-│   ├── basicpitch_loader.py           # BasicPitchModelLoader  [implemented]
-│   └── musicgen_loader.py             # MusicGenModelLoader  [stub]
+│
+├── gui/
+│   ├── app.py                      # Main window + theme + render loop
+│   ├── state.py                    # AppState singleton (thread-safe shared state)
+│   ├── constants.py                # Output directory paths
+│   ├── icons.py                    # DearPyGUI icon textures
+│   └── components/
+│       ├── loader.py               # File browser bar (top of window)
+│       ├── file_browser.py         # Reusable custom file/dir browser
+│       ├── waveform_widget.py      # Waveform preview + playback widget
+│       ├── midi_player_widget.py   # MIDI preview widget (FluidSynth)
+│       ├── demucs_panel.py         # Separate tab (Demucs + BS-Roformer)
+│       ├── midi_panel.py           # MIDI tab (BasicPitch + vocal MIDI)
+│       ├── mix_panel.py            # Mix tab (multi-track mixer)
+│       ├── musicgen_panel.py       # Generate tab (Stable Audio Open)
+│       └── export_panel.py         # Export tab (copy + transcode)
+│
 ├── pipelines/
-│   ├── resample.py                    # ResamplePipeline + Resampler  [implemented]
-│   ├── demucs_pipeline.py             # DemucsPipeline, DemucsConfig, DemucsResult  [implemented]
-│   ├── basicpitch_pipeline.py         # BasicPitchPipeline, BasicPitchConfig, BasicPitchResult  [implemented]
-│   └── musicgen_pipeline.py           # MusicGenPipeline, MusicGenConfig, MusicGenResult  [stub]
-└── gui/
-    ├── app.py                         # DearPyGUI viewport + tab bar + main()
-    ├── state.py                       # AppState singleton (app_state) — thread-safe shared state
-    ├── constants.py                   # Output directory paths (_STEMS_DIR, _MIDI_DIR, etc.)
-    └── components/
-        ├── loader.py                  # LoaderPanel — file browse bar at top of window
-        ├── demucs_panel.py            # DemucsPanel — "Separate" tab
-        ├── basicpitch_panel.py        # BasicPitchPanel — "MIDI" tab
-        ├── musicgen_panel.py          # MusicGenPanel — "Generate" tab  [stub]
-        └── export_panel.py            # ExportPanel — "Export" tab  [stub]
+│   ├── demucs_pipeline.py          # Demucs separation pipeline
+│   ├── roformer_pipeline.py        # BS-Roformer separation pipeline
+│   ├── midi_pipeline.py            # Unified MIDI extraction pipeline
+│   ├── basicpitch_pipeline.py      # BasicPitch inference pipeline
+│   ├── vocal_midi_pipeline.py      # Vocal pitch-to-MIDI pipeline
+│   ├── musicgen_pipeline.py        # Stable Audio Open generation pipeline
+│   └── resample.py                 # Audio resampling pipeline
+│
+├── models/
+│   ├── registry.py                 # Model registry (specs + metadata)
+│   ├── demucs_loader.py            # Demucs model loader
+│   ├── roformer_loader.py          # BS-Roformer model loader
+│   ├── midi_loader.py              # BasicPitch + Whisper loader
+│   ├── basicpitch_loader.py        # Vendored BasicPitch TFLite loader
+│   ├── basicpitch/                 # Vendored BasicPitch (ai-edge-litert)
+│   └── musicgen_loader.py          # Stable Audio Open loader (diffusers)
+│
+├── utils/
+│   ├── audio_io.py                 # read_audio / write_audio
+│   ├── audio_profile.py            # Spectral analysis + engine recommendation
+│   ├── midi_io.py                  # MIDI read / write / helpers
+│   ├── wsl.py                      # WSL detection + PulseAudio routing
+│   ├── device.py                   # get_device / is_mps — platform-aware torch device
+│   ├── platform.py                 # get_data_dir — OS-idiomatic data paths
+│   ├── logging_utils.py            # configure_logging
+│   └── errors.py                   # Custom exception hierarchy
+│
+└── vendor/
+    ├── flashy/                     # Minimal flashy stubs for Audiocraft/Demucs
+    └── flashy_src/                 # Original flashy source (MIT, Meta)
 ```
 
 ---
@@ -82,16 +114,72 @@ utils/  →  models/  →  pipelines/  →  gui/components/  →  gui/app.py
 
 ---
 
-## Inter-panel state (`gui/state.py`)
+## DearPyGUI UI (`gui/app.py`)
 
-All panels share a single `AppState` singleton (`app_state`). Properties are lock-protected.
+Viewport: screen-aware via `_get_viewport_size()` (~90% of primary monitor, fallback 1280 × 820), min 900 × 600. Five tabs plus a persistent top bar.
 
-| Property | Written by | Read by |
+| Tab label | Panel class | File |
 |---|---|---|
-| `audio_path` | `LoaderPanel` | `DemucsPanel` |
-| `stem_paths` | `DemucsPanel` | `BasicPitchPanel` |
-| `midi_path` | `BasicPitchPanel` | `ExportPanel` |
-| `musicgen_path` | `MusicGenPanel` | `ExportPanel` |
+| Separate | `DemucsPanel` | `demucs_panel.py` |
+| MIDI | `MidiPanel` | `midi_panel.py` |
+| Mix | `MixPanel` | `mix_panel.py` |
+| Generate | `MusicGenPanel` | `musicgen_panel.py` |
+| Export | `ExportPanel` | `export_panel.py` |
+
+Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button.
+
+Font: DejaVuSans 20 px, `dpg.set_global_font_scale(1.3)` applied at startup. A proper per-user UI scale control is planned for a future release — a simple float slider is insufficient because DPG scales text but not button/widget sizes, requiring a full layout reflow to implement correctly.
+
+File dialogs are registered at top level (outside all windows) before the render loop.
+
+---
+
+## Model registry (`models/registry.py`)
+
+Frozen `ModelSpec` subclasses describe every model variant. Spec types:
+
+| Spec class | Models | Pipeline |
+|---|---|---|
+| `DemucsSpec` | htdemucs, htdemucs_ft, mdx_extra, mdx_extra_q | `DemucsPipeline` |
+| `RoformerSpec` | roformer-viperx-vocals, roformer-kj-vocals, roformer-zfturbo-4stem, roformer-jarredou-6stem, + 2 more | `RoformerPipeline` |
+| `BasicPitchSpec` | basicpitch | `BasicPitchPipeline` |
+| `WhisperSpec` | whisper-tiny, whisper-base, whisper-small, whisper-medium | `VocalMidiPipeline` |
+| `StableAudioSpec` | stable-audio-open-1.0 | `MusicGenPipeline` |
+
+Public API: `get_spec()`, `list_specs()`, `get_loader_kwargs()`, `get_pipeline_defaults()`, `get_gui_metadata()`.
+
+---
+
+## Pipeline interface (all pipelines follow this contract)
+
+```python
+pipeline.configure(config)   # supply Config dataclass
+pipeline.load_model()        # load weights — raises ModelLoadError
+result = pipeline.run(input) # run inference — raises PipelineExecutionError / InvalidInputError
+pipeline.clear()             # release GPU memory
+```
+
+---
+
+## Exception hierarchy (`utils/errors.py`)
+
+```
+StemForgeError
+├── ModelLoadError(model_name=)            — weight loading / download failures
+├── AudioProcessingError(path=)            — read / write / resample failures
+├── PipelineExecutionError(pipeline_name=) — runtime inference failures
+└── InvalidInputError(field=)             — pre-processing validation failures
+```
+
+---
+
+## Key types and aliases
+
+| Alias | Definition | Defined in |
+|---|---|---|
+| `Waveform` | `Any` | `utils/audio_io.py`, `pipelines/resample.py` |
+| `NoteEvent` | `tuple[float, float, int, int]` = `(start_sec, end_sec, pitch_midi, velocity)` | `utils/midi_io.py`, `pipelines/basicpitch_pipeline.py` |
+| `MidiData` | `Any` | `utils/midi_io.py` |
 
 ---
 
@@ -108,118 +196,34 @@ All under `~/.local/share/stemforge/output/`:
 
 ---
 
-## DearPyGUI UI (`gui/app.py`)
+## Audio profiler (`utils/audio_profile.py`)
 
-Viewport: screen-aware via `_get_viewport_size()` (~90% of primary monitor, fallback 1280 × 820), min 900 × 600. Four tabs plus a persistent top bar.
+Analyzes spectral flatness, transient sharpness/density, harmonic density, vocal naturalness, drum-intrusion risk, and stereo correlation. Returns a `Recommendation(engine, model_id, reason, confidence)` directing the user to the best separation engine and model for their audio.
 
-| Tab label | Panel | Status |
-|---|---|---|
-| Separate | `DemucsPanel` | working |
-| MIDI | `BasicPitchPanel` | working (UX issues pending) |
-| Generate | `MusicGenPanel` | stub |
-| Export | `ExportPanel` | stub |
-
-Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button.
-
-Font: DejaVuSans 20 px, `dpg.set_global_font_scale(1.3)` applied at startup. A proper per-user UI scale control is planned for a future release — a simple float slider is insufficient because DPG scales text but not button/widget sizes, requiring a full layout reflow to implement correctly.
-
-File dialogs are registered at top level (outside all windows) before the render loop.
+Veto logic ensures synthetic/electronic content routes to Demucs; natural/organic content with low drum risk routes to Roformer models.
 
 ---
 
-## Key types and aliases
+## Stable Audio Open generation (`pipelines/musicgen_pipeline.py`)
 
-| Alias | Definition | Defined in |
-|---|---|---|
-| `Waveform` | `Any` | `utils/audio_io.py`, `pipelines/resample.py` |
-| `NoteEvent` | `tuple[float, float, int, int]` = `(start_sec, end_sec, pitch_midi, velocity)` | `utils/midi_io.py`, `pipelines/basicpitch_pipeline.py` |
-| `MidiData` | `Any` | `utils/midi_io.py` |
-
----
-
-## Exception hierarchy (`utils/errors.py`)
-
-```
-StemForgeError
-├── ModelLoadError(model_name=)            — weight loading / download failures
-├── AudioProcessingError(path=)            — read / write / resample failures
-├── PipelineExecutionError(pipeline_name=) — runtime inference failures
-└── InvalidInputError(field=)             — pre-processing validation failures
-```
+- Text prompt always required
+- Optional audio conditioning via `init_audio_path` (resampled to 44.1 kHz, VAE-encoded)
+- Optional MIDI conditioning via `midi_path` (BPM, key, GM instrument families appended to prompt)
+- Durations > 47 s are chunked and concatenated
+- **Vocal Preservation Mode**: conditioning strength scaling, timing-lock windowed generation (50 ms crossfade), negative prompt support
 
 ---
 
-## Pipeline interface (all three follow this contract)
+## Platform notes
 
-```python
-pipeline.configure(config)   # supply Config dataclass
-pipeline.load_model()        # load weights — raises ModelLoadError
-result = pipeline.run(input) # run inference — raises PipelineExecutionError / InvalidInputError
-pipeline.clear()             # release weights from memory
-```
-
-| Pipeline | `run()` input type | `run()` return type | Internal sample rate |
-|---|---|---|---|
-| `DemucsPipeline` | `pathlib.Path` (audio file) | `DemucsResult` | 44 100 Hz |
-| `BasicPitchPipeline` | `pathlib.Path` (audio stem) | `BasicPitchResult` | 22 050 Hz |
-| `MusicGenPipeline` | `str` (text prompt) | `MusicGenResult` | 32 000 Hz |
-| `ResamplePipeline` | `pathlib.Path` (audio file) | `ResampleResult` | configurable |
+- **Linux (primary)**: CUDA 13.0 wheels, uv sync, Python 3.11
+- **macOS (Apple Silicon)**: MPS acceleration via `pyproject.toml.MAC`; use `from utils.device import get_device`, never hardcode `"cuda"`
+- **WSL**: Auto-detected via `/proc/version`; audio routed through PulseAudio; requires libportaudio2, pulseaudio-utils, libasound2-plugins, libfluidsynth3, fluid-soundfont-gm
+- **FluidSynth**: Required for MIDI preview and Mix tab; GM soundfont auto-discovered at startup
 
 ---
 
-## Config system (`config.py`)
+## Caches and logs
 
-- `StemForgeConfig` — single aggregate config object, all fields optional in `__init__`
-- Resolution order: explicit kwarg → `STEMFORGE_*` env var → module-level default constant
-- `from_env()` — classmethod, env vars only
-- `from_file(path)` — classmethod, loads `stemforge.toml` (needs `tomllib`/`tomli`)
-- `validate()` — raises `InvalidInputError` on bad values
-
-Default sample rates:
-- `DEFAULT_DEMUCS_SAMPLE_RATE = 44_100`
-- `DEFAULT_BASICPITCH_SAMPLE_RATE = 22_050`
-- `DEFAULT_MUSICGEN_SAMPLE_RATE = 32_000`
-
----
-
-## Constants defined in component modules
-
-| Constant | Value | Module |
-|---|---|---|
-| `SUPPORTED_EXTENSIONS` | `('wav','flac','mp3','ogg','aiff','aif')` | `gui/components/loader.py` |
-| `DEMUCS_MODELS` | `('htdemucs','htdemucs_ft','mdx_extra','mdx_extra_q')` | `gui/components/demucs_panel.py` |
-| `STEM_TARGETS` | `('vocals','drums','bass','other')` | `gui/components/demucs_panel.py` |
-| `MUSICGEN_MODELS` | `('facebook/musicgen-small', …-medium, …-large, …-melody)` | `gui/components/musicgen_panel.py` |
-| `EXPORT_FORMATS` | `('wav','flac','ogg')` | `gui/components/export_panel.py` |
-
----
-
-## Runtime dependencies (pyproject.toml)
-
-`demucs>=4.0.0`, `basic-pitch>=0.3.0`, `audiocraft>=1.3.0`, `torch>=2.1.0`,
-`torchaudio>=2.1.0`, `numpy>=1.24.0`, `scipy>=1.11.0`, `librosa>=0.10.0`,
-`soundfile>=0.12.0`, `mido>=1.3.2`, `dearpygui>=1.11.0`, `sounddevice>=0.4.0`,
-`screeninfo>=0.8.0`, `tomli>=2.0.0; python_version < '3.11'`
-
-Optional: `[cuda]` for GPU wheels, `[dev]` for pytest/ruff/mypy/pre-commit.
-
----
-
-## Platform support
-
-- **Linux + CUDA**: primary target, uses `pyproject.toml`
-- **macOS + MPS**: supported, uses `pyproject.toml.MAC`
-- **Device selection**: always use `utils.device.get_device()`, never hardcode `"cuda"`
-- **Data paths**: always use `utils.platform.get_data_dir()`, never hardcode `~/.local/share/`
-- **MPS workaround**: use `float32` instead of `float16` on MPS — `is_mps()` helper in `utils.device`
-- `PYTORCH_ENABLE_MPS_FALLBACK=1` is set in `gui/app.py` before any torch imports
-- `mdx_extra_q` Demucs model is filtered out on macOS (requires `diffq`, not available on macOS)
-- `ai-edge-litert` (BasicPitch TFLite runtime) is Linux-only; `BasicPitchModelLoader.load()` raises `ModelLoadError` with a helpful message on macOS
-
----
-
-## Git / GitHub
-
-- Remote: `git@github.com:tsondo/StemForge.git`
-- Branch: `main`
-- Repo is clean as of last session.
+- Model weights: `~/.cache/stemforge/` (subdirs per model type)
+- Logs: `~/.local/share/stemforge/logs/stemforge.log`
