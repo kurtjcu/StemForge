@@ -1502,21 +1502,6 @@ input[type="range"]::-webkit-slider-thumb {
   flex-wrap: wrap;
 }
 
-.compose-card-lyrics {
-  font-family: var(--font);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-dim);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  padding: 8px 10px;
-  background: var(--bg);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  max-height: 180px;
-  overflow-y: auto;
-}
 
 /* ─── Responsive ─────────────────────────────────────────────────────── */
 

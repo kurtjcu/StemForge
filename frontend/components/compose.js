@@ -1185,12 +1185,6 @@ function buildResultCard(taskId, index, total, result, fmt) {
   );
   card.appendChild(actions);
 
-  // Lyrics snippet if present
-  if (result.lyrics) {
-    const preview = result.lyrics.length > 200 ? result.lyrics.slice(0, 200) + '\u2026' : result.lyrics;
-    card.appendChild(el('pre', { className: 'compose-card-lyrics' }, preview));
-  }
-
   return card;
 }
 
