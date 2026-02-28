@@ -4,13 +4,10 @@ import argparse
 import os
 import signal
 import subprocess
-import sys
-import threading
-import time
 
 import uvicorn
 
-# AceStep environment variables forwarded to the subprocess if set by the user.
+# AceStep passthrough vars listed here only for the banner display.
 _ACESTEP_PASSTHROUGH_VARS = [
     "ACESTEP_DEVICE",
     "MAX_CUDA_VRAM",
@@ -49,47 +46,9 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _monitor_acestep(proc: subprocess.Popen) -> None:
-    """Daemon thread that watches the AceStep subprocess and updates shared state."""
-    from backend.services.acestep_state import set_status
-
-    # Wait a moment for process to start, then mark running
-    time.sleep(3)
-    if proc.poll() is None:
-        set_status("running")
-        print("[stemforge] AceStep is ready")
-
-    # Poll until process exits
-    while proc.poll() is None:
-        time.sleep(1)
-
-    code = proc.returncode
-    set_status("crashed", exit_code=code, error=f"AceStep exited with code {code}")
-    print(f"[stemforge] AceStep crashed (exit code {code}). Compose tab unavailable.")
-
-
-def _start_acestep(port: int, gpu: str | None) -> subprocess.Popen:
-    """Spawn the AceStep API server as a subprocess."""
-    env = os.environ.copy()
-    if gpu:
-        env["CUDA_VISIBLE_DEVICES"] = gpu
-    # Forward user-set AceStep vars
-    for var in _ACESTEP_PASSTHROUGH_VARS:
-        if var in os.environ:
-            env[var] = os.environ[var]
-
-    cmd = [
-        sys.executable, "-m", "acestep.api_server",
-        "--host", "127.0.0.1",
-        "--port", str(port),
-    ]
-    print(f"[stemforge] Starting AceStep API server on port {port}...")
-    return subprocess.Popen(cmd, env=env)
-
-
 def _print_banner(port: int, acestep_port: int, acestep_enabled: bool, gpu: str | None) -> None:
     gpu_display = gpu if gpu else "auto"
-    acestep_display = f"enabled (port {acestep_port})" if acestep_enabled else "disabled"
+    acestep_display = f"ready (port {acestep_port}, starts on first use)" if acestep_enabled else "disabled"
     active_overrides = {
         k: os.environ[k] for k in _ACESTEP_PASSTHROUGH_VARS if k in os.environ
     }
@@ -111,32 +70,27 @@ def _print_banner(port: int, acestep_port: int, acestep_enabled: bool, gpu: str 
 
 def main() -> None:
     args = _parse_args()
-    acestep_proc: subprocess.Popen | None = None
 
-    # Import and configure state before starting anything
-    from backend.services.acestep_state import set_status
+    from backend.services import acestep_state
 
-    set_status("disabled", port=args.acestep_port)
+    if args.no_acestep:
+        acestep_state.set_status("disabled", port=args.acestep_port)
+    else:
+        # Configure but don't spawn — AceStep starts on first use
+        acestep_state.configure(args.acestep_port, args.gpu)
 
     _print_banner(args.port, args.acestep_port, not args.no_acestep, args.gpu)
 
-    # Start AceStep subprocess if enabled
-    if not args.no_acestep:
-        set_status("starting", port=args.acestep_port)
-        acestep_proc = _start_acestep(args.acestep_port, args.gpu)
-        # Daemon monitor thread — will update state on crash
-        monitor = threading.Thread(target=_monitor_acestep, args=(acestep_proc,), daemon=True)
-        monitor.start()
-
     # Graceful shutdown: terminate AceStep on SIGINT/SIGTERM
     def _shutdown(signum: int, frame: object) -> None:
-        if acestep_proc and acestep_proc.poll() is None:
+        proc = acestep_state.get_process()
+        if proc and proc.poll() is None:
             print("\n[stemforge] Stopping AceStep...")
-            acestep_proc.terminate()
+            proc.terminate()
             try:
-                acestep_proc.wait(timeout=5)
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                acestep_proc.kill()
+                proc.kill()
         raise SystemExit(0)
 
     signal.signal(signal.SIGINT, _shutdown)

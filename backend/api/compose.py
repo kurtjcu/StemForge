@@ -128,9 +128,20 @@ class SendToSessionRequest(BaseModel):
 
 
 def _require_acestep() -> None:
+    """Raise 503 if AceStep is not running. Distinguishes disabled/ready/starting/crashed."""
     state = acestep_state.get_status()
-    if state["status"] != "running":
-        raise HTTPException(503, f"AceStep is {state['status']}")
+    status = state["status"]
+    if status == "running":
+        return
+    if status == "disabled":
+        raise HTTPException(503, "AceStep is disabled (start without --no-acestep)")
+    if status == "ready":
+        raise HTTPException(503, "AceStep is not started yet. Call POST /api/compose/start first.")
+    if status == "starting":
+        raise HTTPException(503, "AceStep is starting up — downloading models, please stand by")
+    if status == "crashed":
+        raise HTTPException(503, f"AceStep crashed: {state.get('error', 'unknown error')}")
+    raise HTTPException(503, f"AceStep is {status}")
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +349,22 @@ async def compose_health():
         except Exception as exc:
             result["acestep_health_error"] = str(exc)
     return result
+
+
+@router.post("/start")
+async def start_acestep():
+    """Launch the AceStep subprocess on demand (first use). Idempotent."""
+    state = acestep_state.get_status()
+    if state["status"] == "disabled":
+        raise HTTPException(400, "AceStep is disabled (started with --no-acestep)")
+    if state["status"] in ("starting", "running"):
+        return {"acestep_status": state["status"], "message": "Already started"}
+
+    launched = acestep_state.launch()
+    if not launched:
+        return {"acestep_status": acestep_state.get_status()["status"], "message": "Launch skipped"}
+
+    return {"acestep_status": "starting", "message": "AceStep is starting — downloading models if needed"}
 
 
 @router.post("/generate")

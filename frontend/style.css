@@ -1444,6 +1444,58 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--text-muted);
 }
 
+.compose-result-card audio { display: none; }
+
+.compose-audio-player {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.compose-player-btn {
+  background: none;
+  border: none;
+  color: var(--text);
+  font-size: 15px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.compose-player-btn:hover { background: var(--surface-overlay); }
+.compose-player-btn:disabled { opacity: 0.3; cursor: default; }
+
+.compose-scrubber {
+  flex: 1;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+  min-width: 60px;
+}
+
+.compose-scrubber-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.15s linear;
+}
+
+.compose-player-time {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 70px;
+  text-align: right;
+}
+
 .compose-card-actions {
   display: flex;
   gap: 6px;

@@ -81,6 +81,8 @@ async function checkHealth(panel) {
       );
       return;
     }
+    // "ready" and "running" both proceed to build the UI normally.
+    // "ready" means AceStep will start on first generate.
   } catch {
     // Server not yet ready — build UI anyway, endpoints will check health
   }
@@ -918,6 +920,79 @@ function buildPayload() {
   return payload;
 }
 
+// ─── AceStep lazy startup ───────────────────────────────────────────
+
+/**
+ * Ensure AceStep is running before any generation call.
+ * If status is "ready" (configured but not spawned), triggers launch and
+ * polls until the subprocess is up — showing a notice in the output panel.
+ * Resolves when running, rejects on crash/timeout/disabled.
+ */
+async function ensureAceStep() {
+  const health = await api('/compose/health');
+  const status = health.acestep_status;
+
+  if (status === 'running') return;
+  if (status === 'disabled') throw new Error('AceStep is disabled (start without --no-acestep)');
+  if (status === 'crashed') throw new Error('AceStep crashed — check the terminal for details');
+
+  // "ready" or "starting" — need to wait for it to be running
+  if (status === 'ready') {
+    await fetch('/api/compose/start', { method: 'POST' });
+  }
+
+  // Show startup notice in the generating panel
+  const genPanel = _id('compose-generating');
+  const idlePanel = _id('compose-output-idle');
+  if (genPanel) {
+    genPanel.classList.remove('hidden');
+    clearChildren(genPanel);
+    genPanel.append(
+      el('div', { className: 'compose-spinner' }),
+      el('span', {}, 'Starting AceStep\u2026 downloading models if needed. Please stand by. '),
+      el('span', { id: 'compose-startup-elapsed', className: 'compose-elapsed' }),
+    );
+  }
+  if (idlePanel) idlePanel.classList.add('hidden');
+
+  const startTime = Date.now();
+  const elapsedEl = _id('compose-startup-elapsed');
+  const elapsedTimer = setInterval(() => {
+    const secs = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (elapsedEl) elapsedEl.textContent = m > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
+  }, 1000);
+
+  // Poll health until running (up to 5 minutes)
+  const MAX_WAIT = 300_000;
+  const POLL_INTERVAL = 3000;
+  try {
+    const deadline = Date.now() + MAX_WAIT;
+    while (Date.now() < deadline) {
+      await new Promise(r => setTimeout(r, POLL_INTERVAL));
+      const h = await api('/compose/health');
+      if (h.acestep_status === 'running') return;
+      if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
+    }
+    throw new Error('AceStep startup timed out (5 min)');
+  } finally {
+    clearInterval(elapsedTimer);
+    // Restore generating panel to its normal state
+    if (genPanel) {
+      clearChildren(genPanel);
+      genPanel.classList.add('hidden');
+      genPanel.append(
+        el('div', { className: 'compose-spinner' }),
+        el('span', {}, 'Generating\u2026 '),
+        el('span', { id: 'compose-elapsed', className: 'compose-elapsed' }),
+        el('button', { className: 'compose-ghost-btn', onClick: cancelGeneration }, 'Cancel'),
+      );
+    }
+    if (idlePanel) idlePanel.classList.remove('hidden');
+  }
+}
+
 // ─── Generation ─────────────────────────────────────────────────────
 
 async function handleGenerate() {
@@ -930,6 +1005,16 @@ async function handleGenerate() {
     return;
   }
   if (hint) hint.textContent = '';
+
+  // Ensure AceStep is running (lazy start on first use)
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting\u2026'; }
+  try {
+    await ensureAceStep();
+  } catch (err) {
+    if (hint) hint.textContent = `AceStep: ${err.message}`;
+    if (btn) { btn.disabled = false; btn.textContent = '\u25B6 Generate'; }
+    return;
+  }
 
   const payload = buildPayload();
   setGenerating(true);
@@ -1070,9 +1155,30 @@ function buildResultCard(taskId, index, total, result, fmt) {
     card.appendChild(el('div', { className: 'compose-card-label' }, `Result ${index + 1} of ${total}`));
   }
 
+  // Inline audio player with controls
+  if (audioPath) {
+    const audio = el('audio', { src: audioSrc, preload: 'metadata' });
+    card.appendChild(audio);
+
+    const playBtn = el('button', { className: 'compose-player-btn compose-player-play', type: 'button', title: 'Play' }, '\u25B6');
+    const stopBtn = el('button', { className: 'compose-player-btn compose-player-stop', type: 'button', title: 'Stop', disabled: true }, '\u23F9');
+    const rewindBtn = el('button', { className: 'compose-player-btn compose-player-rewind', type: 'button', title: 'Rewind' }, '\u23EA');
+    const scrubberFill = el('div', { className: 'compose-scrubber-fill' });
+    const scrubber = el('div', { className: 'compose-scrubber' }, scrubberFill);
+    const timeEl = el('span', { className: 'compose-player-time' }, '0:00 / 0:00');
+
+    const player = el('div', { className: 'compose-audio-player' },
+      rewindBtn, playBtn, stopBtn, scrubber, timeEl,
+    );
+    card.appendChild(player);
+
+    // Wire up player controls
+    _initCardPlayer(audio, playBtn, stopBtn, rewindBtn, scrubber, scrubberFill, timeEl);
+  }
+
   // Actions row
   const actions = el('div', { className: 'compose-card-actions' },
-    el('button', { className: 'btn btn-sm', onClick: () => transportLoad(audioSrc, 'Composed') }, '\u25B6 Play'),
+    el('button', { className: 'btn btn-sm', onClick: () => transportLoad(audioSrc, 'Composed') }, '\u266A Now Playing'),
     el('button', { className: 'btn btn-sm', onClick: () => saveFileAs(dlAudioUrl, filename) }, '\u2193 Download'),
     el('a', { className: 'btn btn-sm', href: dlJsonUrl, download: `acestep-${taskId.slice(0, 8)}-${index + 1}.json` }, 'JSON'),
     el('button', { className: 'btn btn-sm btn-primary', onClick: () => sendToSeparate(audioPath) }, '\u2192 Separate'),
@@ -1086,6 +1192,67 @@ function buildResultCard(taskId, index, total, result, fmt) {
   }
 
   return card;
+}
+
+// Track all card audio elements so only one plays at a time
+const _cardAudios = new Set();
+
+function _initCardPlayer(audio, playBtn, stopBtn, rewindBtn, scrubber, fill, timeEl) {
+  _cardAudios.add(audio);
+
+  function fmtTime(s) {
+    if (!isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  function updateProgress() {
+    const cur = audio.currentTime || 0;
+    const dur = isFinite(audio.duration) ? audio.duration : 0;
+    fill.style.width = dur ? ((cur / dur) * 100) + '%' : '0%';
+    timeEl.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
+  }
+
+  function syncButtons() {
+    const paused = audio.paused;
+    stopBtn.disabled = paused;
+    playBtn.textContent = paused ? '\u25B6' : '\u23F8';
+    playBtn.title = paused ? 'Play' : 'Pause';
+  }
+
+  playBtn.addEventListener('click', () => {
+    if (audio.paused) {
+      // Stop all other card players
+      for (const other of _cardAudios) {
+        if (other !== audio && !other.paused) other.pause();
+      }
+      audio.play();
+    } else {
+      audio.pause();
+    }
+  });
+
+  stopBtn.addEventListener('click', () => audio.pause());
+  rewindBtn.addEventListener('click', () => { audio.currentTime = 0; updateProgress(); });
+
+  scrubber.addEventListener('click', (e) => {
+    const dur = audio.duration;
+    if (!dur || !isFinite(dur)) return;
+    const rect = scrubber.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    audio.currentTime = (x / rect.width) * dur;
+    for (const other of _cardAudios) {
+      if (other !== audio && !other.paused) other.pause();
+    }
+    audio.play();
+  });
+
+  audio.addEventListener('ended', () => { audio.currentTime = 0; updateProgress(); syncButtons(); });
+  audio.addEventListener('timeupdate', updateProgress);
+  audio.addEventListener('play', syncButtons);
+  audio.addEventListener('pause', syncButtons);
+  audio.addEventListener('loadedmetadata', updateProgress);
 }
 
 // ─── Send to Separate ───────────────────────────────────────────────
