@@ -8,11 +8,9 @@ TESTS = [
     "test_torch",
     "test_demucs",
     "test_basicpitch",
-    "test_audiocraft",
     "test_av",
     "test_librosa",
     "test_transformers",
-    "test_spacy",
 ]
 
 def run_test(module_name):

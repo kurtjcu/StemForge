@@ -205,7 +205,6 @@ Then open http://localhost:8765 in your browser.
 
     StemForge/
     ├── run.py                          # uvicorn launcher (port 8765)
-    ├── config.py                       # Aggregate config, env/file loading
     │
     ├── docs/
     │   ├── GENERATE.md                 # Generate tab deep-dive (conditioning, params, vocal stems)

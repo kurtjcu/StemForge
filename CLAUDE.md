@@ -47,7 +47,6 @@ All pipelines and the full web UI are implemented:
 ```
 StemForge/
 ├── run.py                          # uvicorn launcher (port 8765)
-├── config.py                       # StemForgeConfig — aggregate config, env/file loading
 ├── pyproject.toml
 ├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
 │
@@ -123,7 +122,6 @@ StemForge/
 utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/  →  backend/main.py
 ```
 
-`config.py` is imported by any layer that needs settings. It only imports from `utils.errors`.
 `utils/paths.py` holds output directory constants — imported by pipelines, backend, and any layer.
 `frontend/` is purely static (served by FastAPI's `StaticFiles`).
 
