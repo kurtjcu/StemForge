@@ -1444,8 +1444,6 @@ input[type="range"]::-webkit-slider-thumb {
   color: var(--text-muted);
 }
 
-.compose-result-card audio { display: none; }
-
 .compose-audio-player {
   display: flex;
   align-items: center;

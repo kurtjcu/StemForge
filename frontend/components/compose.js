@@ -6,7 +6,10 @@
  */
 
 import { appState, api, el, formatTime, saveFileAs } from '../app.js';
-import { transportLoad } from './audio-player.js';
+import {
+  transportLoad, transportPlayPause, transportStop, transportSeekTo,
+  transportIsPlaying, transportOnTimeUpdate, transportOnStateChange,
+} from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -1137,11 +1140,8 @@ function buildResultCard(taskId, index, total, result, fmt) {
     card.appendChild(el('div', { className: 'compose-card-label' }, `Result ${index + 1} of ${total}`));
   }
 
-  // Inline audio player with controls
+  // Inline player controls — delegates all playback to the global transport bar
   if (audioPath) {
-    const audio = el('audio', { src: audioSrc, preload: 'metadata' });
-    card.appendChild(audio);
-
     const playBtn = el('button', { className: 'compose-player-btn compose-player-play', type: 'button', title: 'Play' }, '\u25B6');
     const stopBtn = el('button', { className: 'compose-player-btn compose-player-stop', type: 'button', title: 'Stop', disabled: true }, '\u23F9');
     const rewindBtn = el('button', { className: 'compose-player-btn compose-player-rewind', type: 'button', title: 'Rewind' }, '\u23EA');
@@ -1154,8 +1154,7 @@ function buildResultCard(taskId, index, total, result, fmt) {
     );
     card.appendChild(player);
 
-    // Wire up player controls — also syncs to transport bar on play
-    _initCardPlayer(audio, audioSrc, playBtn, stopBtn, rewindBtn, scrubber, scrubberFill, timeEl);
+    _initCardPlayer(audioSrc, playBtn, stopBtn, rewindBtn, scrubber, scrubberFill, timeEl);
   }
 
   // Actions row
@@ -1169,11 +1168,12 @@ function buildResultCard(taskId, index, total, result, fmt) {
   return card;
 }
 
-// Track all card audio elements so only one plays at a time
-const _cardAudios = new Set();
+// Track active card so only one card syncs with the transport at a time
+let _activeCardUrl = null;
+let _unsubTime = null;
+let _unsubState = null;
 
-function _initCardPlayer(audio, audioSrc, playBtn, stopBtn, rewindBtn, scrubber, fill, timeEl) {
-  _cardAudios.add(audio);
+function _initCardPlayer(audioSrc, playBtn, stopBtn, rewindBtn, scrubber, fill, timeEl) {
 
   function fmtTime(s) {
     if (!isFinite(s)) return '0:00';
@@ -1182,59 +1182,57 @@ function _initCardPlayer(audio, audioSrc, playBtn, stopBtn, rewindBtn, scrubber,
     return `${m}:${String(sec).padStart(2, '0')}`;
   }
 
-  function updateProgress() {
-    const cur = audio.currentTime || 0;
-    const dur = isFinite(audio.duration) ? audio.duration : 0;
+  function updateProgress(cur, dur) {
     fill.style.width = dur ? ((cur / dur) * 100) + '%' : '0%';
     timeEl.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
   }
 
-  function syncButtons() {
-    const paused = audio.paused;
-    stopBtn.disabled = paused;
-    playBtn.textContent = paused ? '\u25B6' : '\u23F8';
-    playBtn.title = paused ? 'Play' : 'Pause';
+  function syncButtons(playing) {
+    stopBtn.disabled = !playing;
+    playBtn.textContent = playing ? '\u23F8' : '\u25B6';
+    playBtn.title = playing ? 'Pause' : 'Play';
   }
 
-  let _transportSynced = false;
+  // Become the active card — subscribe to transport events
+  function activate() {
+    if (_activeCardUrl === audioSrc) return; // already active
+    // Unsubscribe previous card
+    if (_unsubTime) _unsubTime();
+    if (_unsubState) _unsubState();
+    _activeCardUrl = audioSrc;
+    _unsubTime = transportOnTimeUpdate(updateProgress);
+    _unsubState = transportOnStateChange(syncButtons);
+  }
 
   playBtn.addEventListener('click', () => {
-    if (audio.paused) {
-      // Stop all other card players
-      for (const other of _cardAudios) {
-        if (other !== audio && !other.paused) other.pause();
-      }
-      audio.play();
-      // Load into transport bar on first play (waveform visualization)
-      if (!_transportSynced) {
-        transportLoad(audioSrc, 'Composed', false);
-        _transportSynced = true;
-      }
+    if (_activeCardUrl !== audioSrc) {
+      // Load this card's audio into the transport
+      transportLoad(audioSrc, 'Composed', true);
+      activate();
     } else {
-      audio.pause();
+      transportPlayPause();
     }
   });
 
-  stopBtn.addEventListener('click', () => audio.pause());
-  rewindBtn.addEventListener('click', () => { audio.currentTime = 0; updateProgress(); });
+  stopBtn.addEventListener('click', () => {
+    transportStop();
+  });
+
+  rewindBtn.addEventListener('click', () => {
+    transportSeekTo(0);
+  });
 
   scrubber.addEventListener('click', (e) => {
-    const dur = audio.duration;
-    if (!dur || !isFinite(dur)) return;
+    if (_activeCardUrl !== audioSrc) {
+      transportLoad(audioSrc, 'Composed', false);
+      activate();
+    }
     const rect = scrubber.getBoundingClientRect();
     const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    audio.currentTime = (x / rect.width) * dur;
-    for (const other of _cardAudios) {
-      if (other !== audio && !other.paused) other.pause();
-    }
-    audio.play();
+    const fraction = x / rect.width;
+    transportSeekTo(fraction);
+    if (!transportIsPlaying()) transportPlayPause();
   });
-
-  audio.addEventListener('ended', () => { audio.currentTime = 0; updateProgress(); syncButtons(); });
-  audio.addEventListener('timeupdate', updateProgress);
-  audio.addEventListener('play', syncButtons);
-  audio.addEventListener('pause', syncButtons);
-  audio.addEventListener('loadedmetadata', updateProgress);
 }
 
 // ─── Send to Separate ───────────────────────────────────────────────
