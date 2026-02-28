@@ -11,7 +11,7 @@ function clearChildren(elem) {
 }
 
 export function initGenerate() {
-  const panel = document.getElementById('panel-generate');
+  const panel = document.getElementById('panel-synth');
   const layout = el('div', { className: 'two-col' });
 
   // ─── Left: controls ───

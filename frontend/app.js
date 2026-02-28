@@ -26,6 +26,7 @@ export const appState = {
   midiLabels: [],
   musicgenPath: null,
   mixPath: null,
+  composePaths: [],
 };
 
 // ─── API Helpers ────────────────────────────────────────────────────────
@@ -203,6 +204,7 @@ async function initComponents() {
     { initMidi },
     { initMix },
     { initGenerate },
+    { initCompose },
     { initExport },
     { initTransport },
   ] = await Promise.all([
@@ -211,6 +213,7 @@ async function initComponents() {
     import('./components/midi.js'),
     import('./components/mix.js'),
     import('./components/generate.js'),
+    import('./components/compose.js'),
     import('./components/export.js'),
     import('./components/audio-player.js'),
   ]);
@@ -220,6 +223,7 @@ async function initComponents() {
   initMidi();
   initMix();
   initGenerate();
+  initCompose();
   initExport();
   initTransport();
 }

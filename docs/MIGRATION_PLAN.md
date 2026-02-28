@@ -269,7 +269,7 @@ StemForge/
 
 ---
 
-### Stage 10: Submodule + Dependencies
+### Stage 10: Submodule + Dependencies — DONE
 
 1. `git submodule add https://github.com/tsondo/ACE-Step-Wrangler.git ACE-Step-Wrangler` at repo root
 2. The nested `ACE-Step-1.5/` submodule comes with Wrangler (inside `vendor/`)
@@ -279,7 +279,7 @@ StemForge/
 
 **Deliverable:** `uv sync` installs AceStep's ML stack alongside StemForge's existing deps. Both `StemForge/` and `ACE-Step-Wrangler/` remain independently cloneable and runnable.
 
-### Stage 11: Launcher Changes (`run.py`)
+### Stage 11: Launcher Changes (`run.py`) — DONE
 
 1. Add `--no-acestep` flag (default: AceStep **enabled**)
 2. Add `--acestep-port` (default 8001) configurable via `ACESTEP_PORT` env var
@@ -293,7 +293,7 @@ StemForge/
 
 **Key difference from Wrangler's `run.py`:** Wrangler exits if either process dies. StemForge must stay alive — only the Compose tab becomes unavailable.
 
-### Stage 12: Backend — Compose Router
+### Stage 12: Backend — Compose Router — DONE
 
 1. Copy `ACE-Step-Wrangler/backend/acestep_wrapper.py` → `backend/api/acestep_wrapper.py`
 2. Adapt `ACE-Step-Wrangler/backend/main.py` → `backend/api/compose.py` as a FastAPI router (not standalone app)
@@ -308,7 +308,7 @@ StemForge/
 5. Register the compose router in `backend/main.py`
 6. **Error handling:** all compose endpoints return clear error responses when AceStep is unavailable, with enough detail to diagnose (e.g. "AceStep process exited with code 1 — check logs for CUDA errors")
 
-### Stage 13: Frontend — Tab Rename + Compose Tab
+### Stage 13: Frontend — Tab Rename + Compose Tab — DONE
 
 1. Rename "Generate" tab → **"Synth"** in `index.html`, `app.js`, and `generate.js`. Add subtitle "Stable Audio Open" in the tab panel header area.
 2. Add **"Compose"** tab after Synth with subtitle "AceStep". Add the tab panel container in `index.html`.
@@ -326,7 +326,7 @@ StemForge/
    - `models-not-downloaded`: "AceStep models (~10 GB) need to be downloaded before first use. [Download Now]" — clicking triggers model download with a progress indicator
    - `running`: normal Compose UI
 
-### Stage 14: Cross-Tab Integration — Compose → Separate
+### Stage 14: Cross-Tab Integration — Compose → Separate — DONE
 
 1. When AceStep generation completes in Compose, emit: `appState.emit("composeReady", {path, metadata})`
 2. Each Compose result card gets a **"Send to Separate →"** button
@@ -336,7 +336,7 @@ StemForge/
    - Triggers the same load flow as if the user had dropped a file on the Load tab
 4. The Load tab also shows a "Recently composed" section listing available Compose outputs
 
-### Stage 15: Cross-Tab Integration — Compose → Mix
+### Stage 15: Cross-Tab Integration — Compose → Mix — DONE
 
 1. Mix tab listens to `composeReady` event
 2. Composed tracks auto-appear in Mix with:
@@ -358,7 +358,7 @@ StemForge/
 | Synth outputs (SAO) | White | `--stem-synth` | "Synth: [prompt]" |
 | Compose outputs (AceStep) | White | `--stem-compose` | "Composed: [title]" |
 
-### Stage 16: Documentation Updates
+### Stage 16: Documentation Updates — DONE
 
 1. Rename `docs/GENERATE.md` → `docs/SYNTH.md` — update all internal references and content to use "Synth" naming
 2. Create `docs/COMPOSE.md` — Compose tab reference adapted from Wrangler's `docs/USER_GUIDE.md`, covering Create mode, Rework mode, AI lyrics, advanced panel, and cross-tab integration features (Send to Separate, Mix integration)
@@ -376,7 +376,7 @@ StemForge/
 5. Update this file (`MIGRATION_PLAN.md`): mark Wrangler integration stages as complete
 6. Update `pyproject.toml` and `pyproject.toml.MAC` with AceStep path dependency
 
-### Stage 17: Polish + Testing
+### Stage 17: Polish + Testing — DONE
 
 1. Export tab gains Compose outputs in its artifact checklist
 2. Keyboard shortcuts for Synth and Compose tabs

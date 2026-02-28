@@ -38,6 +38,7 @@ class SessionStore:
         self._musicgen_path: pathlib.Path | None = None
         self._mix_path: pathlib.Path | None = None
         self._mix_tracks: list[TrackState] = []
+        self._compose_paths: list[dict[str, Any]] = []
 
     # -- audio_path --
     @property
@@ -127,6 +128,21 @@ class SessionStore:
         with self._lock:
             self._mix_tracks = list(value)
 
+    # -- compose_paths --
+    @property
+    def compose_paths(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return list(self._compose_paths)
+
+    @compose_paths.setter
+    def compose_paths(self, value: list[dict[str, Any]]) -> None:
+        with self._lock:
+            self._compose_paths = list(value)
+
+    def add_compose_path(self, entry: dict[str, Any]) -> None:
+        with self._lock:
+            self._compose_paths.append(entry)
+
     def add_track(self, track: TrackState) -> None:
         with self._lock:
             self._mix_tracks.append(track)
@@ -154,6 +170,7 @@ class SessionStore:
             self._musicgen_path = None
             self._mix_path = None
             self._mix_tracks = []
+            self._compose_paths = []
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -165,6 +182,7 @@ class SessionStore:
                 "stem_midi_labels": list(self._stem_midi_data.keys()),
                 "musicgen_path": str(self._musicgen_path) if self._musicgen_path else None,
                 "mix_path": str(self._mix_path) if self._mix_path else None,
+                "compose_paths": list(self._compose_paths),
                 "mix_tracks": [
                     {
                         "track_id": t.track_id,

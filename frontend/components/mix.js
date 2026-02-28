@@ -112,6 +112,7 @@ export function initMix() {
   });
 
   appState.on('generateReady', () => refreshTracks());
+  appState.on('composeReady', () => refreshTracks());
 }
 
 async function refreshTracks() {

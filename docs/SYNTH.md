@@ -1,6 +1,6 @@
-# Generate Tab — Stable Audio Open
+# Synth Tab — Stable Audio Open
 
-StemForge's Generate tab produces new audio using
+StemForge's Synth tab produces new audio using
 [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
 a latent-diffusion model that generates stereo 44.1 kHz audio from text prompts.
 
@@ -13,7 +13,7 @@ a latent-diffusion model that generates stereo 44.1 kHz audio from text prompts.
    (free HuggingFace account required).
 2. Create a Read token at https://huggingface.co/settings/tokens.
 3. Run `huggingface-cli login` and paste the token.
-4. Open StemForge → Generate tab → type a prompt → click **Generate**.
+4. Open StemForge → Synth tab → type a prompt → click **Generate**.
 
 Weights (~2 GB) are downloaded on the first run and cached under
 `~/.cache/stemforge/musicgen/`.

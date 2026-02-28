@@ -2,25 +2,27 @@
 
 ## Workflow
 - Break all multi-step tasks into a numbered plan before starting
-- After each major step, pause and report: what was done, what changed, what's next
+- After each major step, commit and push, then pause and report: what was done, what changed, what's next
 - Wait for explicit "continue" or "proceed" confirmation before moving to the next step
 
 ## What this project is
 
-AI-powered audio processing web application with five core pipelines:
+AI-powered audio processing web application with six core pipelines:
 - **Demucs** — source separation (vocals, drums, bass, other) — 4 models
 - **BS-Roformer** — high-quality separation with 2-stem, 4-stem, and 6-stem (guitar + piano) models
 - **BasicPitch** — polyphonic MIDI extraction from separated stems (instruments)
 - **Vocal MIDI** — vocal pitch-to-MIDI via faster-whisper + PYIN pitch tracking
-- **Stable Audio Open** — text-conditioned audio generation with optional audio and MIDI conditioning
+- **Stable Audio Open** — text-conditioned audio generation with optional audio and MIDI conditioning (Synth tab)
+- **AceStep** — full song generation from style descriptions + lyrics (Compose tab, runs as subprocess)
 
 Additional systems:
 - **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
 - **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, and FLAC render
 
-**Architecture**: FastAPI backend (`backend/`) + vanilla HTML/CSS/JS frontend (`frontend/`).
+**Architecture**: FastAPI backend (`backend/`) + vanilla HTML/CSS/JS frontend (`frontend/`) + AceStep subprocess.
 Run with `python run.py` → open `http://localhost:8765` in browser.
+AceStep runs on port 8001 by default. Disable with `--no-acestep`.
 
 ---
 
@@ -34,7 +36,8 @@ All pipelines and the full web UI are implemented:
 - MIDI extraction — BasicPitch for instruments, faster-whisper + PYIN pitch for vocals
 - MIDI preview — server-side FluidSynth render, streamed to browser via wavesurfer.js
 - Mix tab — per-track volume controls, audio/MIDI source types, FLAC render
-- Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
+- Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
+- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
 - Waveform visualization via wavesurfer.js with global transport bar
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
@@ -46,9 +49,15 @@ All pipelines and the full web UI are implemented:
 
 ```
 StemForge/
-├── run.py                          # uvicorn launcher (port 8765)
+├── run.py                          # Launcher: uvicorn + AceStep subprocess management
 ├── pyproject.toml
 ├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
+│
+├── Ace-Step-Wrangler/              # Git submodule (independently runnable)
+│   ├── vendor/ACE-Step-1.5/        # Nested submodule — upstream AceStep
+│   ├── backend/                    # Wrangler's standalone backend (reference)
+│   ├── frontend/                   # Wrangler's standalone frontend (reference)
+│   └── run.py                      # Wrangler's standalone launcher (unused in StemForge)
 │
 ├── backend/
 │   ├── __init__.py
@@ -59,14 +68,17 @@ StemForge/
 │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info, /api/audio/profile
 │   │   ├── separate.py             # /api/separate, /api/separate/recommend, /api/jobs/{id}
 │   │   ├── midi.py                 # /api/midi/extract|render|save|stems
-│   │   ├── generate.py             # /api/generate
+│   │   ├── generate.py             # /api/generate (Synth tab)
+│   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
+│   │   ├── acestep_wrapper.py      # HTTP client for AceStep API
 │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
 │   │   └── export.py               # /api/export, /api/export/download-zip
 │   └── services/
 │       ├── __init__.py
 │       ├── job_manager.py          # Background thread runner + in-memory job store
 │       ├── session_store.py        # Thread-safe session state (replaces old AppState)
-│       └── pipeline_manager.py     # Lazy-loaded pipeline singletons
+│       ├── pipeline_manager.py     # Lazy-loaded pipeline singletons
+│       └── acestep_state.py        # AceStep subprocess status (disabled/starting/running/crashed)
 │
 ├── frontend/
 │   ├── index.html                  # SPA shell — header, tab bar, tab panels, transport bar
@@ -78,7 +90,8 @@ StemForge/
 │       ├── separate.js             # Separation tab
 │       ├── midi.js                 # MIDI tab
 │       ├── mix.js                  # Mix tab
-│       ├── generate.js             # Generate tab
+│       ├── generate.js             # Synth tab (Stable Audio Open)
+│       ├── compose.js              # Compose tab (AceStep — 3-col layout)
 │       ├── export.js               # Export tab
 │       ├── midi-viz.js             # Canvas piano roll
 │       └── audio-player.js         # Global transport bar
@@ -132,8 +145,9 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | Service | Purpose |
 |---|---|
 | `job_manager.py` | `JobManager` — background thread runner, UUID-based job store, progress callback bridge |
-| `session_store.py` | `SessionStore` — thread-safe singleton replacing old `AppState`; holds audio/stem/MIDI/mix state |
+| `session_store.py` | `SessionStore` — thread-safe singleton replacing old `AppState`; holds audio/stem/MIDI/mix/compose state |
 | `pipeline_manager.py` | Lazy-loaded pipeline singletons with GPU memory lock; `get_demucs()`, `get_roformer()`, etc. |
+| `acestep_state.py` | Thread-safe AceStep subprocess status: disabled / starting / running / crashed |
 
 ### API Endpoints (`backend/api/`)
 
@@ -157,7 +171,18 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | POST | /api/midi/render | sync | FluidSynth render to WAV |
 | POST | /api/midi/save | sync | Save MIDI to disk |
 | GET | /api/midi/stems | sync | Available MIDI stem labels |
-| POST | /api/generate | job | Start audio generation |
+| POST | /api/generate | job | Start audio generation (Synth) |
+| GET | /api/compose/health | sync | AceStep subprocess status |
+| POST | /api/compose/generate | async | Start AceStep generation (Compose) |
+| GET | /api/compose/status/{id} | sync | Poll AceStep task status |
+| GET | /api/compose/audio | sync | Audio proxy from AceStep |
+| GET | /api/compose/download/{id}/{n}/audio | sync | Download compose result audio |
+| GET | /api/compose/download/{id}/{n}/json | sync | Download compose result metadata |
+| POST | /api/compose/generate-lyrics | sync | AI lyrics generation via AceStep LM |
+| POST | /api/compose/estimate-duration | sync | Auto-duration estimation |
+| POST | /api/compose/estimate-sections | sync | Section structure estimation |
+| POST | /api/compose/upload-audio | sync | Upload audio for Rework mode |
+| POST | /api/compose/send-to-session | sync | Save compose audio to session |
 | GET | /api/mix/tracks | sync | Current track list |
 | POST | /api/mix/tracks | sync | Update track state |
 | POST | /api/mix/render | job | Render mix to FLAC |
@@ -177,14 +202,17 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 Separate done  → appState.emit("stemsReady", stemPaths)
 MIDI done      → appState.emit("midiReady", {labels, noteCounts})
 Generate done  → appState.emit("generateReady", audioPath)
+Compose done   → appState.emit("composeReady", {path, title, metadata})
 Mix done       → appState.emit("mixReady", mixPath)
+File loaded    → appState.emit("fileLoaded", audioInfo)
 ```
 
 Downstream components subscribe in their `init*()` functions:
 - MIDI listens to `stemsReady` → populate stem checkboxes
-- Mix listens to `stemsReady` + `generateReady` → add tracks
+- Mix listens to `stemsReady` + `generateReady` + `composeReady` → add/refresh tracks
 - Generate listens to `stemsReady` + `midiReady` + `mixReady` → populate conditioning sources
-- Export listens to all → enable artifact checkboxes
+- Export listens to all (including `composeReady`) → enable artifact checkboxes
+- Separate listens to `fileLoaded` → enable separation button
 
 ### Job polling
 
@@ -238,8 +266,24 @@ StemForgeError
 | `STEMS_DIR` | `~/.local/share/stemforge/output/stems/` |
 | `MIDI_DIR` | `~/Music/StemForge/` |
 | `MUSICGEN_DIR` | `~/.local/share/stemforge/output/musicgen/` |
+| `COMPOSE_DIR` | `~/.local/share/stemforge/output/compose/` |
 | `MIX_DIR` | `~/.local/share/stemforge/output/mix/` |
 | `EXPORT_DIR` | `~/.local/share/stemforge/output/exports/` |
+
+---
+
+## AceStep subprocess
+
+AceStep runs as a separate process managed by `run.py`:
+
+- **Port:** 8001 (configurable via `--acestep-port` or `ACESTEP_PORT`)
+- **Disable:** `--no-acestep` flag — Compose tab shows disabled state
+- **GPU:** `--gpu N` sets `CUDA_VISIBLE_DEVICES` on the AceStep subprocess only
+- **State tracking:** `backend/services/acestep_state.py` — thread-safe status: disabled/starting/running/crashed
+- **Graceful degradation:** StemForge stays alive if AceStep crashes. All other tabs work normally.
+- **Compose router:** `backend/api/compose.py` proxies requests to AceStep's API via `backend/api/acestep_wrapper.py`
+
+**Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
 
 ---
 

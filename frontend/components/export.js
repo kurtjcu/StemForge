@@ -66,6 +66,7 @@ export function initExport() {
   appState.on('stemsReady', refreshArtifacts);
   appState.on('midiReady', refreshArtifacts);
   appState.on('generateReady', refreshArtifacts);
+  appState.on('composeReady', refreshArtifacts);
   appState.on('mixReady', refreshArtifacts);
 }
 
@@ -101,9 +102,16 @@ function collectArtifacts() {
     items.push({ label, path, type: 'stem' });
   }
 
-  // Generated audio
+  // Generated audio (Synth tab)
   if (appState.musicgenPath) {
     items.push({ label: 'Generated', path: appState.musicgenPath, type: 'generated' });
+  }
+
+  // Composed audio (Compose tab)
+  for (const entry of appState.composePaths || []) {
+    if (entry.path) {
+      items.push({ label: entry.title || 'Composed', path: entry.path, type: 'composed' });
+    }
   }
 
   // Mix

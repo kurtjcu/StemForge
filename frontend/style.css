@@ -702,3 +702,787 @@ input[type="range"]::-webkit-slider-thumb {
   transform: translateX(16px);
   background: var(--accent);
 }
+
+/* =========================================================================
+   Compose Tab (AceStep) — scoped under #panel-compose
+   Adapted from ACE-Step-Wrangler's style.css with compose- prefix
+   ========================================================================= */
+
+#panel-compose {
+  /* Bridge Wrangler tokens to StemForge tokens */
+  --text-primary: var(--text);
+  --text-secondary: var(--text-dim);
+  --surface-hover: var(--surface-overlay);
+  --border-subtle: #1e1e2a;
+  --accent-bright: #fbbf24;
+  --danger: var(--error);
+  --danger-dim: rgba(248, 113, 113, 0.12);
+  --accent-dim-compose: rgba(245, 158, 11, 0.13);
+  --font-ui: var(--font);
+  --font-mono-compose: 'SF Mono', 'Fira Mono', 'Consolas', monospace;
+  --radius-sm: 4px;
+
+  /* Override tab-panel defaults for compose's own layout */
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ─── Unavailable State ──────────────────────────────────────────────── */
+
+.compose-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 100%;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 20px;
+}
+
+.compose-unavailable-icon {
+  font-size: 48px;
+  opacity: 0.4;
+}
+
+.compose-unavailable p {
+  font-size: 14px;
+  max-width: 400px;
+  line-height: 1.6;
+}
+
+/* ─── Mode Bar (Create / Rework + create tabs) ──────────────────────── */
+
+.compose-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.compose-mode-selector {
+  display: flex;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.compose-mode-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font);
+  letter-spacing: 0.04em;
+  transition: color 0.15s, background 0.15s;
+}
+
+.compose-mode-btn:hover {
+  color: var(--text-dim);
+  background: var(--surface-overlay);
+}
+
+.compose-mode-btn.active {
+  background: var(--accent-dim-compose);
+  color: var(--accent);
+}
+
+/* ─── Create Tabs (My Lyrics / AI Lyrics / Instrumental) ────────────── */
+
+.compose-create-tabs {
+  display: flex;
+  gap: 0;
+}
+
+.compose-create-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.compose-create-tab:hover {
+  color: var(--text-dim);
+}
+
+.compose-create-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ─── Three-Column Layout ────────────────────────────────────────────── */
+
+.compose-main {
+  display: grid;
+  grid-template-columns: 260px 1fr 380px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.compose-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.compose-col:last-child {
+  border-right: none;
+}
+
+.compose-col-left {
+  background: var(--surface);
+}
+
+.compose-col-center {
+  background: #12121a;
+}
+
+.compose-col-right {
+  background: var(--surface);
+}
+
+.compose-panel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: compose-fadeIn 0.15s ease-out;
+}
+
+@keyframes compose-fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ─── Tags (Genre / Mood) ────────────────────────────────────────────── */
+
+.compose-tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.compose-tag {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 11px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-family: var(--font);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+  user-select: none;
+}
+
+.compose-tag:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.compose-tag.active {
+  background: var(--accent-dim-compose);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.compose-tags-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* ─── Labels ─────────────────────────────────────────────────────────── */
+
+.compose-label-sm {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* ─── Song Parameters ────────────────────────────────────────────────── */
+
+.compose-song-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.compose-key-row {
+  display: flex;
+  gap: 6px;
+}
+
+.compose-param-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+/* ─── Inputs: select, number, textarea ───────────────────────────────── */
+
+.compose-select {
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  padding: 6px 28px 6px 10px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2344445a' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  transition: border-color 0.15s;
+}
+
+.compose-select:focus {
+  border-color: var(--accent);
+}
+
+.compose-select-narrow {
+  flex: 0 0 62px;
+  padding-left: 8px;
+  padding-right: 20px;
+  background-position: right 5px center;
+}
+
+.compose-number {
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono-compose);
+  font-size: 14px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.compose-number:focus { border-color: var(--accent); }
+.compose-number::placeholder { color: var(--text-muted); }
+.compose-number:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.compose-textarea {
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.65;
+  padding: 10px 12px;
+  resize: none;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.compose-textarea::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.compose-textarea:focus {
+  border-color: var(--accent);
+  background: var(--surface-overlay);
+}
+
+.compose-lyrics-area {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
+
+/* ─── Field Group / Control Group ────────────────────────────────────── */
+
+.compose-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.compose-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+
+.compose-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.compose-value {
+  font-size: 12px;
+  font-family: var(--font-mono-compose);
+  color: var(--accent);
+  min-width: 44px;
+  text-align: right;
+}
+
+/* ─── Ghost Button ───────────────────────────────────────────────────── */
+
+.compose-ghost-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: var(--font);
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.compose-ghost-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+  background: var(--surface-overlay);
+}
+
+.compose-ghost-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* ─── Style Preview ──────────────────────────────────────────────────── */
+
+.compose-style-preview {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.compose-preview-text {
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.compose-preview-text.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ─── Divider ────────────────────────────────────────────────────────── */
+
+.compose-divider {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  height: 0;
+  margin: 2px 0;
+}
+
+/* ─── Upload Zone (Rework) ───────────────────────────────────────────── */
+
+.compose-upload-zone {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 13px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.compose-upload-zone.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+/* ─── Approach Selector ──────────────────────────────────────────────── */
+
+.compose-approach-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.compose-approach-btn {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.compose-approach-btn:hover {
+  border-color: var(--accent);
+}
+
+.compose-approach-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-dim-compose);
+  color: var(--accent);
+}
+
+/* ─── Sliders ────────────────────────────────────────────────────────── */
+
+.compose-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0%,
+    var(--accent) var(--fill, 50%),
+    var(--border) var(--fill, 50%),
+    var(--border) 100%
+  );
+}
+
+.compose-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--accent);
+  cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.compose-slider::-moz-range-thumb {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+  box-shadow: 0 0 0 1px var(--accent);
+  cursor: pointer;
+}
+
+.compose-slider:focus::-webkit-slider-thumb,
+.compose-slider:hover::-webkit-slider-thumb {
+  transform: scale(1.25);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 8px var(--accent-dim-compose);
+}
+
+.compose-slider:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.compose-slider:disabled::-webkit-slider-thumb {
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ─── Auto Duration Button ───────────────────────────────────────────── */
+
+.compose-auto-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--font);
+  line-height: 1.6;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.compose-auto-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.compose-auto-btn.active {
+  background: var(--accent-dim-compose);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ─── Generate Button ────────────────────────────────────────────────── */
+
+.compose-generate-btn {
+  width: 100%;
+  padding: 11px 16px;
+  background: var(--accent);
+  color: #0a0a0d;
+  border: none;
+  border-radius: var(--radius);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  margin-top: 4px;
+}
+
+.compose-generate-btn:hover {
+  background: var(--accent-bright);
+  box-shadow: 0 0 16px var(--accent-dim-compose);
+}
+
+.compose-generate-btn:active {
+  transform: scale(0.98);
+}
+
+.compose-generate-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.compose-hint {
+  font-size: 13px;
+  color: var(--error);
+  min-height: 0;
+  line-height: 1.4;
+}
+
+.compose-hint:empty {
+  display: none;
+}
+
+/* ─── Advanced Panel ─────────────────────────────────────────────────── */
+
+.compose-advanced {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+  margin-top: 2px;
+}
+
+.compose-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  padding: 3px 0;
+  transition: color 0.15s;
+}
+
+.compose-advanced-toggle::-webkit-details-marker { display: none; }
+
+.compose-advanced-toggle::before {
+  content: '\25B6';
+  font-size: 7px;
+  display: inline-block;
+  transition: transform 0.2s;
+}
+
+.compose-advanced[open] > .compose-advanced-toggle::before {
+  transform: rotate(90deg);
+}
+
+.compose-advanced[open] > .compose-advanced-toggle {
+  color: var(--text-dim);
+}
+
+.compose-advanced-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 14px;
+}
+
+.compose-batch-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+
+/* ─── Lyrics Panel ───────────────────────────────────────────────────── */
+
+.compose-tab-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 8px;
+}
+
+.compose-lyrics-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.compose-lyrics-count {
+  font-size: 12px;
+  font-family: var(--font-mono-compose);
+  color: var(--text-muted);
+}
+
+.compose-lyrics-warning {
+  font-size: 12px;
+  color: var(--error);
+}
+
+.compose-results-area {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  overflow-x: auto;
+  border-top: 1px solid var(--border-subtle);
+  padding: 8px 0 2px;
+}
+
+/* ─── Output Panel ───────────────────────────────────────────────────── */
+
+.compose-output {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px 10px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 48px;
+  align-items: center;
+}
+
+.compose-output-generating {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+}
+
+@keyframes compose-spin { to { transform: rotate(360deg); } }
+
+.compose-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: compose-spin 0.75s linear infinite;
+  flex-shrink: 0;
+}
+
+.compose-elapsed {
+  font-family: var(--font-mono-compose);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* ─── Result Cards ───────────────────────────────────────────────────── */
+
+.compose-result-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 260px;
+  flex-shrink: 0;
+}
+
+.compose-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.compose-card-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.compose-card-lyrics {
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────── */
+
+@media (max-width: 1200px) {
+  .compose-main {
+    grid-template-columns: 220px 1fr 320px;
+  }
+}
+
+@media (max-width: 900px) {
+  .compose-main {
+    grid-template-columns: 1fr;
+  }
+  .compose-col {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .compose-col:last-child {
+    border-bottom: none;
+  }
+}
