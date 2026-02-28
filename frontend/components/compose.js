@@ -1105,16 +1105,7 @@ function showResults(taskId, results, payload) {
   const idle = _id('compose-output-idle');
   if (idle) idle.classList.add('hidden');
 
-  // Also show in tab-specific result area
-  const tabResultIds = {
-    'my-lyrics': 'compose-my-lyrics-results',
-    'ai-lyrics': 'compose-ai-lyrics-results',
-    'instrumental': 'compose-instrumental-results',
-  };
-  const resultContainerId = _mode === 'create' ? tabResultIds[_createTab] : null;
-  const resultContainer = resultContainerId ? _id(resultContainerId) : null;
-
-  // AI Lyrics — populate display
+  // AI Lyrics — populate the Generated Lyrics textarea
   if (_createTab === 'ai-lyrics' && results[0]?.lyrics) {
     const display = _id('compose-ai-lyrics-display');
     if (display) display.value = results[0].lyrics;
@@ -1125,21 +1116,12 @@ function showResults(taskId, results, payload) {
   results.forEach((result, i) => {
     const audioPath = result.audio_url || '';
     const card = buildResultCard(taskId, i, results.length, result, fmt);
-
     if (output) output.appendChild(card);
 
     // Emit composeReady for cross-tab integration
     appState.composePaths.push({ path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
     appState.emit('composeReady', { path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
   });
-
-  if (resultContainer) {
-    clearChildren(resultContainer);
-    results.forEach((result, i) => {
-      resultContainer.appendChild(buildResultCard(taskId, i, results.length, result, fmt));
-    });
-    resultContainer.classList.remove('hidden');
-  }
 }
 
 function buildResultCard(taskId, index, total, result, fmt) {
@@ -1172,13 +1154,12 @@ function buildResultCard(taskId, index, total, result, fmt) {
     );
     card.appendChild(player);
 
-    // Wire up player controls
-    _initCardPlayer(audio, playBtn, stopBtn, rewindBtn, scrubber, scrubberFill, timeEl);
+    // Wire up player controls — also syncs to transport bar on play
+    _initCardPlayer(audio, audioSrc, playBtn, stopBtn, rewindBtn, scrubber, scrubberFill, timeEl);
   }
 
   // Actions row
   const actions = el('div', { className: 'compose-card-actions' },
-    el('button', { className: 'btn btn-sm', onClick: () => transportLoad(audioSrc, 'Composed') }, '\u266A Now Playing'),
     el('button', { className: 'btn btn-sm', onClick: () => saveFileAs(dlAudioUrl, filename) }, '\u2193 Download'),
     el('a', { className: 'btn btn-sm', href: dlJsonUrl, download: `acestep-${taskId.slice(0, 8)}-${index + 1}.json` }, 'JSON'),
     el('button', { className: 'btn btn-sm btn-primary', onClick: () => sendToSeparate(audioPath) }, '\u2192 Separate'),
@@ -1191,7 +1172,7 @@ function buildResultCard(taskId, index, total, result, fmt) {
 // Track all card audio elements so only one plays at a time
 const _cardAudios = new Set();
 
-function _initCardPlayer(audio, playBtn, stopBtn, rewindBtn, scrubber, fill, timeEl) {
+function _initCardPlayer(audio, audioSrc, playBtn, stopBtn, rewindBtn, scrubber, fill, timeEl) {
   _cardAudios.add(audio);
 
   function fmtTime(s) {
@@ -1215,6 +1196,8 @@ function _initCardPlayer(audio, playBtn, stopBtn, rewindBtn, scrubber, fill, tim
     playBtn.title = paused ? 'Play' : 'Pause';
   }
 
+  let _transportSynced = false;
+
   playBtn.addEventListener('click', () => {
     if (audio.paused) {
       // Stop all other card players
@@ -1222,6 +1205,11 @@ function _initCardPlayer(audio, playBtn, stopBtn, rewindBtn, scrubber, fill, tim
         if (other !== audio && !other.paused) other.pause();
       }
       audio.play();
+      // Load into transport bar on first play (waveform visualization)
+      if (!_transportSynced) {
+        transportLoad(audioSrc, 'Composed', false);
+        _transportSynced = true;
+      }
     } else {
       audio.pause();
     }
