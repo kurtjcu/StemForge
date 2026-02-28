@@ -1,0 +1,704 @@
+/* =========================================================================
+   StemForge — Design Tokens & Layout
+   Dark DAW aesthetic adapted from Ace-Step-Wrangler
+   ========================================================================= */
+
+:root {
+  /* Background layers */
+  --bg:              #0d0d11;
+  --surface:         #15151c;
+  --surface-raised:  #1c1c26;
+  --surface-overlay: #232330;
+
+  /* Accent */
+  --accent:          #f59e0b;
+  --accent-dim:      #b47108;
+  --accent-glow:     rgba(245, 158, 11, 0.15);
+
+  /* Text */
+  --text:            #e4e4e7;
+  --text-dim:        #8b8b9e;
+  --text-muted:      #555566;
+
+  /* Semantic */
+  --success:         #22c55e;
+  --error:           #ef4444;
+  --warning:         #f59e0b;
+  --info:            #3b82f6;
+
+  /* Waveform colors */
+  --wave-audio:      #22c55e;
+  --wave-audio-progress: #16a34a;
+  --wave-midi:       #a855f7;
+  --wave-midi-progress:  #7c3aed;
+
+  /* Borders & misc */
+  --border:          #2a2a3a;
+  --border-focus:    #f59e0b;
+  --radius:          6px;
+  --radius-lg:       10px;
+
+  /* Sizing */
+  --header-height:   52px;
+  --tab-bar-height:  40px;
+  --transport-height: 56px;
+
+  /* Font */
+  --font:            'Segoe UI', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:       'Fira Code', 'Consolas', 'Monaco', monospace;
+}
+
+/* ─── Reset ──────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* ─── Layout ─────────────────────────────────────────────────────────── */
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+.hidden { display: none !important; }
+
+/* ─── Header ─────────────────────────────────────────────────────────── */
+
+.app-header {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.5px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.badge.gpu {
+  color: var(--success);
+  border-color: var(--success);
+}
+
+/* ─── Tab Bar ────────────────────────────────────────────────────────── */
+
+.tab-bar {
+  height: var(--tab-bar-height);
+  display: flex;
+  gap: 2px;
+  padding: 0 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  padding: 0 20px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.tab-btn:hover {
+  color: var(--text);
+}
+
+.tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ─── Tab Content ────────────────────────────────────────────────────── */
+
+.tab-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.tab-panel {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+/* ─── Two Column Layout ──────────────────────────────────────────────── */
+
+.two-col {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+  height: 100%;
+}
+
+.col-left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.col-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+
+/* ─── Cards & Sections ───────────────────────────────────────────────── */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+.card-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+/* ─── Form Controls ──────────────────────────────────────────────────── */
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-group label {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+select, input[type="text"], input[type="number"], textarea {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  width: 100%;
+}
+
+select:focus, input:focus, textarea:focus {
+  border-color: var(--border-focus);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--surface-raised);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover {
+  background: var(--surface-overlay);
+  border-color: var(--text-muted);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--accent-dim);
+  border-color: var(--accent-dim);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn-danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.btn-danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* ─── Checkboxes ─────────────────────────────────────────────────────── */
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.checkbox-group input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+/* ─── Drop Zone ──────────────────────────────────────────────────────── */
+
+.drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  text-align: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.drop-zone:hover, .drop-zone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.drop-zone .drop-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.drop-zone .drop-text {
+  font-size: 14px;
+}
+
+.drop-zone .drop-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* ─── Progress Bar ───────────────────────────────────────────────────── */
+
+.progress-container {
+  width: 100%;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--surface-raised);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ─── Stem Cards ─────────────────────────────────────────────────────── */
+
+.stem-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stem-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stem-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.stem-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stem-time {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  min-width: 80px;
+  text-align: center;
+}
+
+.stem-waveform {
+  height: 50px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface-raised);
+}
+
+/* ─── Track Rows (Mix tab) ───────────────────────────────────────────── */
+
+.track-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.track-label {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.volume-slider {
+  width: 80px;
+}
+
+/* ─── Error / Info Banners ───────────────────────────────────────────── */
+
+.banner {
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.banner-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
+.banner-success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.banner-info {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--info);
+  color: var(--info);
+}
+
+/* ─── Slider with value ──────────────────────────────────────────────── */
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.slider-row input[type="range"] {
+  flex: 1;
+}
+
+.slider-value {
+  font-size: 12px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ─── File info ──────────────────────────────────────────────────────── */
+
+.file-info {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  padding: 8px 0;
+}
+
+.file-info .fi-item {
+  display: flex;
+  gap: 4px;
+}
+
+.file-info .fi-label {
+  color: var(--text-muted);
+}
+
+/* ─── Transport Bar ──────────────────────────────────────────────────── */
+
+.transport-bar {
+  height: var(--transport-height);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.transport-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.transport-waveform {
+  flex: 1;
+  height: 36px;
+  background: var(--surface-raised);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.transport-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  min-width: 100px;
+}
+
+#transport-time {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+#transport-label {
+  font-size: 11px;
+}
+
+.text-dim { color: var(--text-dim); }
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-overlay);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* ─── MIDI viz canvas ────────────────────────────────────────────────── */
+
+.midi-canvas {
+  width: 100%;
+  height: 120px;
+  background: var(--surface-raised);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* ─── Generate controls ──────────────────────────────────────────────── */
+
+.conditioning-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--surface-raised);
+  border-radius: var(--radius);
+}
+
+/* ─── Export items ────────────────────────────────────────────────────── */
+
+.export-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.export-item .item-name {
+  flex: 1;
+  font-size: 13px;
+}
+
+.export-item .item-size {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+/* ─── Toggle switch ──────────────────────────────────────────────────── */
+
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+}
+
+.toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  bottom: 2px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.toggle input:checked + .toggle-slider {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+
+.toggle input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+  background: var(--accent);
+}

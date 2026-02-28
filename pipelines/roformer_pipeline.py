@@ -31,7 +31,7 @@ from models.registry import get_spec, RoformerSpec
 from models.roformer_loader import RoformerModelLoader
 from utils.audio_io import read_audio, write_audio
 from utils.errors import ModelLoadError, PipelineExecutionError, InvalidInputError
-from gui.constants import _STEMS_DIR
+from utils.paths import STEMS_DIR as _STEMS_DIR
 
 
 log = logging.getLogger("stemforge.pipelines.roformer")

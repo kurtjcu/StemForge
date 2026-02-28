@@ -1,1 +1,0 @@
-"""StemForge GUI package."""

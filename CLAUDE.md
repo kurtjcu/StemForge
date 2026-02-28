@@ -7,7 +7,7 @@
 
 ## What this project is
 
-AI-powered audio processing desktop application with five core pipelines:
+AI-powered audio processing web application with five core pipelines:
 - **Demucs** — source separation (vocals, drums, bass, other) — 4 models
 - **BS-Roformer** — high-quality separation with 2-stem, 4-stem, and 6-stem (guitar + piano) models
 - **BasicPitch** — polyphonic MIDI extraction from separated stems (instruments)
@@ -15,28 +15,28 @@ AI-powered audio processing desktop application with five core pipelines:
 - **Stable Audio Open** — text-conditioned audio generation with optional audio and MIDI conditioning
 
 Additional systems:
-- **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, GUI metadata, and pipeline defaults
+- **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
-- **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, solo, and FLAC render
+- **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, and FLAC render
 
-GUI is **DearPyGUI** (`gui/app.py`). Run with `stemforge` console script or `python -m gui.app`.
+**Architecture**: FastAPI backend (`backend/`) + vanilla HTML/CSS/JS frontend (`frontend/`).
+Run with `python run.py` → open `http://localhost:8765` in browser.
 
 ---
 
 ## Current state
 
-All pipelines and the full GUI are implemented and working:
+All pipelines and the full web UI are implemented:
 
 - Demucs separation — 4 models (htdemucs, htdemucs_ft, mdx_extra, mdx_extra_q), CUDA fallback for MDX-Net
 - BS-Roformer separation — 6 models including ViperX vocals (SDR 12.97), KJ vocals, ZFTurbo 4-stem, jarredou 6-stem
 - Automatic engine/model recommendation from spectral audio analysis
 - MIDI extraction — BasicPitch for instruments, faster-whisper + PYIN pitch for vocals
-- MIDI preview — per-stem FluidSynth playback with default GM instruments, in-memory until saved
-- Mix tab — per-track instrument/volume controls, solo preview, click-to-seek master timeline, FLAC render
+- MIDI preview — server-side FluidSynth render, streamed to browser via wavesurfer.js
+- Mix tab — per-track volume controls, audio/MIDI source types, FLAC render
 - Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
-- Export panel — all pipeline outputs including mix, 4 audio formats (wav/flac/mp3/ogg), auto-refresh on pipeline completion
-- Waveform and MIDI visualizers with second-labeled ruler ticks and click-to-seek on all plots
-- WSL audio support — auto-detects WSL via `/proc/version`, routes through WSLg PulseAudio socket
+- Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
+- Waveform visualization via wavesurfer.js with global transport bar
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
 - macOS support via MPS acceleration (separate `pyproject.toml.MAC`)
 
@@ -46,46 +46,64 @@ All pipelines and the full GUI are implemented and working:
 
 ```
 StemForge/
+├── run.py                          # uvicorn launcher (port 8765)
 ├── config.py                       # StemForgeConfig — aggregate config, env/file loading
 ├── pyproject.toml
 ├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
-├── .gitignore
 │
-├── gui/
-│   ├── app.py                      # Main window + theme + render loop
-│   ├── state.py                    # AppState singleton (thread-safe shared state)
-│   ├── constants.py                # Output directory paths
-│   ├── icons.py                    # DearPyGUI icon textures
+├── backend/
+│   ├── __init__.py
+│   ├── main.py                     # FastAPI app, router registration, static mount
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
+│   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info, /api/audio/profile
+│   │   ├── separate.py             # /api/separate, /api/separate/recommend, /api/jobs/{id}
+│   │   ├── midi.py                 # /api/midi/extract|render|save|stems
+│   │   ├── generate.py             # /api/generate
+│   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
+│   │   └── export.py               # /api/export, /api/export/download-zip
+│   └── services/
+│       ├── __init__.py
+│       ├── job_manager.py          # Background thread runner + in-memory job store
+│       ├── session_store.py        # Thread-safe session state (replaces old AppState)
+│       └── pipeline_manager.py     # Lazy-loaded pipeline singletons
+│
+├── frontend/
+│   ├── index.html                  # SPA shell — header, tab bar, tab panels, transport bar
+│   ├── style.css                   # Design tokens + full layout (dark DAW aesthetic)
+│   ├── app.js                      # State management, event bus, tab switching, poll helper
 │   └── components/
-│       ├── loader.py               # File browser bar (top of window)
-│       ├── file_browser.py         # Reusable custom file/dir browser
-│       ├── waveform_widget.py      # Waveform preview + playback widget
-│       ├── midi_player_widget.py   # MIDI preview widget (FluidSynth)
-│       ├── demucs_panel.py         # Separate tab (Demucs + BS-Roformer)
-│       ├── midi_panel.py           # MIDI tab (BasicPitch + vocal MIDI)
-│       ├── mix_panel.py            # Mix tab (multi-track mixer)
-│       ├── musicgen_panel.py       # Generate tab (Stable Audio Open)
-│       └── export_panel.py         # Export tab (copy + transcode)
+│       ├── loader.js               # Drag-and-drop upload + file info
+│       ├── waveform.js             # wavesurfer.js wrapper
+│       ├── separate.js             # Separation tab
+│       ├── midi.js                 # MIDI tab
+│       ├── mix.js                  # Mix tab
+│       ├── generate.js             # Generate tab
+│       ├── export.js               # Export tab
+│       ├── midi-viz.js             # Canvas piano roll
+│       └── audio-player.js         # Global transport bar
 │
-├── pipelines/
-│   ├── demucs_pipeline.py          # Demucs separation pipeline
-│   ├── roformer_pipeline.py        # BS-Roformer separation pipeline
-│   ├── midi_pipeline.py            # Unified MIDI extraction pipeline
-│   ├── basicpitch_pipeline.py      # BasicPitch inference pipeline
-│   ├── vocal_midi_pipeline.py      # Vocal pitch-to-MIDI pipeline
-│   ├── musicgen_pipeline.py        # Stable Audio Open generation pipeline
-│   └── resample.py                 # Audio resampling pipeline
+├── pipelines/                      # UNCHANGED — all pipeline logic
+│   ├── demucs_pipeline.py
+│   ├── roformer_pipeline.py
+│   ├── midi_pipeline.py
+│   ├── basicpitch_pipeline.py
+│   ├── vocal_midi_pipeline.py
+│   ├── musicgen_pipeline.py
+│   └── resample.py
 │
-├── models/
-│   ├── registry.py                 # Model registry (specs + metadata)
-│   ├── demucs_loader.py            # Demucs model loader
-│   ├── roformer_loader.py          # BS-Roformer model loader
-│   ├── midi_loader.py              # BasicPitch + Whisper loader
-│   ├── basicpitch_loader.py        # Vendored BasicPitch TFLite loader
-│   ├── basicpitch/                 # Vendored BasicPitch (ai-edge-litert)
-│   └── musicgen_loader.py          # Stable Audio Open loader (diffusers)
+├── models/                         # UNCHANGED — model registry + loaders
+│   ├── registry.py
+│   ├── demucs_loader.py
+│   ├── roformer_loader.py
+│   ├── midi_loader.py
+│   ├── basicpitch_loader.py
+│   ├── basicpitch/
+│   └── musicgen_loader.py
 │
 ├── utils/
+│   ├── paths.py                    # Output directory constants (shared across layers)
 │   ├── audio_io.py                 # read_audio / write_audio
 │   ├── audio_profile.py            # Spectral analysis + engine recommendation
 │   ├── midi_io.py                  # MIDI read / write / helpers
@@ -105,32 +123,79 @@ StemForge/
 ## Import layer order (no circular imports)
 
 ```
-utils/  →  models/  →  pipelines/  →  gui/components/  →  gui/app.py
+utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/  →  backend/main.py
 ```
 
 `config.py` is imported by any layer that needs settings. It only imports from `utils.errors`.
-`gui/state.py` imports nothing from the project — safe for any layer.
-`gui/constants.py` imports from `utils.platform` (no circular dependency risk: utils is the base layer).
+`utils/paths.py` holds output directory constants — imported by pipelines, backend, and any layer.
+`frontend/` is purely static (served by FastAPI's `StaticFiles`).
 
 ---
 
-## DearPyGUI UI (`gui/app.py`)
+## Backend architecture
 
-Viewport: screen-aware via `_get_viewport_size()` (~90% of primary monitor, fallback 1280 × 820), min 900 × 600. Five tabs plus a persistent top bar.
+### Services (`backend/services/`)
 
-| Tab label | Panel class | File |
-|---|---|---|
-| Separate | `DemucsPanel` | `demucs_panel.py` |
-| MIDI | `MidiPanel` | `midi_panel.py` |
-| Mix | `MixPanel` | `mix_panel.py` |
-| Generate | `MusicGenPanel` | `musicgen_panel.py` |
-| Export | `ExportPanel` | `export_panel.py` |
+| Service | Purpose |
+|---|---|
+| `job_manager.py` | `JobManager` — background thread runner, UUID-based job store, progress callback bridge |
+| `session_store.py` | `SessionStore` — thread-safe singleton replacing old `AppState`; holds audio/stem/MIDI/mix state |
+| `pipeline_manager.py` | Lazy-loaded pipeline singletons with GPU memory lock; `get_demucs()`, `get_roformer()`, etc. |
 
-Top bar: `LoaderPanel` (file browse + path display + clear) + "■ Stop audio" button.
+### API Endpoints (`backend/api/`)
 
-Font: DejaVuSans 20 px, `dpg.set_global_font_scale(1.3)` applied at startup. A proper per-user UI scale control is planned for a future release — a simple float slider is insufficient because DPG scales text but not button/widget sizes, requiring a full layout reflow to implement correctly.
+| Method | Path | Type | Purpose |
+|--------|------|------|---------|
+| GET | /api/health | sync | Health check |
+| GET | /api/device | sync | GPU/device info |
+| GET | /api/models | sync | All registered models |
+| GET | /api/session | sync | Current session state |
+| DELETE | /api/session | sync | Clear session |
+| POST | /api/upload | sync | Upload audio file |
+| GET | /api/audio/stream | sync | Stream audio (inline) |
+| GET | /api/audio/download | sync | Download audio (attachment) |
+| GET | /api/audio/waveform | sync | Downsampled peaks JSON |
+| GET | /api/audio/info | sync | Audio metadata |
+| POST | /api/audio/profile | sync | Audio profiler + recommendation |
+| POST | /api/separate | job | Start separation |
+| GET | /api/separate/recommend | sync | Quick engine recommendation |
+| GET | /api/jobs/{id} | sync | Poll any job's status |
+| POST | /api/midi/extract | job | Start MIDI extraction |
+| POST | /api/midi/render | sync | FluidSynth render to WAV |
+| POST | /api/midi/save | sync | Save MIDI to disk |
+| GET | /api/midi/stems | sync | Available MIDI stem labels |
+| POST | /api/generate | job | Start audio generation |
+| GET | /api/mix/tracks | sync | Current track list |
+| POST | /api/mix/tracks | sync | Update track state |
+| POST | /api/mix/render | job | Render mix to FLAC |
+| POST | /api/mix/add-audio | sync | Add manual audio track |
+| POST | /api/mix/add-midi | sync | Add manual MIDI track |
+| DELETE | /api/mix/tracks/{id} | sync | Remove track |
+| POST | /api/export | job | Start export |
+| POST | /api/export/download-zip | sync | Zip download |
 
-File dialogs are registered at top level (outside all windows) before the render loop.
+---
+
+## Frontend architecture
+
+### Event bus pattern (replaces DPG callback wiring)
+
+```
+Separate done  → appState.emit("stemsReady", stemPaths)
+MIDI done      → appState.emit("midiReady", {labels, noteCounts})
+Generate done  → appState.emit("generateReady", audioPath)
+Mix done       → appState.emit("mixReady", mixPath)
+```
+
+Downstream components subscribe in their `init*()` functions:
+- MIDI listens to `stemsReady` → populate stem checkboxes
+- Mix listens to `stemsReady` + `generateReady` → add tracks
+- Generate listens to `stemsReady` + `midiReady` + `mixReady` → populate conditioning sources
+- Export listens to all → enable artifact checkboxes
+
+### Job polling
+
+Long-running pipeline jobs use `pollJob(jobId, {onProgress, onDone, onError, interval})` with 2s default interval.
 
 ---
 
@@ -173,44 +238,15 @@ StemForgeError
 
 ---
 
-## Key types and aliases
-
-| Alias | Definition | Defined in |
-|---|---|---|
-| `Waveform` | `Any` | `utils/audio_io.py`, `pipelines/resample.py` |
-| `NoteEvent` | `tuple[float, float, int, int]` = `(start_sec, end_sec, pitch_midi, velocity)` | `utils/midi_io.py`, `pipelines/basicpitch_pipeline.py` |
-| `MidiData` | `Any` | `utils/midi_io.py` |
-
----
-
-## Output directories (`gui/constants.py`)
-
-All under `~/.local/share/stemforge/output/`:
+## Output directories (`utils/paths.py`)
 
 | Constant | Path |
 |---|---|
-| `_STEMS_DIR` | `.../stems/` |
-| `_MIDI_DIR` | `.../midi/` |
-| `_MUSICGEN_DIR` | `.../musicgen/` |
-| `_EXPORT_DIR` | `.../exports/` |
-
----
-
-## Audio profiler (`utils/audio_profile.py`)
-
-Analyzes spectral flatness, transient sharpness/density, harmonic density, vocal naturalness, drum-intrusion risk, and stereo correlation. Returns a `Recommendation(engine, model_id, reason, confidence)` directing the user to the best separation engine and model for their audio.
-
-Veto logic ensures synthetic/electronic content routes to Demucs; natural/organic content with low drum risk routes to Roformer models.
-
----
-
-## Stable Audio Open generation (`pipelines/musicgen_pipeline.py`)
-
-- Text prompt always required
-- Optional audio conditioning via `init_audio_path` (resampled to 44.1 kHz, VAE-encoded)
-- Optional MIDI conditioning via `midi_path` (BPM, key, GM instrument families appended to prompt)
-- Durations > 47 s are chunked and concatenated
-- **Vocal Preservation Mode**: conditioning strength scaling, timing-lock windowed generation (50 ms crossfade), negative prompt support
+| `STEMS_DIR` | `~/.local/share/stemforge/output/stems/` |
+| `MIDI_DIR` | `~/Music/StemForge/` |
+| `MUSICGEN_DIR` | `~/.local/share/stemforge/output/musicgen/` |
+| `MIX_DIR` | `~/.local/share/stemforge/output/mix/` |
+| `EXPORT_DIR` | `~/.local/share/stemforge/output/exports/` |
 
 ---
 
@@ -218,8 +254,7 @@ Veto logic ensures synthetic/electronic content routes to Demucs; natural/organi
 
 - **Linux (primary)**: CUDA 13.0 wheels, uv sync, Python 3.11
 - **macOS (Apple Silicon)**: MPS acceleration via `pyproject.toml.MAC`; use `from utils.device import get_device`, never hardcode `"cuda"`
-- **WSL**: Auto-detected via `/proc/version`; audio routed through PulseAudio; requires libportaudio2, pulseaudio-utils, libasound2-plugins, libfluidsynth3, fluid-soundfont-gm
-- **FluidSynth**: Required for MIDI preview and Mix tab; GM soundfont auto-discovered at startup
+- **FluidSynth**: Required for MIDI preview and Mix tab; GM soundfont auto-discovered
 
 ---
 

@@ -12,7 +12,7 @@
 ![MusicGen](https://img.shields.io/badge/MusicGen-enabled-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
-StemForge is a local, GPU‑accelerated desktop application for AI‑powered audio work:
+StemForge is a local, GPU‑accelerated web application for AI‑powered audio work:
 
 - **Demucs** — stem separation (vocals, drums, bass, other) — 4 models including fine-tuned and MDX variants
 - **BS-Roformer** — high-quality separation with 2-stem vocal, 4-stem, and 6-stem (guitar + piano) models
@@ -236,34 +236,52 @@ Sync environment:
 
 Run:
 
-    uv run stemforge
+    uv run python run.py
+
+Then open http://localhost:8765 in your browser.
 
 ---
 
 ## Project Structure
 
     StemForge/
+    ├── run.py                          # uvicorn launcher (port 8765)
     ├── config.py                       # Aggregate config, env/file loading
     │
     ├── docs/
     │   ├── GENERATE.md                 # Generate tab deep-dive (conditioning, params, vocal stems)
-    │   └── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
+    │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
+    │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan
     │
-    ├── gui/
-    │   ├── app.py                      # Main window + theme + render loop
-    │   ├── state.py                    # AppState singleton (thread-safe shared state)
-    │   ├── constants.py                # Output directory paths
-    │   ├── icons.py                    # DearPyGUI icon textures
+    ├── backend/
+    │   ├── main.py                     # FastAPI app, router registration, static mount
+    │   ├── api/
+    │   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
+    │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info
+    │   │   ├── separate.py             # /api/separate, /api/separate/recommend, /api/jobs/{id}
+    │   │   ├── midi.py                 # /api/midi/extract|render|save|stems
+    │   │   ├── generate.py             # /api/generate
+    │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
+    │   │   └── export.py               # /api/export, /api/export/download-zip
+    │   └── services/
+    │       ├── job_manager.py          # Background thread runner + in-memory job store
+    │       ├── session_store.py        # Thread-safe session state
+    │       └── pipeline_manager.py     # Lazy-loaded pipeline singletons
+    │
+    ├── frontend/
+    │   ├── index.html                  # SPA shell — header, tab bar, tab panels, transport bar
+    │   ├── style.css                   # Design tokens + full layout (dark DAW aesthetic)
+    │   ├── app.js                      # State management, event bus, tab switching, poll helper
     │   └── components/
-    │       ├── loader.py               # File browser bar (top of window)
-    │       ├── file_browser.py         # Reusable custom file/dir browser
-    │       ├── waveform_widget.py      # Waveform preview + playback widget
-    │       ├── midi_player_widget.py   # MIDI preview widget (FluidSynth)
-    │       ├── demucs_panel.py         # Separate tab (Demucs + BS-Roformer)
-    │       ├── midi_panel.py           # MIDI tab (BasicPitch + vocal MIDI)
-    │       ├── mix_panel.py            # Mix tab (multi-track mixer)
-    │       ├── musicgen_panel.py       # Generate tab (Stable Audio Open)
-    │       └── export_panel.py         # Export tab (copy + transcode)
+    │       ├── loader.js               # Drag-and-drop upload + file info
+    │       ├── waveform.js             # wavesurfer.js wrapper
+    │       ├── separate.js             # Separation tab
+    │       ├── midi.js                 # MIDI tab
+    │       ├── mix.js                  # Mix tab
+    │       ├── generate.js             # Generate tab
+    │       ├── export.js               # Export tab
+    │       ├── midi-viz.js             # Canvas piano roll
+    │       └── audio-player.js         # Global transport bar
     │
     ├── pipelines/
     │   ├── demucs_pipeline.py          # Demucs separation pipeline
@@ -284,9 +302,12 @@ Run:
     │   └── musicgen_loader.py          # Stable Audio Open loader (diffusers)
     │
     └── utils/
+        ├── paths.py                    # Output directory constants
         ├── audio_io.py                 # read_audio / write_audio
         ├── audio_profile.py            # Spectral analysis + engine recommendation
         ├── midi_io.py                  # MIDI read / write / helpers
+        ├── device.py                   # get_device / is_mps — platform-aware torch device
+        ├── platform.py                 # get_data_dir — OS-idiomatic data paths
         ├── wsl.py                      # WSL detection + PulseAudio routing
         ├── logging_utils.py            # configure_logging
         └── errors.py                   # Custom exception hierarchy
@@ -297,54 +318,32 @@ Run:
 
 ### Separate
 Choose between **Demucs** (4 models) and **BS-Roformer** (6 models including 6-stem guitar + piano).
-An automatic spectral analysis runs when a file is loaded and suggests the best engine and model.
-Separated stems are previewed with waveform widgets and can be saved individually.
+"Help me choose" runs spectral analysis and suggests the best engine and model.
+Separated stems appear as inline players with waveform visualization, play/pause, stop, rewind,
+and save-as buttons.
 
 ### MIDI
 Extracts MIDI from any separated stem or a manually loaded audio file.
 Instrument stems use BasicPitch (polyphonic); vocal stems use faster-whisper + pitch tracking.
-Supports Ace-Step JSON metadata auto-detection for BPM, key, and lyrics prefill.
-
-After extraction each stem gets a **MIDI preview player** (Play / Stop / Rewind) rendered live
-via FluidSynth with a default GM instrument matched to the stem type.
-Extracted MIDI is kept in memory; individual stem files are only written on explicit **Save as**.
-The merged multi-track MIDI file (used for conditioning in the Generate tab) is always saved to
-`~/Music/StemForge/`.
+Each stem gets a preview player rendered server-side via FluidSynth.
+Extracted MIDI is kept in memory until explicitly saved.
 
 ### Mix
-Combines any number of audio stems and MIDI-rendered tracks into a single stereo mix.
-Tracks appear automatically after running Separate and/or Extract MIDI; additional audio and MIDI
-files can be loaded manually.
-
-Each track row has:
-- **ON / OFF** toggle — include or exclude from playback and render
-- **Volume** slider (0–100%)
-- **Instrument** selector — full GM 128-instrument list (MIDI tracks only; drums are fixed)
-
-**Play All** premixes all ON tracks and plays through a click-to-seek master timeline.
-**Solo preview** plays a single track while the master cursor advances.
-All waveform and MIDI timelines show second-labeled ruler ticks; click anywhere to seek.
-
-**Render Mix to FLAC** saves the final mix to `~/.local/share/stemforge/output/mix/`.
-Use **Save as** to write a copy anywhere on disk (wav / flac / ogg).
-
-Requires FluidSynth + a GM soundfont (see [Requirements](#requirements)).
-Note: vocal MIDI uses GM Choir Aahs — no lyrics synthesis.
+Combines audio stems and MIDI-rendered tracks into a single stereo mix.
+Tracks appear automatically after Separate and/or MIDI extraction.
+Per-track volume controls, instrument selection (MIDI tracks), and enable/disable toggle.
+Renders to FLAC.
 
 ### Generate
 Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
-Optional audio conditioning from a separated stem or loaded file.
-Optional MIDI conditioning — BPM, key, and instrument families are appended to the prompt.
+Optional conditioning from audio stems, MIDI, or the current mix.
 Duration up to 600 s (chunked generation, 47 s per chunk).
-Includes Vocal Preservation Mode with conditioning strength, timing lock, and windowed generation.
-See [docs/GENERATE.md](docs/GENERATE.md) for detailed documentation on all conditioning modes,
-parameters, and what to expect when using vocal stems as input.
+Includes Vocal Preservation Mode.
+See [docs/GENERATE.md](docs/GENERATE.md) for full documentation.
 
 ### Export
-Select any combination of stems, MIDI, mix render, and generated audio.
-Choose output format (wav / flac / mp3 / ogg) and destination folder.
-Transcoding is performed automatically when the source and target formats differ.
-The checklist auto-refreshes after each pipeline run.
+Select any combination of pipeline outputs, choose format (wav/flac/mp3/ogg),
+and download individually or as a ZIP archive.
 
 ---
 

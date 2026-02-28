@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StemForge</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/icons/logo_32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="/assets/icons/logo_64.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <h1 class="logo">StemForge</h1>
+      <span class="subtitle">AI Audio Processing</span>
+    </div>
+    <div class="header-right">
+      <span id="device-badge" class="badge">detecting...</span>
+    </div>
+  </header>
+
+  <!-- Tab bar -->
+  <nav class="tab-bar" id="tab-bar">
+    <button class="tab-btn active" data-tab="separate">Separate</button>
+    <button class="tab-btn" data-tab="midi">MIDI</button>
+    <button class="tab-btn" data-tab="mix">Mix</button>
+    <button class="tab-btn" data-tab="generate">Generate</button>
+    <button class="tab-btn" data-tab="export">Export</button>
+  </nav>
+
+  <!-- Tab panels -->
+  <main class="tab-content">
+    <section id="panel-separate" class="tab-panel">
+      <!-- Loader + Separate tab content injected by separate.js -->
+    </section>
+    <section id="panel-midi" class="tab-panel hidden">
+      <!-- MIDI tab content injected by midi.js -->
+    </section>
+    <section id="panel-mix" class="tab-panel hidden">
+      <!-- Mix tab content injected by mix.js -->
+    </section>
+    <section id="panel-generate" class="tab-panel hidden">
+      <!-- Generate tab content injected by generate.js -->
+    </section>
+    <section id="panel-export" class="tab-panel hidden">
+      <!-- Export tab content injected by export.js -->
+    </section>
+  </main>
+
+  <!-- Global transport bar -->
+  <footer class="transport-bar" id="transport-bar">
+    <div class="transport-controls">
+      <button id="transport-stop" class="btn btn-sm" title="Stop">&#9632;</button>
+      <button id="transport-play" class="btn btn-sm" title="Play/Pause">&#9654;</button>
+    </div>
+    <div id="transport-waveform" class="transport-waveform"></div>
+    <div class="transport-info">
+      <span id="transport-time">0:00 / 0:00</span>
+      <span id="transport-label" class="text-dim"></span>
+    </div>
+  </footer>
+
+  <!-- wavesurfer.js via CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "wavesurfer.js": "https://cdn.jsdelivr.net/npm/wavesurfer.js@7/dist/wavesurfer.esm.js"
+    }
+  }
+  </script>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
