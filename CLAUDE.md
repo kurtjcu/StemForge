@@ -110,8 +110,6 @@ StemForge/
 │   ├── platform.py                 # get_data_dir — OS-idiomatic data paths
 │   ├── logging_utils.py            # configure_logging
 │   └── errors.py                   # Custom exception hierarchy
-│
-└── vendor/                         # Empty — reserved for future ACE-Step-1.5 submodule
 ```
 
 ---

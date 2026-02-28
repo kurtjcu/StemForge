@@ -85,8 +85,6 @@ StemForge/
 ├── models/                         # Unchanged — model registry + loaders
 ├── utils/                          # Unchanged (paths.py added for output dir constants)
 │
-├── vendor/                         # ✎ Empty — flashy/torchdiffeq stubs removed (Audiocraft dropped)
-│
 └── docs/
     ├── GENERATE.md
     ├── FUTURE_PLANS.md
@@ -169,7 +167,7 @@ StemForge/
 
 **Done:**
 - Error states and recovery in all pipeline UIs
-- `vendor/` directory exists (contains flashy stubs + torchdiffeq)
+- `vendor/` directory removed (flashy/torchdiffeq stubs deleted, Audiocraft dropped)
 - macOS MPS support via `pyproject.toml.MAC`
 
 **Not yet done:**
@@ -186,8 +184,7 @@ Once the migration is complete, Wrangler becomes a panel within StemForge:
 
 ```
 StemForge/
-├── vendor/
-│   └── ACE-Step-1.5/              # git submodule (moved from Wrangler)
+├── ACE-Step-1.5/                  # git submodule
 ├── frontend/
 │   └── components/
 │       └── compose.js             # Wrangler's app.js adapted as a tab
@@ -206,7 +203,7 @@ StemForge/
 
 **What stays the same:**
 - `acestep_wrapper.py` — unchanged, still talks to AceStep REST API
-- `vendor/ACE-Step-1.5/` — submodule moves to StemForge root
+- `ACE-Step-1.5/` — git submodule at repo root
 - All AceStep communication stays via REST API (separate process)
 
 ---
