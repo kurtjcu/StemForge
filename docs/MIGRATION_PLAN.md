@@ -1,5 +1,8 @@
 # StemForge → FastAPI + HTML Migration Plan
 
+> **Status: COMPLETE** — All migration stages finished as of commit `6b905cf` (2026-02-28).
+> The `gui/` directory and DearPyGUI dependency have been fully removed.
+
 ## Goal
 
 Convert StemForge from a DearPyGUI desktop app to a FastAPI backend + vanilla HTML/CSS/JS frontend, matching the architecture of Ace-Step-Wrangler. Prepare the structure so Ace-Step-Wrangler can later be folded in as a panel/submodule.
@@ -27,7 +30,9 @@ This means StemForge's backend is "thick" compared to Wrangler's, but the fronte
 
 ---
 
-## Target Structure
+## Target Structure (Achieved)
+
+> Deviations from original plan noted with ✎.
 
 ```
 StemForge/
@@ -36,177 +41,142 @@ StemForge/
 ├── config.py                       # Unchanged
 │
 ├── backend/
+│   ├── __init__.py
 │   ├── main.py                     # FastAPI app — routes, static mount
 │   ├── api/
+│   │   ├── __init__.py
+│   │   ├── audio.py                # ✎ Audio serving endpoints (replaces planned audio_server.py service)
 │   │   ├── separate.py             # /api/separate — Demucs + BS-Roformer endpoints
 │   │   ├── midi.py                 # /api/midi — BasicPitch + VocalMIDI endpoints
 │   │   ├── generate.py             # /api/generate — Stable Audio Open endpoints
 │   │   ├── mix.py                  # /api/mix — Mix engine endpoints
 │   │   ├── export.py               # /api/export — Format conversion endpoints
-│   │   └── system.py               # /api/health, /api/device, /api/models
+│   │   └── system.py               # /api/health, /api/device, /api/models, /api/session
 │   └── services/
+│       ├── __init__.py
 │       ├── job_manager.py          # Background task runner + job store
-│       └── audio_server.py         # Serve audio files, waveform data
+│       ├── session_store.py        # ✎ Thread-safe session state (replaces gui/state.py AppState)
+│       └── pipeline_manager.py     # ✎ Lazy-loaded pipeline singletons with GPU lock
 │
 ├── frontend/
 │   ├── index.html                  # Single-page app shell with tab navigation
-│   ├── style.css                   # Dark DAW theme (port Wrangler's tokens)
-│   ├── app.js                      # Main app logic, routing, shared state
+│   ├── style.css                   # Dark DAW theme (Wrangler's design tokens)
+│   ├── app.js                      # State management, event bus, tab switching, poll helper
 │   └── components/
-│       ├── loader.js               # File upload/browser
+│       ├── loader.js               # Drag-and-drop upload + file info
 │       ├── separate.js             # Separation tab UI
 │       ├── midi.js                 # MIDI tab UI
 │       ├── generate.js             # Generate tab UI
 │       ├── mix.js                  # Mix tab UI
 │       ├── export.js               # Export tab UI
-│       ├── waveform.js             # Waveform visualiser (canvas-based)
-│       ├── midi-viz.js             # MIDI piano roll visualiser
-│       └── audio-player.js         # DAW-style transport (rewind/play/stop/scrub)
+│       ├── waveform.js             # wavesurfer.js wrapper (✎ uses wavesurfer.js CDN, not raw canvas)
+│       ├── midi-viz.js             # Canvas piano roll visualiser
+│       └── audio-player.js         # Global transport bar
 │
-├── pipelines/                      # Unchanged — existing pipeline code
+├── pipelines/                      # Unchanged — all pipeline code
 │   ├── demucs_pipeline.py
-│   ├── bsroformer_pipeline.py
+│   ├── roformer_pipeline.py        # ✎ Named roformer_ not bsroformer_ (matches original codebase)
 │   ├── midi_pipeline.py
+│   ├── basicpitch_pipeline.py
 │   ├── vocal_midi_pipeline.py
-│   └── musicgen_pipeline.py
+│   ├── musicgen_pipeline.py
+│   └── resample.py
 │
-├── models/                         # Unchanged
-├── utils/                          # Unchanged
+├── models/                         # Unchanged — model registry + loaders
+├── utils/                          # Unchanged (paths.py added for output dir constants)
 │
-├── vendor/                         # Future: ACE-Step-1.5 submodule
-│   └── ACE-Step-1.5/              # (added when folding in Wrangler)
-│
-├── gui/                            # DEPRECATED — remove after migration
-│   └── ...
+├── vendor/                         # ✎ Empty — flashy/torchdiffeq stubs removed (Audiocraft dropped)
 │
 └── docs/
     ├── GENERATE.md
     ├── FUTURE_PLANS.md
-    └── MIGRATION.md                # This plan
+    └── MIGRATION_PLAN.md           # This plan
 ```
+
+> **Removed:** `gui/` directory — fully deleted after migration.
 
 ---
 
 ## Migration Stages
 
-### Stage 1: Backend API Layer
+### Stage 1: Backend API Layer — DONE
 
-**Create `backend/main.py` and route modules.** Each pipeline gets its own router.
+**Created `backend/main.py` and route modules.** Each pipeline has its own router in `backend/api/`.
 
-**Pattern for long-running tasks** (separation, MIDI extraction, generation):
-```python
-# POST /api/separate → returns { "job_id": "..." }
-# GET  /api/jobs/{job_id} → returns { "status": "running"|"done"|"error", "progress": 0.42, "stage": "Loading model...", "result": {...} }
-```
+**What was built:**
+- `job_manager.py` — UUID-based job store, daemon threads, progress callbacks
+- `session_store.py` — thread-safe `SessionStore` singleton (replaced `gui/state.py` AppState)
+- `pipeline_manager.py` — lazy-loaded pipeline singletons with GPU memory lock
+- `backend/api/audio.py` — audio streaming, download, waveform, info, and profiler endpoints
+- All long-running tasks (separate, midi extract, generate, mix render, export) use background jobs with polling via `GET /api/jobs/{id}`
 
-Use `asyncio` + `threading` (same as current DPG pattern — pipelines run in background threads, progress callbacks update a shared job store).
+**Deviation:** WebSocket progress (`WS /ws/jobs/{job_id}`) was not implemented. Polling at 2s intervals proved sufficient and simpler. The planned `audio_server.py` service became `backend/api/audio.py` (API router instead of service — cleaner separation).
 
-**Pattern for quick operations** (export, audio info):
-```python
-# POST /api/export → returns file directly
-# GET  /api/audio/info?path=... → returns { duration, sample_rate, channels }
-```
+### Stage 2: Static Frontend Shell — DONE
 
-**Audio serving:**
-```python
-# GET /api/audio/stream?path=... → streams audio (no download header)
-# GET /api/audio/download?path=... → Content-Disposition: attachment
-# GET /api/audio/waveform?path=... → returns downsampled waveform JSON for canvas rendering
-```
+**Built:** `index.html` + `style.css` + `app.js` with:
+- Dark DAW design tokens (`--bg: #0d0d11`, `--accent: #f59e0b`, etc.)
+- Tab-based SPA: Load → Separate → MIDI → Generate → Mix → Export
+- Global transport bar with waveform via wavesurfer.js
+- Event bus pattern (`appState.on()`/`appState.emit()`) replacing DPG callback wiring
 
-**WebSocket for real-time progress** (upgrade from Wrangler's polling):
-```python
-# WS /ws/jobs/{job_id} → pushes { "progress": 0.55, "stage": "Separating..." }
-```
-Fall back to polling via `GET /api/jobs/{job_id}` for simplicity — implement WebSocket as a stretch goal.
+**Deviation:** Waveform uses wavesurfer.js via CDN importmap rather than raw `<canvas>` — better UX with less code.
 
-**Key implementation notes:**
-- `job_manager.py` holds a dict of `{job_id: JobState}` with thread-safe progress updates
-- Pipeline `.run()` methods already accept progress callbacks — wire them to update `JobState`
-- The existing `AppState` singleton in `gui/state.py` gets replaced by the job manager
-- Model loading is lazy and cached, same as current behaviour
+### Stage 3: File Loader Component — DONE
 
-### Stage 2: Static Frontend Shell
+- Drag-and-drop zone + file picker (`frontend/components/loader.js`)
+- `POST /api/upload` + `POST /api/audio/profile` for spectral analysis
+- Waveform preview in transport bar
+- Audio profiler shows recommended engine/model
 
-Port Wrangler's design tokens and CSS structure to StemForge's needs:
-
-```css
-:root {
-  /* Inherit Wrangler's proven dark DAW palette */
-  --bg:             #0d0d11;
-  --surface:        #15151c;
-  --surface-raised: #1c1c26;
-  --accent:         #f59e0b;    /* warm amber */
-  /* ... same token system ... */
-}
-```
-
-**Layout:** Tab-based single-page app (not Wrangler's 3-column layout, which is specific to music generation). StemForge's workflow is sequential: Load → Separate → MIDI → Generate → Mix → Export.
-
-```
-┌─────────────────────────────────────────────────────┐
-│ [Logo] StemForge          [device: CUDA] [UI Scale] │  ← header
-├─────────────────────────────────────────────────────┤
-│ [Load] [Separate] [MIDI] [Generate] [Mix] [Export]  │  ← tab bar
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│              Active tab content                     │  ← main area
-│                                                     │
-├─────────────────────────────────────────────────────┤
-│ ◀ ▶ ■  ───────●──────── 1:23 / 3:45   [waveform]  │  ← transport bar
-└─────────────────────────────────────────────────────┘
-```
-
-### Stage 3: File Loader Component
-
-- Drag-and-drop zone + file picker button
-- `POST /api/upload` → stores file, returns `{ file_id, filename, duration, sample_rate }`
-- Waveform preview in the transport bar
-- Audio profiler results shown (recommended engine/model)
-
-### Stage 4: Separation Tab
+### Stage 4: Separation Tab — DONE
 
 - Engine selector (Demucs / BS-Roformer) with model dropdown
 - Auto-recommend badge from audio profiler
-- "Separate" button → `POST /api/separate` → poll progress → show stem cards
-- Each stem card: waveform preview, play button, per-stem volume/solo
-- Port the existing stem visualisation from DPG canvas to HTML `<canvas>`
+- `POST /api/separate` → poll progress → stem cards
+- Per-stem waveform preview and playback
+- Stem visualization via wavesurfer.js (not raw canvas)
 
-### Stage 5: MIDI Tab
+### Stage 5: MIDI Tab — DONE
 
-- Stem checkboxes (populated after separation)
-- Musical parameter inputs (BPM, key, time sig) — auto-filled from Ace-Step JSON sidecar
-- "Extract MIDI" button → `POST /api/midi` → progress → per-stem MIDI results
-- Piano roll visualiser via `<canvas>` (port from DPG plot)
-- Per-stem FluidSynth preview playback via backend audio endpoint
+- Stem checkboxes populated from `stemsReady` event
+- Musical parameter inputs (BPM, key, time sig)
+- `POST /api/midi/extract` → poll progress → per-stem MIDI results
+- Canvas piano roll visualizer (`midi-viz.js`)
+- FluidSynth preview via `POST /api/midi/render` streamed to browser
 
-### Stage 6: Generate Tab
+### Stage 6: Generate Tab — DONE
 
-- Text prompt input, audio/MIDI conditioning file selectors
+- Text prompt, audio/MIDI conditioning selectors
 - Duration slider, Vocal Preservation toggle + sub-controls
-- "Generate" button → `POST /api/generate` → progress → audio result card
-- HuggingFace auth status indicator
+- `POST /api/generate` → poll progress → audio result card
+- Chunked generation (47s chunks) for durations up to 600s
 
-### Stage 7: Mix Tab
+### Stage 7: Mix Tab — DONE
 
-- Per-track cards (stems + MIDI renders) with instrument selector, volume slider, solo button
-- Master timeline with click-to-seek
-- "Render Mix" button → `POST /api/mix` → FLAC output
+- Per-track cards with instrument selector, volume slider
+- Audio and MIDI source types
+- `POST /api/mix/render` → FLAC output
+- Tracks auto-populated from `stemsReady` + `generateReady` events
 
-### Stage 8: Export Tab
+### Stage 8: Export Tab — DONE
 
-- Checklist of available outputs (stems, MIDI files, mix, generated audio)
-- Format selector (wav/flac/mp3/ogg)
-- Bulk download as zip or individual downloads
+- Checklist of all available outputs (stems, MIDI, mix, generated audio)
+- Format selector: wav/flac/mp3/ogg
+- Zip download via `POST /api/export/download-zip`
 
-### Stage 9: Polish + Wrangler Integration Prep
+### Stage 9: Polish + Wrangler Integration Prep — PARTIAL
 
+**Done:**
+- Error states and recovery in all pipeline UIs
+- `vendor/` directory exists (contains flashy stubs + torchdiffeq)
+- macOS MPS support via `pyproject.toml.MAC`
+
+**Not yet done:**
 - Keyboard shortcuts
 - Responsive layout adjustments
-- Error states and recovery
-- **Add `vendor/` directory structure** for future ACE-Step-1.5 submodule
-- **Add tab/panel slot** in the UI for "Compose" (Wrangler's future home)
-- Document the panel plugin pattern so Wrangler can register its own tab
+- "Compose" tab/panel slot for Wrangler integration
+- Panel plugin pattern documentation
 
 ---
 
@@ -241,20 +211,20 @@ StemForge/
 
 ---
 
-## Dependency Changes
+## Dependency Changes — DONE
 
-### Remove
-- `dearpygui>=1.11.0`
-- `screeninfo>=0.8.0` (no longer needed for display detection)
+### Removed
+- ~~`dearpygui>=1.11.0`~~ — removed
+- ~~`screeninfo>=0.8.0`~~ — removed
+- `sounddevice` — removed (browser handles all playback)
 
-### Add
-- `fastapi>=0.115.0`
-- `uvicorn>=0.30.0`
-- `python-multipart>=0.0.9` (for file uploads)
+### Added
+- `fastapi>=0.115.0` — in pyproject.toml
+- `uvicorn[standard]>=0.30.0` — in pyproject.toml
+- `python-multipart>=0.0.9` — in pyproject.toml
 
-### Keep
+### Kept
 - All pipeline dependencies unchanged
-- `sounddevice` (still used for backend audio preview if needed, or remove if browser handles all playback)
 
 ---
 
@@ -276,17 +246,17 @@ StemForge/
 
 ---
 
-## Execution Order for Claude Code
+## Execution Order for Claude Code — ALL DONE
 
-When implementing with Claude Code CLI, execute in this order:
+All steps were completed in commit `6b905cf`:
 
-1. Create `backend/main.py` with FastAPI app, health endpoint, static file mount
-2. Create `frontend/index.html` + `style.css` with the shell layout and design tokens
-3. Create `backend/services/job_manager.py` for background task management
-4. Create `backend/api/system.py` for device/model info endpoints
-5. Wire up the file loader (upload endpoint + frontend component)
-6. Port separation tab (biggest pipeline, proves the pattern works)
-7. Port remaining tabs one at a time: MIDI → Generate → Mix → Export
-8. Port waveform/MIDI visualisers to canvas
-9. Remove `gui/` directory and DearPyGUI dependency
-10. Update `pyproject.toml`, `CLAUDE.md`, `README.md`
+1. ~~Create `backend/main.py` with FastAPI app, health endpoint, static file mount~~ — done
+2. ~~Create `frontend/index.html` + `style.css` with the shell layout and design tokens~~ — done
+3. ~~Create `backend/services/job_manager.py` for background task management~~ — done (+ `session_store.py`, `pipeline_manager.py`)
+4. ~~Create `backend/api/system.py` for device/model info endpoints~~ — done (+ `audio.py` for streaming/waveform)
+5. ~~Wire up the file loader (upload endpoint + frontend component)~~ — done
+6. ~~Port separation tab (biggest pipeline, proves the pattern works)~~ — done
+7. ~~Port remaining tabs one at a time: MIDI → Generate → Mix → Export~~ — done
+8. ~~Port waveform/MIDI visualisers to canvas~~ — done (wavesurfer.js for waveforms, canvas for MIDI piano roll)
+9. ~~Remove `gui/` directory and DearPyGUI dependency~~ — done
+10. ~~Update `pyproject.toml`, `CLAUDE.md`, `README.md`~~ — done

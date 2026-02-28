@@ -9,7 +9,7 @@
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu130-informational)
 ![Demucs](https://img.shields.io/badge/Demucs-enabled-success)
 ![BS--Roformer](https://img.shields.io/badge/BS--Roformer-enabled-success)
-![MusicGen](https://img.shields.io/badge/MusicGen-enabled-success)
+![Stable Audio Open](https://img.shields.io/badge/Stable%20Audio%20Open-enabled-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
 StemForge is a local, GPU‑accelerated web application for AI‑powered audio work:
@@ -106,55 +106,14 @@ to point StemForge at a different `.sf2` file if needed.
 - PyTorch 2.10.0+cu130 (pinned) will use the GPU automatically
 - CPU‑only works everywhere, just slower
 
-### Audio on WSL (Windows Subsystem for Linux)
-StemForge detects WSL automatically and routes audio through PulseAudio. You need
-these system packages installed before running StemForge:
+### WSL (Windows Subsystem for Linux)
 
-    sudo apt install libportaudio2 pulseaudio-utils libasound2-plugins libfluidsynth3 fluid-soundfont-gm
+StemForge is a web application — audio playback happens in the browser, so no
+PulseAudio or sounddevice setup is needed. Install FluidSynth for MIDI preview:
 
-- **libportaudio2** — PortAudio shared library (required by `sounddevice`)
-- **pulseaudio-utils** — provides `pactl` for verifying the audio server
-- **libasound2-plugins** — ALSA-PulseAudio bridge (Ubuntu 22.04's PortAudio is built
-  against ALSA only; this plugin routes ALSA output through PulseAudio)
-- **libfluidsynth3** — FluidSynth C library (required by `pyfluidsynth` for MIDI preview)
-- **fluid-soundfont-gm** — General MIDI soundfont used by the MIDI and Mix tabs
+    sudo apt install libfluidsynth3 libfluidsynth-dev fluid-soundfont-gm
 
-**Windows 11 (WSLg) — recommended**
-
-WSLg ships PulseAudio support out of the box. Verify it is working:
-
-    pactl info
-
-If that returns audio server info, you are done — StemForge will find the socket
-automatically.
-
-**Windows 10 (or WSLg not working)**
-
-Install [PulseAudio for Windows](https://github.com/pgaskin/pulseaudio-win32) on the
-Windows side and configure it to accept TCP connections, then expose the server address
-to WSL:
-
-    export PULSE_SERVER=tcp:$(grep nameserver /etc/resolv.conf | awk '{print $2}'):4713
-
-Add that line to your `~/.bashrc` so it persists across sessions. Refer to the
-PulseAudio for Windows documentation for enabling the TCP module in `default.pa`.
-
-**Verify devices are detected**
-
-After installing the packages above, confirm that PortAudio can see PulseAudio:
-
-    python -c "import sounddevice; print(sounddevice.query_devices())"
-
-You should see at least one `pulse` device listed. If the list is empty, restart WSL
-from PowerShell (`wsl --shutdown`) and try again.
-
-**Troubleshooting**
-
-If you get no audio or a "device -1" error on startup, confirm PulseAudio is reachable:
-
-    pactl info 2>/dev/null && echo "Audio OK" || echo "PulseAudio not found"
-
-StemForge will not attempt JACK or direct ALSA output under WSL.
+Then follow the standard Install & Run steps below.
 
 ---
 
@@ -308,7 +267,6 @@ Then open http://localhost:8765 in your browser.
         ├── midi_io.py                  # MIDI read / write / helpers
         ├── device.py                   # get_device / is_mps — platform-aware torch device
         ├── platform.py                 # get_data_dir — OS-idiomatic data paths
-        ├── wsl.py                      # WSL detection + PulseAudio routing
         ├── logging_utils.py            # configure_logging
         └── errors.py                   # Custom exception hierarchy
 
@@ -361,19 +319,19 @@ Logs:
 
 ## Current Status
 
-All pipelines and the full GUI are implemented and working:
+All pipelines and the full web UI are implemented and working:
 
 - Demucs separation — 4 models, CUDA fallback for MDX-Net
 - BS-Roformer separation — 6 models including 4-stem and 6-stem (guitar + piano)
 - Automatic engine/model recommendation from spectral audio analysis
 - MIDI extraction — BasicPitch for instruments, faster-whisper + pitch for vocals
-- MIDI preview — per-stem FluidSynth playback with default GM instruments, in-memory until saved
-- Mix tab — per-track instrument/volume controls, solo preview, click-to-seek master timeline, FLAC render
-- Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s
-- Export panel — all pipeline outputs including mix, 4 audio formats, auto-refresh on pipeline completion
-- Waveform and MIDI visualizers with second-labeled ruler ticks and click-to-seek on all plots
-- WSL audio support — auto-detects WSL via `/proc/version`, routes through WSLg PulseAudio socket
+- MIDI preview — per-stem FluidSynth render, streamed to browser via wavesurfer.js
+- Mix tab — per-track instrument/volume controls, audio/MIDI source types, FLAC render
+- Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s)
+- Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
+- Waveform visualization via wavesurfer.js with global transport bar
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
+- macOS support via MPS acceleration (separate `pyproject.toml.MAC`)
 
 StemForge is evolving into a musical playground where you can regenerate and remix any part of any song.
 

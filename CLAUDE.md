@@ -107,15 +107,12 @@ StemForge/
 │   ├── audio_io.py                 # read_audio / write_audio
 │   ├── audio_profile.py            # Spectral analysis + engine recommendation
 │   ├── midi_io.py                  # MIDI read / write / helpers
-│   ├── wsl.py                      # WSL detection + PulseAudio routing
 │   ├── device.py                   # get_device / is_mps — platform-aware torch device
 │   ├── platform.py                 # get_data_dir — OS-idiomatic data paths
 │   ├── logging_utils.py            # configure_logging
 │   └── errors.py                   # Custom exception hierarchy
 │
-└── vendor/
-    ├── flashy/                     # Minimal flashy stubs for Audiocraft/Demucs
-    └── flashy_src/                 # Original flashy source (MIT, Meta)
+└── vendor/                         # Empty — reserved for future ACE-Step-1.5 submodule
 ```
 
 ---
