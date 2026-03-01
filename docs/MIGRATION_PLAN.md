@@ -86,7 +86,8 @@ StemForge/
 ├── utils/                          # Unchanged (paths.py added for output dir constants)
 │
 └── docs/
-    ├── GENERATE.md
+    ├── SYNTH.md                    # Renamed from GENERATE.md (Stage 16)
+    ├── COMPOSE.md                  # AceStep Compose tab reference (Stage 16)
     ├── FUTURE_PLANS.md
     └── MIGRATION_PLAN.md           # This plan
 ```
@@ -222,7 +223,7 @@ The existing Generate tab is renamed to **Synth** (subtitle: Stable Audio Open).
 ### Tab Bar After Integration
 
 ```
-Load · Separate · MIDI · Synth · Compose · Mix · Export
+Separate · MIDI · Synth · Compose · Mix · Export
 ```
 
 ### Target Structure

@@ -5,23 +5,27 @@
 </p>
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![CUDA](https://img.shields.io/badge/CUDA-12.9%2B-blue)
+![CUDA](https://img.shields.io/badge/CUDA-13.0-blue)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.10.0%2Bcu130-informational)
 ![Demucs](https://img.shields.io/badge/Demucs-enabled-success)
 ![BS--Roformer](https://img.shields.io/badge/BS--Roformer-enabled-success)
 ![Stable Audio Open](https://img.shields.io/badge/Stable%20Audio%20Open-enabled-success)
+![AceStep](https://img.shields.io/badge/AceStep-enabled-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
-StemForge is a local, GPU‑accelerated web application for AI‑powered audio work:
+StemForge is a local, GPU-accelerated web application for AI-powered audio work:
 
 - **Demucs** — stem separation (vocals, drums, bass, other) — 4 models including fine-tuned and MDX variants
 - **BS-Roformer** — high-quality separation with 2-stem vocal, 4-stem, and 6-stem (guitar + piano) models
 - **MIDI extraction** — polyphonic BasicPitch for instruments, faster-whisper + pitch tracking for vocals; per-stem MIDI preview via FluidSynth
-- **Mix** — multi-track mixer combining audio stems and MIDI-rendered tracks; per-track instrument, volume, and FLAC render
-- **Stable Audio Open** — text-conditioned audio generation up to 600 s, with optional audio and MIDI conditioning
-- **Export** — transcode any pipeline output (stems, MIDI, mix, generated audio) to wav / flac / mp3 / ogg
+- **Stable Audio Open** — text-conditioned audio generation up to 600 s, with optional audio and MIDI conditioning (Synth tab)
+- **AceStep** — full song generation from style descriptions + lyrics, with Create and Rework modes (Compose tab)
+- **Mix** — multi-track mixer combining audio stems, MIDI-rendered tracks, synth outputs, and composed songs; per-track instrument, volume, and FLAC render
+- **Export** — transcode any pipeline output (stems, MIDI, mix, generated audio, composed songs) to wav / flac / mp3 / ogg
 
 Everything runs locally with deterministic environments via uv.
+
+**Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
 
 See [Future Plans](docs/FUTURE_PLANS.md) for the roadmap, including voice transformation and native packaging.
 
@@ -56,7 +60,7 @@ Any distro (pipx fallback):
 After installing, open a new terminal (or run `source $HOME/.local/bin/env`) so the `uv`
 command is on your PATH.
 
-### FFmpeg ≥ 5.1 (with development headers)
+### FFmpeg >= 5.1 (with development headers)
 Required for audio decoding.
 
 Ubuntu 22.04:
@@ -79,7 +83,7 @@ Arch / Manjaro:
     sudo pacman -S ffmpeg
 
 Other distros:
-- Ensure ffmpeg ≥ 5.1
+- Ensure ffmpeg >= 5.1
 - Ensure development headers are installed
 
 ### FluidSynth + GM Soundfont (required for MIDI preview and Mix tab)
@@ -102,9 +106,9 @@ On Fedora it installs to
 to point StemForge at a different `.sf2` file if needed.
 
 ### GPU (optional)
-- NVIDIA driver supporting CUDA 12.9+
+- NVIDIA driver supporting CUDA 13.0+
 - PyTorch 2.10.0+cu130 (pinned) will use the GPU automatically
-- CPU‑only works everywhere, just slower
+- CPU-only works everywhere, just slower
 
 ### WSL (Windows Subsystem for Linux)
 
@@ -145,6 +149,7 @@ Add the `export` line to your `~/.zshrc` so it persists across sessions.
 - **BasicPitch MIDI extraction** may have limited functionality on macOS — `ai-edge-litert` (the TFLite runtime) is a Linux-only package. The MIDI tab will surface a clear error if this is attempted.
 - **Vocal MIDI** (faster-whisper) works on macOS.
 - **Stable Audio Open** generation works on macOS via MPS.
+- **AceStep** (Compose tab) works on macOS — the subprocess handles MPS detection independently.
 
 ### Performance
 
@@ -153,11 +158,11 @@ Expect significantly faster inference than CPU-only, but slower than CUDA on a d
 
 ---
 
-## HuggingFace Authentication (required for the Generate tab)
+## HuggingFace Authentication (required for the Synth tab)
 
-The Generate tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
+The Synth tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
 a gated model. You must accept its license and authenticate before StemForge can download it.
-See [docs/GENERATE.md](docs/GENERATE.md) for full documentation on conditioning modes, parameters,
+See [docs/SYNTH.md](docs/SYNTH.md) for full documentation on conditioning modes, parameters,
 and Vocal Preservation Mode.
 
 **Step 1 — Accept the license**
@@ -177,16 +182,16 @@ Paste your token when prompted. It is saved to `~/.cache/huggingface/token` and
 picked up automatically by StemForge on every subsequent run — you only need to do
 this once.
 
-The model weights (~2 GB) are downloaded on the first Generate run and cached under
+The model weights (~2 GB) are downloaded on the first Synth run and cached under
 `~/.cache/stemforge/musicgen/`.
 
 ---
 
 ## Install & Run
 
-Clone:
+Clone (use `--recursive` to pull the AceStep submodule):
 
-    git clone git@github.com:tsondo/StemForge.git
+    git clone --recursive git@github.com:tsondo/StemForge.git
     cd StemForge
 
 Sync environment:
@@ -199,32 +204,53 @@ Run:
 
 Then open http://localhost:8765 in your browser.
 
+### Launcher flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | 8765 | StemForge server port (also `STEMFORGE_PORT` env var) |
+| `--no-acestep` | off | Disable AceStep subprocess — all tabs except Compose work normally |
+| `--acestep-port` | 8001 | AceStep API port (also `ACESTEP_PORT` env var) |
+| `--gpu N` | auto | Set `CUDA_VISIBLE_DEVICES=N` on the AceStep subprocess only |
+
 ---
 
 ## Project Structure
 
     StemForge/
-    ├── run.py                          # uvicorn launcher (port 8765)
+    ├── run.py                          # Launcher: uvicorn + AceStep subprocess management
+    ├── pyproject.toml
+    ├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
+    │
+    ├── Ace-Step-Wrangler/              # Git submodule (independently runnable)
+    │   ├── vendor/ACE-Step-1.5/        # Nested submodule — upstream AceStep
+    │   ├── backend/                    # Wrangler's standalone backend (reference)
+    │   ├── frontend/                   # Wrangler's standalone frontend (reference)
+    │   └── run.py                      # Wrangler's standalone launcher (unused in StemForge)
     │
     ├── docs/
-    │   ├── GENERATE.md                 # Generate tab deep-dive (conditioning, params, vocal stems)
+    │   ├── SYNTH.md                    # Synth tab deep-dive (conditioning, params, vocal stems)
+    │   ├── COMPOSE.md                  # Compose tab reference (modes, lyrics, controls, cross-tab)
     │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
-    │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan
+    │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
     │
     ├── backend/
     │   ├── main.py                     # FastAPI app, router registration, static mount
     │   ├── api/
     │   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
-    │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info
+    │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info|profile
     │   │   ├── separate.py             # /api/separate, /api/separate/recommend, /api/jobs/{id}
     │   │   ├── midi.py                 # /api/midi/extract|render|save|stems
-    │   │   ├── generate.py             # /api/generate
+    │   │   ├── generate.py             # /api/generate (Synth tab)
+    │   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
+    │   │   ├── acestep_wrapper.py      # HTTP client for AceStep API
     │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
     │   │   └── export.py               # /api/export, /api/export/download-zip
     │   └── services/
     │       ├── job_manager.py          # Background thread runner + in-memory job store
     │       ├── session_store.py        # Thread-safe session state
-    │       └── pipeline_manager.py     # Lazy-loaded pipeline singletons
+    │       ├── pipeline_manager.py     # Lazy-loaded pipeline singletons
+    │       └── acestep_state.py        # AceStep subprocess status (disabled/starting/running/crashed)
     │
     ├── frontend/
     │   ├── index.html                  # SPA shell — header, tab bar, tab panels, transport bar
@@ -235,8 +261,9 @@ Then open http://localhost:8765 in your browser.
     │       ├── waveform.js             # wavesurfer.js wrapper
     │       ├── separate.js             # Separation tab
     │       ├── midi.js                 # MIDI tab
+    │       ├── generate.js             # Synth tab (Stable Audio Open)
+    │       ├── compose.js              # Compose tab (AceStep — 3-column layout)
     │       ├── mix.js                  # Mix tab
-    │       ├── generate.js             # Generate tab
     │       ├── export.js               # Export tab
     │       ├── midi-viz.js             # Canvas piano roll
     │       └── audio-player.js         # Global transport bar
@@ -257,7 +284,7 @@ Then open http://localhost:8765 in your browser.
     │   ├── midi_loader.py              # BasicPitch + Whisper loader
     │   ├── basicpitch_loader.py        # Vendored BasicPitch TFLite loader
     │   ├── basicpitch/                 # Vendored BasicPitch (ai-edge-litert)
-    │   └── musicgen_loader.py          # Stable Audio Open loader (diffusers)
+    │   └── musicgen_loader.py          # Stable Audio Open loader
     │
     └── utils/
         ├── paths.py                    # Output directory constants
@@ -285,18 +312,28 @@ Instrument stems use BasicPitch (polyphonic); vocal stems use faster-whisper + p
 Each stem gets a preview player rendered server-side via FluidSynth.
 Extracted MIDI is kept in memory until explicitly saved.
 
-### Mix
-Combines audio stems and MIDI-rendered tracks into a single stereo mix.
-Tracks appear automatically after Separate and/or MIDI extraction.
-Per-track volume controls, instrument selection (MIDI tracks), and enable/disable toggle.
-Renders to FLAC.
-
-### Generate
+### Synth
 Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
 Optional conditioning from audio stems, MIDI, or the current mix.
 Duration up to 600 s (chunked generation, 47 s per chunk).
 Includes Vocal Preservation Mode.
-See [docs/GENERATE.md](docs/GENERATE.md) for full documentation.
+See [docs/SYNTH.md](docs/SYNTH.md) for full documentation.
+
+### Compose
+Full song generation via AceStep 1.5, running as a managed subprocess.
+See [docs/COMPOSE.md](docs/COMPOSE.md) for full documentation.
+
+- **Create mode** — build a song from genre/mood tags, song parameters, and lyrics (manual, AI-generated, or instrumental)
+- **Rework mode** — transform an existing audio file via Reimagine (full regeneration) or Fix & Blend (region-targeted)
+- **Cross-tab integration** — send composed audio to Separate for stem extraction, or to Mix for multi-track blending
+
+AceStep model weights (~10 GB) are downloaded on first use.
+
+### Mix
+Combines audio stems, MIDI-rendered tracks, synth outputs, and composed songs into a single stereo mix.
+Tracks appear automatically after Separate, MIDI extraction, Synth generation, or Compose.
+Per-track volume controls, instrument selection (MIDI tracks), and enable/disable toggle.
+Renders to FLAC.
 
 ### Export
 Select any combination of pipeline outputs, choose format (wav/flac/mp3/ogg),
@@ -325,8 +362,9 @@ All pipelines and the full web UI are implemented and working:
 - Automatic engine/model recommendation from spectral audio analysis
 - MIDI extraction — BasicPitch for instruments, faster-whisper + pitch for vocals
 - MIDI preview — per-stem FluidSynth render, streamed to browser via wavesurfer.js
-- Mix tab — per-track instrument/volume controls, audio/MIDI source types, FLAC render
-- Stable Audio Open generation — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s)
+- Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
+- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
+- Mix tab — per-track instrument/volume controls, audio/MIDI/synth/compose source types, FLAC render
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
 - Waveform visualization via wavesurfer.js with global transport bar
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels

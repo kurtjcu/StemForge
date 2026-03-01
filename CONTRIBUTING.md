@@ -1,6 +1,6 @@
 # Contributing to StemForge
 
-Thank you for your interest in contributing to StemForge!  
+Thank you for your interest in contributing to StemForge!
 This project uses **uv** for deterministic environments, fast installs, and clean dependency management.
 
 ---
@@ -18,7 +18,7 @@ Install uv:
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ### FFmpeg (required for PyAV)
-You must have **FFmpeg ≥ 5.1** with development headers.
+You must have **FFmpeg >= 5.1** with development headers.
 
 Ubuntu 22.04:
     sudo add-apt-repository -y ppa:ubuntuhandbook1/ffmpeg7
@@ -35,10 +35,21 @@ Fedora:
 Arch:
     sudo pacman -S ffmpeg
 
+### FluidSynth (required for MIDI preview and Mix tab)
+
+Fedora:
+    sudo dnf install fluidsynth fluidsynth-devel fluid-soundfont-gm
+
+Ubuntu / Debian:
+    sudo apt install libfluidsynth3 libfluidsynth-dev fluid-soundfont-gm
+
+Arch:
+    sudo pacman -S fluidsynth soundfont-fluid
+
 ### GPU (optional)
 For GPU acceleration:
-- NVIDIA driver supporting **CUDA 12.8**
-- PyTorch **2.10.0+cu128** (pinned in uv.lock)
+- NVIDIA driver supporting **CUDA 13.0**
+- PyTorch **2.10.0+cu130** (pinned in uv.lock)
 
 CPU-only works everywhere.
 
@@ -46,8 +57,8 @@ CPU-only works everywhere.
 
 ## Getting Started
 
-Clone:
-    git clone git@github.com:tsondo/StemForge.git
+Clone (use `--recursive` for the AceStep submodule):
+    git clone --recursive git@github.com:tsondo/StemForge.git
     cd StemForge
 
 Sync environment:
@@ -56,7 +67,9 @@ Sync environment:
 This creates `.venv/`, installs all dependencies, and respects the pinned `uv.lock`.
 
 Run the app:
-    uv run stemforge
+    uv run python run.py
+
+Then open http://localhost:8765 in your browser.
 
 ---
 
@@ -95,17 +108,22 @@ Avoid unnecessary dependency churn.
 
 ## Project Structure
 
-    gui/         – DearPyGUI interface (panels, theme, dialogs)
-    pipelines/   – Demucs, BasicPitch, Vocal MIDI, MusicGen (stub)
-    models/      – Model loaders + caching
-    utils/       – Audio I/O, MIDI I/O, logging, errors
-    gui/constants.py – Centralized output directories
+    backend/           – FastAPI backend (API routers + services)
+    backend/api/       – API endpoint routers (separate, midi, generate, compose, mix, export, etc.)
+    backend/services/  – Job manager, session store, pipeline manager, AceStep state
+    frontend/          – Vanilla HTML/CSS/JS SPA (served by FastAPI StaticFiles)
+    frontend/components/ – Per-tab JS modules (separate, midi, generate, compose, mix, export)
+    pipelines/         – Demucs, BS-Roformer, BasicPitch, Vocal MIDI, Stable Audio Open
+    models/            – Model loaders, registry, vendored BasicPitch
+    utils/             – Audio I/O, MIDI I/O, paths, device detection, logging, errors
+    Ace-Step-Wrangler/ – Git submodule for AceStep (Compose tab)
 
 Notes:
-- GUI code must not block the main thread
-- Long operations must run in background threads
-- All output paths come from gui/constants.py
-- No circular imports
+- Backend API endpoints must not block the event loop — long operations run in background threads via `JobManager`
+- All output paths come from `utils/paths.py`
+- Import layer order: `utils/ → models/ → pipelines/ → backend/services/ → backend/api/ → backend/main.py` (no circular imports)
+- Frontend uses an event bus (`appState.on()`/`appState.emit()`) for cross-tab communication
+- AceStep runs as a subprocess managed by `run.py`, proxied via `backend/api/compose.py`
 
 ---
 
@@ -151,11 +169,11 @@ Add the `export` to your `~/.zshrc`.
 
 ## Pull Requests
 
-1. Create a feature branch  
-2. Make focused, minimal changes  
-3. Run `make check`  
-4. Ensure no regressions  
-5. Submit a PR with a clear description  
+1. Create a feature branch
+2. Make focused, minimal changes
+3. Run `make check`
+4. Ensure no regressions
+5. Submit a PR with a clear description
 
 Small, incremental PRs are preferred.
 

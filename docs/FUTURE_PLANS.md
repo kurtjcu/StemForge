@@ -6,9 +6,9 @@ is a living document for tracking ideas.
 
 ---
 
-## Voice transformation (Generate tab)
+## Voice transformation (Synth tab)
 
-The Generate tab currently uses Stable Audio Open for text-conditioned audio
+The Synth tab currently uses Stable Audio Open for text-conditioned audio
 generation. A major gap is the ability to take an isolated vocal stem and
 transform it — change the voice, adjust emotional delivery, or apply a
 style/LoRA to it — while preserving lyrics, timing, and musical phrasing.
@@ -74,13 +74,13 @@ via the Mix tab.
 
 ### Integration design (sketch)
 
-- New section or mode in the Generate tab: "Voice Transform"
+- New section or mode in the Synth tab: "Voice Transform"
 - Input: a vocal stem (from Separate tab or manually loaded)
 - Controls: voice model selector, optional emotion/style parameters
 - Output: a new WAV stem at 44.1 kHz, written to the musicgen output
   directory, and automatically available in the Mix tab
 - The existing Stable Audio Open generation and Voice Transform would
-  be sibling modes within the Generate tab, not separate tabs
+  be sibling modes within the Synth tab, not separate tabs
 
 ### Open questions
 
