@@ -11,9 +11,9 @@ AceStep runs as a separate subprocess managed by StemForge's launcher.
 
 1. Start StemForge normally (without `--no-acestep`).
 2. Open browser → Compose tab.
-3. Pick genre/mood tags, write or generate lyrics, click **Generate**.
-
-AceStep model weights (~10 GB) are downloaded on first use.
+3. Click **⏻ Initialize** — this starts the AceStep backend and downloads model weights (~20 GB) on the first run. An elapsed timer shows progress.
+4. Once ready, the button becomes **▶ Generate**.
+5. Pick genre/mood tags, write or generate lyrics, click **Generate**.
 
 ---
 
@@ -114,6 +114,7 @@ Compose outputs appear in the Export tab's artifact checklist.
 
 StemForge manages AceStep as a child process:
 
+- **Lazy startup:** AceStep doesn't start until you click **Initialize** on the Compose tab. This avoids a ~20 GB download on app startup.
 - **Default port:** 8001 (configurable via `--acestep-port` or `ACESTEP_PORT`)
 - **Disable:** `--no-acestep` flag → Compose tab shows disabled message
 - **Crash handling:** StemForge stays running; Compose tab shows error state

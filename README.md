@@ -105,10 +105,11 @@ On Fedora it installs to
 `/usr/share/soundfonts/FluidR3_GM.sf2`; use the Browse button on the Mix tab
 to point StemForge at a different `.sf2` file if needed.
 
-### GPU (optional)
-- NVIDIA driver supporting CUDA 13.0+
-- PyTorch 2.10.0+cu130 (pinned) will use the GPU automatically
-- CPU-only works everywhere, just slower
+### GPU (recommended)
+- **NVIDIA GPU** with driver **580+** (required for CUDA 13.0 runtime)
+- Check your driver version: `nvidia-smi` → top-right shows "Driver Version"
+- PyTorch 2.10.0+cu130 (pinned) will use the GPU automatically — no CUDA toolkit install needed
+- CPU-only works but is significantly slower for all pipelines
 
 ### WSL (Windows Subsystem for Linux)
 
@@ -189,20 +190,38 @@ The model weights (~2 GB) are downloaded on the first Synth run and cached under
 
 ## Install & Run
 
-Clone (use `--recursive` to pull the AceStep submodule):
+**Step 1** — Install system dependencies (see Requirements above): uv, FFmpeg, FluidSynth + GM soundfont.
+
+**Step 2** — Clone (use `--recursive` to pull the AceStep submodule and its nested vendor):
 
     git clone --recursive git@github.com:tsondo/StemForge.git
     cd StemForge
 
-Sync environment:
+**Step 3** — Sync environment (downloads Python 3.11, PyTorch, and all dependencies — first run takes a few minutes):
 
     uv sync
 
-Run:
+**Step 4** — Run:
 
     uv run python run.py
 
-Then open http://localhost:8765 in your browser.
+**Step 5** — Open http://localhost:8765 in your browser.
+
+### First-run model downloads
+
+All AI models are downloaded lazily on first use — StemForge does not download anything at startup.
+
+| Pipeline | Download size | Trigger |
+|----------|--------------|---------|
+| Demucs separation | ~300 MB per model | First separation |
+| BS-Roformer separation | ~500 MB per model | First separation |
+| Stable Audio Open (Synth) | ~2 GB | First generation (requires HuggingFace auth — see below) |
+| AceStep (Compose) | ~20 GB | Click "Initialize" on Compose tab |
+| Whisper (Vocal MIDI) | ~40–500 MB depending on model size | First vocal MIDI extraction |
+
+The Compose tab shows an **"Initialize"** button instead of "Generate" until AceStep is ready.
+Clicking it starts the backend and downloads models if needed (can take 10–30 min on the first run).
+Once initialized, the button switches to **"Generate"** and stays that way for the session.
 
 ### Updating the AceStep submodule
 
@@ -352,11 +371,12 @@ See [docs/SYNTH.md](docs/SYNTH.md) for full documentation.
 Full song generation via AceStep 1.5, running as a managed subprocess.
 See [docs/COMPOSE.md](docs/COMPOSE.md) for full documentation.
 
+- **Initialize** — on first visit, the button says "Initialize". Click it to start the AceStep backend and download models (~20 GB on first run). Once ready, the button becomes "Generate".
 - **Create mode** — build a song from genre/mood tags, song parameters, and lyrics (manual, AI-generated, or instrumental)
 - **Rework mode** — transform an existing audio file via Reimagine (full regeneration) or Fix & Blend (region-targeted)
 - **Cross-tab integration** — send composed audio to Separate for stem extraction, or to Mix for multi-track blending
 
-AceStep model weights (~20 GB) are downloaded on first use to `MODEL_LOCATION` (or `checkpoints/` in the submodule if unset).
+AceStep model weights are cached under `MODEL_LOCATION` (default `~/.cache/stemforge/`) or `checkpoints/` in the submodule if unset.
 
 ### Mix
 Combines audio stems, MIDI-rendered tracks, synth outputs, and composed songs into a single stereo mix.
@@ -412,6 +432,35 @@ All pipelines and the full web UI are implemented and working:
 - macOS support via MPS acceleration (separate `pyproject.toml.MAC`)
 
 StemForge is evolving into a musical playground where you can regenerate and remix any part of any song.
+
+---
+
+## Troubleshooting
+
+**`uv sync` fails with resolver errors**
+Ensure you cloned with `--recursive`. If the `Ace-Step-Wrangler/vendor/ACE-Step-1.5/` directory is empty, run:
+
+    git submodule update --init --recursive
+
+**`nvidia-smi` not found or shows old driver**
+Install or update the NVIDIA driver to 580+ for CUDA 13.0 support.
+On Fedora: `sudo dnf install akmod-nvidia` (RPM Fusion).
+On Ubuntu: `sudo apt install nvidia-driver-580` (or newer).
+
+**FluidSynth soundfont not found**
+MIDI preview and Mix tab require a GM soundfont. Verify it's installed:
+
+    ls /usr/share/soundfonts/    # Fedora
+    ls /usr/share/sounds/sf2/    # Ubuntu/Debian
+
+**Compose tab shows "Initialize" but startup fails**
+Check the terminal for AceStep error output. Common causes:
+- Not enough disk space for ~20 GB model download
+- Not enough GPU VRAM (16 GB recommended; use `ACESTEP_VAE_ON_CPU=1` to offload)
+- Network timeout during model download — just click Initialize again to resume
+
+**Synth tab fails with "gated model" error**
+You need HuggingFace authentication — see the HuggingFace Authentication section above.
 
 ---
 
