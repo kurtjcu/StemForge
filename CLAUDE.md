@@ -283,6 +283,7 @@ AceStep runs as a separate process managed by `run.py`:
 - **State tracking:** `backend/services/acestep_state.py` — thread-safe status: disabled/starting/running/crashed
 - **Graceful degradation:** StemForge stays alive if AceStep crashes. All other tabs work normally.
 - **Compose router:** `backend/api/compose.py` proxies requests to AceStep's API via `backend/api/acestep_wrapper.py`
+- **Submodule:** `Ace-Step-Wrangler/` (with nested `vendor/ACE-Step-1.5/`). To pull upstream changes: `cd Ace-Step-Wrangler && git pull origin main && cd .. && git add Ace-Step-Wrangler && git commit`
 
 **Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
 

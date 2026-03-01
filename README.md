@@ -204,6 +204,33 @@ Run:
 
 Then open http://localhost:8765 in your browser.
 
+### Updating the AceStep submodule
+
+When Ace-Step-Wrangler has new commits (bug fixes, model support, etc.),
+pull them into StemForge:
+
+    cd Ace-Step-Wrangler
+    git pull origin main
+    cd ..
+    git add Ace-Step-Wrangler
+    git commit -m "Update Ace-Step-Wrangler submodule"
+    git push
+
+If Wrangler's nested submodule (`vendor/ACE-Step-1.5`) also changed, pull
+that first:
+
+    cd Ace-Step-Wrangler
+    git submodule update --remote vendor/ACE-Step-1.5
+    git add vendor/ACE-Step-1.5
+    git commit -m "Update ACE-Step vendor"
+    git push origin main
+    cd ..
+    git add Ace-Step-Wrangler
+    git commit -m "Update Ace-Step-Wrangler submodule"
+    git push
+
+After updating, run `uv sync` to pick up any dependency changes.
+
 ### Launcher flags
 
 | Flag | Default | Description |
