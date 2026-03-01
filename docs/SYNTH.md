@@ -16,7 +16,8 @@ a latent-diffusion model that generates stereo 44.1 kHz audio from text prompts.
 4. Open StemForge → Synth tab → type a prompt → click **Generate**.
 
 Weights (~2 GB) are downloaded on the first run and cached under
-`~/.cache/stemforge/musicgen/`.
+`~/.cache/stemforge/musicgen/` (or `$MODEL_LOCATION/musicgen/` if
+`MODEL_LOCATION` is set — see the README's **Shared model cache** section).
 
 ---
 

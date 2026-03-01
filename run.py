@@ -5,7 +5,10 @@ import os
 import signal
 import subprocess
 
+from dotenv import load_dotenv
 import uvicorn
+
+load_dotenv(override=False)
 
 # AceStep passthrough vars listed here only for the banner display.
 _ACESTEP_PASSTHROUGH_VARS = [

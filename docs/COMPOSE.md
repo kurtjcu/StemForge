@@ -123,6 +123,7 @@ StemForge manages AceStep as a child process:
 
 | Variable | Purpose |
 |---|---|
+| `MODEL_LOCATION` | Shared model cache directory (see README) |
 | `ACESTEP_DEVICE` | Force device (cuda/cpu) |
 | `MAX_CUDA_VRAM` | VRAM limit |
 | `ACESTEP_VAE_ON_CPU` | Offload VAE to CPU |

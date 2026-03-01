@@ -404,6 +404,9 @@ Logs:
 
 Two users on the same workstation can avoid duplicate downloads by pointing at a single directory:
 
+    # Via .env file (recommended — persists across sessions)
+    echo 'MODEL_LOCATION=/data/models' >> .env
+
     # Via environment variable
     MODEL_LOCATION=/data/models uv run python run.py
 
