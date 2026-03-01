@@ -114,7 +114,7 @@ class MidiConfig:
         output_dir: pathlib.Path | None = None,
     ) -> None:
         self.prompt = prompt.strip() if prompt else None
-        self.duration_seconds = max(1.0, float(duration_seconds))
+        self.duration_seconds = max(1.0, float(duration_seconds)) if float(duration_seconds) > 0 else 0.0
         self.key = key
         self.time_signature = time_signature
         self.bpm = max(20.0, min(300.0, float(bpm)))
