@@ -95,21 +95,9 @@ export function initMix() {
     } catch (err) { alert(`Error: ${err.message}`); }
   });
 
-  // Auto-add tracks when stems/midi/generated are ready
-  appState.on('stemsReady', async (stemPaths) => {
-    for (const [label, path] of Object.entries(stemPaths)) {
-      await api('/mix/tracks', {
-        method: 'POST',
-        body: JSON.stringify({
-          track_id: `stem-${label}`,
-          enabled: true,
-          volume: 0.8,
-        }),
-      }).catch(() => {});
-    }
-    // Add stems as audio tracks via session
-    refreshTracks();
-  });
+  // Auto-refresh tracks when stems/midi/generated are ready
+  // (stem tracks are added server-side by the separation job)
+  appState.on('stemsReady', () => refreshTracks());
 
   appState.on('generateReady', () => refreshTracks());
   appState.on('composeReady', () => refreshTracks());

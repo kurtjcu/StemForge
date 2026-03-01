@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session
+from backend.services.session_store import session, TrackState
 from backend.services import pipeline_manager
 from utils.paths import STEMS_DIR
 
@@ -71,9 +71,19 @@ def _run_separation(
         pipeline.load_model()
         result = pipeline.run(audio_path)
 
-    # Store stem paths in session
+    # Store stem paths in session and auto-add mix tracks
     stem_paths = dict(result.stem_paths)
     session.stem_paths = stem_paths
+
+    for label, path in stem_paths.items():
+        track_id = f"stem-{label}"
+        if not session.get_track(track_id):
+            session.add_track(TrackState(
+                track_id=track_id,
+                label=label.replace("_", " ").title(),
+                source="audio",
+                path=path,
+            ))
 
     return {
         "stem_paths": {k: str(v) for k, v in stem_paths.items()},
