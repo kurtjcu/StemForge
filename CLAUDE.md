@@ -300,4 +300,5 @@ AceStep runs as a separate process managed by `run.py`:
 
 - Model weights: `~/.cache/stemforge/` (subdirs per model type) — override with `MODEL_LOCATION` env var or `--model-dir` flag
 - Cache resolution: `utils/cache.py` → `get_model_cache_base()` / `get_model_cache_dir(subdir)`
+- AceStep checkpoints: also reads `MODEL_LOCATION` (forwarded via `_PASSTHROUGH_VARS` in `acestep_state.py`)
 - Logs: `~/.local/share/stemforge/logs/stemforge.log`
