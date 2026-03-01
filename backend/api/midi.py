@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session
+from backend.services.session_store import session, TrackState
 from backend.services import pipeline_manager
 from utils.paths import MIDI_DIR
 
@@ -62,7 +62,7 @@ def _run_midi_extraction(
     pipeline.set_progress_callback(_midi_cb)
     result = pipeline.run(stems)
 
-    # Store in session
+    # Store in session and auto-add mix tracks
     session.merged_midi_data = result.merged_midi_data
     session.stem_midi_data = result.stem_midi_data or {}
 
@@ -70,6 +70,15 @@ def _run_midi_extraction(
     for label, midi_data in (result.stem_midi_data or {}).items():
         note_count = sum(len(inst.notes) for inst in midi_data.instruments)
         stem_info[label] = {"note_count": note_count}
+
+        track_id = f"midi-{label}"
+        if not session.get_track(track_id):
+            session.add_track(TrackState(
+                track_id=track_id,
+                label=f"{label.replace('_', ' ').title()} (MIDI)",
+                source="midi",
+                midi_data=midi_data,
+            ))
 
     return {
         "labels": list((result.stem_midi_data or {}).keys()),

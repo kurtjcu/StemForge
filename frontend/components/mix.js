@@ -99,6 +99,7 @@ export function initMix() {
   // (stem tracks are added server-side by the separation job)
   appState.on('stemsReady', () => refreshTracks());
 
+  appState.on('midiReady', () => refreshTracks());
   appState.on('generateReady', () => refreshTracks());
   appState.on('composeReady', () => refreshTracks());
 }
