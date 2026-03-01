@@ -14,7 +14,7 @@ _ACESTEP_PASSTHROUGH_VARS = [
     "ACESTEP_VAE_ON_CPU",
     "ACESTEP_LM_BACKEND",
     "ACESTEP_INIT_LLM",
-    "STEMFORGE_MODEL_DIR",
+    "MODEL_LOCATION",
 ]
 
 
@@ -47,8 +47,8 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-dir",
         type=str,
-        default=os.environ.get("STEMFORGE_MODEL_DIR", "").strip() or None,
-        help="Shared model cache directory (also STEMFORGE_MODEL_DIR env var). "
+        default=os.environ.get("MODEL_LOCATION", "").strip() or None,
+        help="Shared model cache directory (also MODEL_LOCATION env var). "
              "Default: ~/.cache/stemforge/",
     )
     return parser.parse_args()
@@ -88,7 +88,7 @@ def main() -> None:
 
     # --- Model cache directory (must be set before any model imports) ---
     if args.model_dir:
-        os.environ["STEMFORGE_MODEL_DIR"] = args.model_dir
+        os.environ["MODEL_LOCATION"] = args.model_dir
     # Also redirect torch.hub (used internally by Demucs) into our cache tree.
     from utils.cache import get_model_cache_base
     model_base = get_model_cache_base()

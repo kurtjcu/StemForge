@@ -115,7 +115,7 @@ StemForge/
 │   └── musicgen_loader.py
 │
 ├── utils/
-│   ├── cache.py                    # Model cache dir resolution (STEMFORGE_MODEL_DIR)
+│   ├── cache.py                    # Model cache dir resolution (MODEL_LOCATION)
 │   ├── paths.py                    # Output directory constants (shared across layers)
 │   ├── audio_io.py                 # read_audio / write_audio
 │   ├── audio_profile.py            # Spectral analysis + engine recommendation
@@ -298,6 +298,6 @@ AceStep runs as a separate process managed by `run.py`:
 
 ## Caches and logs
 
-- Model weights: `~/.cache/stemforge/` (subdirs per model type) — override with `STEMFORGE_MODEL_DIR` env var or `--model-dir` flag
+- Model weights: `~/.cache/stemforge/` (subdirs per model type) — override with `MODEL_LOCATION` env var or `--model-dir` flag
 - Cache resolution: `utils/cache.py` → `get_model_cache_base()` / `get_model_cache_dir(subdir)`
 - Logs: `~/.local/share/stemforge/logs/stemforge.log`
