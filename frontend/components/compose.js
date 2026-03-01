@@ -23,6 +23,7 @@ let _approach = 'cover';       // 'cover' | 'repaint'
 let _uploadedPath = null;
 let _uploadedDuration = null;
 let _autoOn = false;
+let _aceStepRunning = false;
 let _pollTimer = null;
 let _elapsedTimer = null;
 
@@ -46,6 +47,12 @@ function _updateSlider(slider) {
   const min = Number(slider.min);
   const max = Number(slider.max);
   slider.style.setProperty('--fill', ((val - min) / (max - min)) * 100 + '%');
+}
+
+function _modeLabel() {
+  return _mode === 'rework'
+    ? (_approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend')
+    : '\u25B6 Generate';
 }
 
 function _formatDuration(secs) {
@@ -86,6 +93,7 @@ async function checkHealth(panel) {
     }
     // "ready" and "running" both proceed to build the UI normally.
     // "ready" means AceStep will start on first generate.
+    _aceStepRunning = (health.acestep_status === 'running');
   } catch {
     // Server not yet ready — build UI anyway, endpoints will check health
   }
@@ -424,7 +432,7 @@ function buildRightColumn() {
 
   // Generate button
   const genBtn = el('button', { className: 'compose-generate-btn', id: 'compose-generate-btn',
-    onClick: handleGenerate }, '\u25B6 Generate');
+    onClick: handleGenerate }, _aceStepRunning ? '\u25B6 Generate' : '\u23FB Initialize');
   const genHint = el('div', { className: 'compose-hint', id: 'compose-hint' });
 
   // Advanced panel
@@ -600,10 +608,8 @@ function switchMode(mode) {
   if (tabs) tabs.classList.toggle('hidden', mode !== 'create');
 
   const btn = _id('compose-generate-btn');
-  if (btn && !btn.disabled) {
-    btn.textContent = mode === 'rework'
-      ? (_approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend')
-      : '\u25B6 Generate';
+  if (btn && !btn.disabled && _aceStepRunning) {
+    btn.textContent = _modeLabel();
   }
 }
 
@@ -627,8 +633,8 @@ function switchApproach(approach) {
   if (rg) rg.classList.toggle('hidden', approach !== 'repaint');
 
   const btn = _id('compose-generate-btn');
-  if (btn && !btn.disabled) {
-    btn.textContent = approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend';
+  if (btn && !btn.disabled && _aceStepRunning) {
+    btn.textContent = _modeLabel();
   }
 }
 
@@ -1002,22 +1008,29 @@ async function handleGenerate() {
   const btn = _id('compose-generate-btn');
   const hint = _id('compose-hint');
 
+  // ── Initialize flow (AceStep not yet running) ──
+  if (!_aceStepRunning) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Starting\u2026'; }
+    if (hint) hint.textContent = '';
+    try {
+      await ensureAceStep();
+      _aceStepRunning = true;
+      if (btn) { btn.disabled = false; btn.textContent = _modeLabel(); }
+    } catch (err) {
+      if (hint) hint.textContent = `AceStep: ${err.message}`;
+      if (btn) { btn.disabled = false; btn.textContent = '\u23FB Initialize'; }
+    }
+    return;
+  }
+
+  // ── Generate flow (AceStep is running) ──
+
   // Validation
   if (_mode === 'rework' && !_uploadedPath) {
     if (hint) hint.textContent = 'Upload audio to get started.';
     return;
   }
   if (hint) hint.textContent = '';
-
-  // Ensure AceStep is running (lazy start on first use)
-  if (btn) { btn.disabled = true; btn.textContent = 'Starting\u2026'; }
-  try {
-    await ensureAceStep();
-  } catch (err) {
-    if (hint) hint.textContent = `AceStep: ${err.message}`;
-    if (btn) { btn.disabled = false; btn.textContent = '\u25B6 Generate'; }
-    return;
-  }
 
   const payload = buildPayload();
   setGenerating(true);
@@ -1074,9 +1087,7 @@ function setGenerating(on) {
 
   if (btn) {
     btn.disabled = on;
-    btn.textContent = on ? 'Generating\u2026' : (_mode === 'rework'
-      ? (_approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend')
-      : '\u25B6 Generate');
+    btn.textContent = on ? 'Generating\u2026' : _modeLabel();
   }
   if (genPanel) genPanel.classList.toggle('hidden', !on);
   if (idlePanel) idlePanel.classList.toggle('hidden', on);
