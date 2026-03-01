@@ -467,6 +467,14 @@ You need HuggingFace authentication — see the HuggingFace Authentication secti
 
 ---
 
+## Acknowledgments
+
+StemForge is built on many outstanding open-source projects — Demucs, BS-Roformer,
+Basic Pitch, Whisper, Stable Audio Open, ACE-Step, wavesurfer.js, and more.
+See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for the full list with links and references.
+
+---
+
 ## License
 
 StemForge is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
