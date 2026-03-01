@@ -23,6 +23,7 @@ from typing import Any
 
 from models.basicpitch_loader import BasicPitchModelLoader
 from models.registry import DEFAULT_WHISPER_SPEC
+from utils.cache import get_model_cache_dir
 from utils.midi_io import NoteEvent, LyricEvent, filter_to_key
 from utils.errors import ModelLoadError, PipelineExecutionError
 
@@ -119,6 +120,7 @@ class MidiModelLoader:
             spec.model_size,
             device=spec.device,
             compute_type=spec.compute_type,
+            download_root=str(get_model_cache_dir("whisper")),
         )
         log.info("faster-whisper model ready.")
         return self._whisper_model

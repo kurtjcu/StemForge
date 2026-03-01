@@ -212,6 +212,7 @@ Then open http://localhost:8765 in your browser.
 | `--no-acestep` | off | Disable AceStep subprocess — all tabs except Compose work normally |
 | `--acestep-port` | 8001 | AceStep API port (also `ACESTEP_PORT` env var) |
 | `--gpu N` | auto | Set `CUDA_VISIBLE_DEVICES=N` on the AceStep subprocess only |
+| `--model-dir` | `~/.cache/stemforge/` | Shared model cache directory (also `STEMFORGE_MODEL_DIR` env var) |
 
 ---
 
@@ -287,6 +288,7 @@ Then open http://localhost:8765 in your browser.
     │   └── musicgen_loader.py          # Stable Audio Open loader
     │
     └── utils/
+        ├── cache.py                    # Model cache dir resolution (STEMFORGE_MODEL_DIR)
         ├── paths.py                    # Output directory constants
         ├── audio_io.py                 # read_audio / write_audio
         ├── audio_profile.py            # Spectral analysis + engine recommendation
@@ -350,6 +352,20 @@ Models:
 Logs:
 
     ~/.local/share/stemforge/logs/stemforge.log
+
+### Shared model cache
+
+Two users on the same workstation can avoid duplicate downloads by pointing at a single directory:
+
+    # Via environment variable
+    STEMFORGE_MODEL_DIR=/data/models uv run python run.py
+
+    # Via CLI flag
+    uv run python run.py --model-dir /data/models
+
+All model loaders (Demucs, BS-Roformer, Stable Audio Open, Whisper) will read from and write to that path. Demucs downloads (via `torch.hub`) are redirected by setting `TORCH_HOME` automatically.
+
+**Note:** AceStep model weights (~10 GB) are managed by `acestep-download` and are not yet redirected by this setting.
 
 ---
 

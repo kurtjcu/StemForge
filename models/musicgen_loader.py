@@ -16,15 +16,12 @@ from typing import Any
 
 import torch
 
+from utils.cache import get_model_cache_dir
 from utils.device import get_device
 from utils.errors import ModelLoadError
 
 
 log = logging.getLogger("stemforge.models.musicgen_loader")
-
-DEFAULT_MODEL_CACHE_DIR: pathlib.Path = (
-    pathlib.Path.home() / ".cache" / "stemforge" / "musicgen"
-)
 
 
 class MusicGenModelLoader:
@@ -37,7 +34,9 @@ class MusicGenModelLoader:
         Defaults to ``~/.cache/stemforge/musicgen``.
     """
 
-    def __init__(self, cache_dir: pathlib.Path = DEFAULT_MODEL_CACHE_DIR) -> None:
+    def __init__(self, cache_dir: pathlib.Path | None = None) -> None:
+        if cache_dir is None:
+            cache_dir = get_model_cache_dir("musicgen")
         self._cache_dir = pathlib.Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._pipeline: Any = None

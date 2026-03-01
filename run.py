@@ -14,6 +14,7 @@ _ACESTEP_PASSTHROUGH_VARS = [
     "ACESTEP_VAE_ON_CPU",
     "ACESTEP_LM_BACKEND",
     "ACESTEP_INIT_LLM",
+    "STEMFORGE_MODEL_DIR",
 ]
 
 
@@ -43,10 +44,23 @@ def _parse_args() -> argparse.Namespace:
         default=os.environ.get("ACESTEP_GPU"),
         help="GPU device(s) for AceStep (e.g. 0, 1, 0,1). Sets CUDA_VISIBLE_DEVICES.",
     )
+    parser.add_argument(
+        "--model-dir",
+        type=str,
+        default=os.environ.get("STEMFORGE_MODEL_DIR", "").strip() or None,
+        help="Shared model cache directory (also STEMFORGE_MODEL_DIR env var). "
+             "Default: ~/.cache/stemforge/",
+    )
     return parser.parse_args()
 
 
-def _print_banner(port: int, acestep_port: int, acestep_enabled: bool, gpu: str | None) -> None:
+def _print_banner(
+    port: int,
+    acestep_port: int,
+    acestep_enabled: bool,
+    gpu: str | None,
+    model_dir: str,
+) -> None:
     gpu_display = gpu if gpu else "auto"
     acestep_display = f"ready (port {acestep_port}, starts on first use)" if acestep_enabled else "disabled"
     active_overrides = {
@@ -57,6 +71,7 @@ def _print_banner(port: int, acestep_port: int, acestep_enabled: bool, gpu: str 
     print("  StemForge")
     print("=" * 60)
     print(f"  Server:     http://localhost:{port}")
+    print(f"  Models:     {model_dir}")
     print(f"  AceStep:    {acestep_display}")
     print(f"  GPU:        {gpu_display}")
     if active_overrides:
@@ -71,6 +86,14 @@ def _print_banner(port: int, acestep_port: int, acestep_enabled: bool, gpu: str 
 def main() -> None:
     args = _parse_args()
 
+    # --- Model cache directory (must be set before any model imports) ---
+    if args.model_dir:
+        os.environ["STEMFORGE_MODEL_DIR"] = args.model_dir
+    # Also redirect torch.hub (used internally by Demucs) into our cache tree.
+    from utils.cache import get_model_cache_base
+    model_base = get_model_cache_base()
+    os.environ.setdefault("TORCH_HOME", str(model_base / "torch_hub"))
+
     from backend.services import acestep_state
 
     if args.no_acestep:
@@ -79,7 +102,7 @@ def main() -> None:
         # Configure but don't spawn — AceStep starts on first use
         acestep_state.configure(args.acestep_port, args.gpu)
 
-    _print_banner(args.port, args.acestep_port, not args.no_acestep, args.gpu)
+    _print_banner(args.port, args.acestep_port, not args.no_acestep, args.gpu, str(model_base))
 
     # Graceful shutdown: terminate AceStep on SIGINT/SIGTERM
     def _shutdown(signum: int, frame: object) -> None:

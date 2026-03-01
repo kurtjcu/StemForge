@@ -28,6 +28,8 @@ import pathlib
 from dataclasses import dataclass
 from typing import Any
 
+from utils.cache import get_model_cache_dir
+
 
 # ---------------------------------------------------------------------------
 # Base spec
@@ -130,7 +132,7 @@ class ModelSpec:
     @property
     def cache_dir(self) -> pathlib.Path:
         """Absolute path to this model's weight cache directory."""
-        return pathlib.Path.home() / ".cache" / "stemforge" / self.cache_subdir
+        return get_model_cache_dir(self.cache_subdir)
 
 
 # ---------------------------------------------------------------------------

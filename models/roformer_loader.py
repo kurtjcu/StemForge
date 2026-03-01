@@ -16,12 +16,11 @@ import torch.nn as nn
 import yaml
 
 from models.registry import get_spec, RoformerSpec
+from utils.cache import get_model_cache_dir
 from utils.errors import ModelLoadError
 
 
 log = logging.getLogger("stemforge.models.roformer_loader")
-
-DEFAULT_ROFORMER_CACHE_DIR = pathlib.Path.home() / ".cache" / "stemforge" / "roformer"
 
 # ---------------------------------------------------------------------------
 # hyper-connections CUDA contiguity patch
@@ -72,7 +71,9 @@ _INVALID_ROFORMER_KEYS = frozenset({
 class RoformerModelLoader:
     """Download-on-demand loader for BS-Roformer and MelBand-Roformer models."""
 
-    def __init__(self, cache_dir: pathlib.Path = DEFAULT_ROFORMER_CACHE_DIR) -> None:
+    def __init__(self, cache_dir: pathlib.Path | None = None) -> None:
+        if cache_dir is None:
+            cache_dir = get_model_cache_dir("roformer")
         self._cache_dir = pathlib.Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
