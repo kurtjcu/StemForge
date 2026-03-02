@@ -1,421 +1,249 @@
-# SFX Stem Builder — Backend Specification
+# SFX Stem Builder — Specification & Current Implementation State
 
-## Overview
-
-Add an SFX Stem Builder to the Synth tab. It lets users create a blank audio canvas (matching a reference stem's duration/sample rate or a manually specified length), place multiple Synth-generated sound effect clips onto it at specific timestamps with per-clip volume and fade controls, and render the result as a standard WAV stem available in the Mix tab.
-
-The feature is **non-destructive**: a JSON manifest is the source of truth. The WAV is re-rendered from the manifest on every edit. Users can move, replace, remove, and adjust clips after initial placement.
+> **Purpose of this document:** Describe what has been built, what was originally specced, and where the current implementation does not match the user's intent. Used to clarify the correct design before further implementation.
 
 ---
 
-## 1. Data Model
+## 1. What Was Originally Specced
 
-### 1.1 SFX Manifest (JSON)
+The SFX Stem Builder was designed to let users:
 
-Persisted alongside the rendered WAV in the SFX output directory.
+1. Create a blank audio **canvas** with a fixed duration (matching a reference stem or manually set).
+2. Place multiple Synth-generated sound effect clips onto the canvas at specific timestamps with per-clip volume and fade controls.
+3. Non-destructively edit placements (move, adjust, remove) — the canvas is re-rendered from a JSON manifest on every change.
+4. Render the composite to a single WAV stem.
+5. Send that stem to the Mix tab.
+
+The original spec anticipated a **reference stem waveform** displayed for visual alignment, with the canvas waveform below it.
+
+---
+
+## 2. What Has Been Built (Backend)
+
+### 2.1 Data Model
+
+SFX manifests are JSON files stored at `~/.local/share/stemforge/output/sfx/{sfx_id}/manifest.json`.
 
 ```json
 {
   "id": "sfx_a1b2c3",
   "name": "Rain & Thunder",
-  "duration_ms": 240000,
+  "duration_ms": 30000,
   "sample_rate": 44100,
   "channels": 2,
-  "reference_stem": "/path/to/vocals.wav",
   "apply_limiter": false,
   "placements": [
     {
       "id": "p1",
-      "clip_path": "/path/to/rain_loop.wav",
-      "clip_name": "rain_loop.wav",
+      "clip_path": "/path/to/clip.wav",
       "start_ms": 0,
-      "volume": 0.8,
-      "fade_in_ms": 500,
-      "fade_out_ms": 2000,
-      "fade_curve": "cosine"
-    },
-    {
-      "id": "p2",
-      "clip_path": "/path/to/thunder.wav",
-      "clip_name": "thunder.wav",
-      "start_ms": 15000,
-      "volume": 1.2,
-      "fade_in_ms": 50,
-      "fade_out_ms": 800,
+      "volume": 1.0,
+      "fade_in_ms": 0,
+      "fade_out_ms": 0,
       "fade_curve": "linear"
     }
   ]
 }
 ```
 
-**Field rules:**
-- `id`: Auto-generated, `sfx_` + 6-char hex.
-- `duration_ms`: Set at creation, immutable after (canvas length).
-- `sample_rate` / `channels`: Copied from reference stem, or default 44100 / 2 if manual duration.
-- `reference_stem`: Path to reference file (nullable if manual duration).
-- `apply_limiter`: Boolean, off by default.
-- `placements[].id`: Auto-generated, `p` + incrementing int or short hex.
-- `placements[].volume`: Float, 0.0–2.0 (1.0 = unity gain).
-- `placements[].fade_curve`: `"linear"` or `"cosine"`.
-- `placements[].start_ms`: Must be >= 0 and < `duration_ms`.
-- Clips may overlap. No enforcement of non-overlap.
+The rendered WAV is at `{sfx_id}/rendered.wav`.
 
-### 1.2 Output Directory
+### 2.2 Renderer (`backend/services/sfx_renderer.py`)
 
-Add `SFX_DIR` to `utils/paths.py`:
+- Creates a stereo 44100 Hz canvas of silence
+- For each placement: load clip → resample → convert channels → apply fade in/out → apply volume → sum into canvas at `start_ms` offset
+- Optional soft limiter (tanh)
+- Clips extending past the canvas end are truncated
 
-```python
-SFX_DIR = OUTPUT_BASE / "sfx"
-```
+### 2.3 API Endpoints (`backend/api/sfx.py`, prefix `/api/sfx`)
 
-Each SFX stem gets a subdirectory: `SFX_DIR / manifest_id /` containing:
-- `manifest.json` — the source of truth
-- `rendered.wav` — the current composite render
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/create` | Create new canvas (manual duration or reference-stem mode) |
+| GET | `` | List all canvases in session |
+| GET | `/{id}` | Full manifest + waveform peaks + rendered path |
+| POST | `/{id}/placements` | Add a clip placement, re-render |
+| PUT | `/{id}/placements/{pid}` | Update a placement (any field), re-render |
+| DELETE | `/{id}/placements/{pid}` | Remove a placement, re-render |
+| PATCH | `/{id}` | Update name, limiter toggle, **or canvas duration_ms** (resize + re-render) |
+| POST | `/{id}/send-to-mix` | Add rendered WAV as audio track in Mix tab |
+| DELETE | `/{id}` | Delete canvas, files, and associated mix track |
+| GET | `/{id}/stream` | Stream rendered WAV |
+| GET | `/{id}/reference-waveform` | Waveform peaks for the reference stem (if set) |
+| GET | `/available-clips` | List WAV files in Synth output + Stems dirs as clip sources |
 
-### 1.3 Session Store Changes
-
-Add to `SessionStore`:
-
-```python
-self._sfx_manifests: dict[str, dict] = {}  # id → manifest dict
-```
-
-With property + setter following existing patterns. Add helper methods:
-
-- `add_sfx_manifest(manifest: dict) -> None`
-- `get_sfx_manifest(sfx_id: str) -> dict | None`
-- `remove_sfx_manifest(sfx_id: str) -> bool`
-- `sfx_manifest_ids -> list[str]` (property)
-
-Update `clear()` to reset `_sfx_manifests`.
-Update `to_dict()` to include `sfx_manifests` summary (ids + names, not full placements).
+The PATCH endpoint now accepts `duration_ms` to resize the canvas and re-render all existing placements at the new length.
 
 ---
 
-## 2. Rendering Engine
+## 3. What Has Been Built (Frontend)
 
-Create `backend/services/sfx_renderer.py`.
-
-### 2.1 Core Render Function
+### 3.1 Layout — Synth Tab, Two-Column
 
 ```
-render_sfx(manifest: dict) -> Path
+┌─────────────────────────────┬──────────────────────────────────────┐
+│ LEFT COLUMN                 │ RIGHT COLUMN                         │
+│                             │                                      │
+│ [Generation Controls]       │ [Generation Progress / Result card]  │
+│  - Prompt                   │                                      │
+│  - Duration (0–120s)        │ [sfx-section — hidden until canvas   │
+│  - Steps                    │  is created or loaded]               │
+│  - CFG Scale                │                                      │
+│  - Conditioning source      │   ┌─ ALIGN TO STEM ────────────────┐ │
+│  - Vocal Preservation       │   │ [dropdown: audio stems + MIDI] │ │
+│  - [Generate button]        │   │ [reference waveform — hidden   │ │
+│                             │   │  until stem selected]          │ │
+│ [SFX STEM BUILDER card]     │   └────────────────────────────────┘ │
+│  - Canvas name input        │                                      │
+│  - Duration slider (0–120s) │   ┌─ canvas title / Play/Stop/Rew ┐ │
+│  - [New Canvas] [dropdown   │   │ [SFX canvas waveform — white] │ │
+│    of existing canvases]    │   └────────────────────────────────┘ │
+│                             │                                      │
+│                             │   ┌─ SETTINGS ─────────────────────┐ │
+│                             │   │ [Soft limiter toggle]          │ │
+│                             │   │ [Delete Canvas]                │ │
+│                             │   └────────────────────────────────┘ │
+│                             │                                      │
+│                             │   ┌─ ADD CLIP MANUALLY ────────────┐ │
+│                             │   │ [clip source dropdown]         │ │
+│                             │   │ [Start ms] [Volume]            │ │
+│                             │   │ [Fade in] [Fade out] [Curve]   │ │
+│                             │   │ [Add Clip button]              │ │
+│                             │   └────────────────────────────────┘ │
+│                             │                                      │
+│                             │   ┌─ PLACEMENTS ───────────────────┐ │
+│                             │   │ [list of clips with Edit/      │ │
+│                             │   │  Remove per clip]              │ │
+│                             │   └────────────────────────────────┘ │
+└─────────────────────────────┴──────────────────────────────────────┘
 ```
 
-**Algorithm:**
-1. Create a numpy zeros array: shape `(channels, int(duration_ms / 1000 * sample_rate))`.
-2. For each placement in `manifest["placements"]`:
-   a. Load clip audio via `utils.audio_io.read_audio`. Resample to manifest's `sample_rate` if mismatched.
-   b. Convert to correct channel count (mono→stereo duplicate, or stereo→mono average).
-   c. Apply fade-in ramp to first `fade_in_ms` worth of samples.
-   d. Apply fade-out ramp to last `fade_out_ms` worth of samples.
-   e. Multiply by `volume`.
-   f. Calculate sample offset from `start_ms`.
-   g. If clip extends beyond canvas duration, truncate the clip.
-   h. Add (sum) clip samples into the canvas array at the offset.
-3. If `apply_limiter` is true, apply soft clipping:
-   - `np.tanh(canvas)` is sufficient as a simple soft clipper.
-   - Alternatively: ceiling at 1.0 with `np.clip` after a gentle compression curve.
-   - Start with `np.tanh` — it's smooth and predictable.
-4. Write canvas to WAV via `utils.audio_io.write_audio`.
-5. Return the output path.
+### 3.2 "Align to Stem" Dropdown
 
-### 2.2 Fade Curves
+- Populated from two sources:
+  - **Audio stems** (from Separate tab, `stemsReady` event): shown with green waveform
+  - **MIDI stems** (from MIDI tab, `midiReady` event): labeled `"vocals [MIDI]"` etc.; rendered to audio on-demand via `/api/midi/render` before waveform loads; shown with purple waveform
+- When a stem is selected:
+  1. Fetches stem audio info (`/api/audio/info`) to get duration
+  2. Sets the canvas duration slider value to match
+  3. Shows a **read-only wavesurfer waveform** of the reference stem (non-interactive, `interact: false`) in a hidden div that becomes visible
+  4. If a canvas is currently loaded: PATCHes the canvas with the new `duration_ms` and reloads it
 
-```python
-def make_fade(length_samples: int, curve: str = "cosine") -> np.ndarray:
-    if curve == "cosine":
-        return (1 - np.cos(np.linspace(0, np.pi / 2, length_samples))) 
-    else:  # linear
-        return np.linspace(0, 1, length_samples)
-```
+### 3.3 SFX Canvas Waveform
 
-Fade-in: multiply clip `[:fade_samples]` by `make_fade(fade_samples, curve)`.
-Fade-out: multiply clip `[-fade_samples:]` by `make_fade(fade_samples, curve)[::-1]`.
+- Color: **white** (`waveColor: '#ffffff'`) — distinct from green (audio stems) and purple (MIDI)
+- Interactive (wavesurfer default) — clicking seeks, play/pause/stop/rewind buttons in the card header
+- Buttons: ▶ Play / ⏸ Pause (toggle), ⏹ Stop, ⏮ Rewind, time display
+- Playback is **local to the wavesurfer instance** (same pattern as Separate tab stem cards — not global transport)
 
-### 2.3 Waveform Data
+### 3.4 Placement List
 
-After rendering, also generate waveform peak data (reuse the pattern from `GET /api/audio/waveform`) and cache it so the frontend can display the canvas waveform without a separate call.
+Each clip in the canvas shows:
+- Clip filename
+- `@ {start_ms}ms | vol {x}% | fi {ms} | fo {ms}` summary
+- **Edit** button: populates the "Add Clip Manually" form with current values; swaps Add button for "Update Clip" + Cancel
+- **Remove** button
+
+### 3.5 Waveform Colors (system-wide)
+
+| Source | Color |
+|--------|-------|
+| Audio stems (Separate tab) | Green (`#22c55e`) |
+| MIDI renders | Purple (`#a855f7`) |
+| SFX canvas | White (`#ffffff`) |
+| Mix master waveform | Green (default) |
+
+### 3.6 Mix Tab
+
+- SFX tracks (label starts with `"SFX: "`) have their label rendered in **white bold** to distinguish from regular stems
 
 ---
 
-## 3. API Endpoints
+## 4. Timeline Implementation (DAW-style, added 2026-03-02)
 
-New router: `backend/api/sfx.py`, prefix `/api/sfx`, registered in `backend/main.py`.
+The stacked waveform approach was replaced with a multi-track DAW-style timeline:
 
-### 3.1 Create SFX Stem
+- Single "timeline card" merges the old "ALIGN TO STEM" card and "SFX canvas" card
+- `#sfx-timeline` contains: ruler (tick marks), lanes area, amber playhead line
+- Reference stem → green lane spanning full width; MIDI reference → purple variant
+- Clip placements → white semi-transparent blocks sized by `clip_duration_ms`, packed into non-overlapping rows via `packPlacements()` greedy algorithm
+- Click on empty timeline space → sets `#sfx-clip-start` value
+- Click on clip block → opens edit mode in the Placements list below
+- Playhead moves in sync with hidden wavesurfer timeupdate events
+- "Send to Mix" replaced by "Show in Mix" (navigates to Mix tab)
+- Canvas auto-added to Mix on creation (`mix_track_id` stored in manifest)
+- All mutations emit `sfxReady` → Mix tab auto-refreshes
 
-```
-POST /api/sfx/create
-```
+### Key data fields added to placement manifest:
 
-**Request body:**
 ```json
 {
-  "name": "Rain & Thunder",
-  "mode": "reference",
-  "reference_stem_path": "/path/to/vocals.wav",
-  "duration_ms": null
+  "clip_name": "thunder.wav",
+  "clip_duration_ms": 4200
 }
 ```
 
-- `mode`: `"reference"` or `"manual"`.
-- If `"reference"`: read duration/sample_rate/channels from the file at `reference_stem_path`. Store the path in the manifest.
-- If `"manual"`: use provided `duration_ms`, default sample_rate=44100, channels=2.
-
-**Response:**
-```json
-{
-  "sfx_id": "sfx_a1b2c3",
-  "duration_ms": 240000,
-  "sample_rate": 44100,
-  "channels": 2,
-  "reference_stem": "/path/to/vocals.wav"
-}
-```
-
-**Logic:**
-1. Validate inputs.
-2. Build initial manifest (empty placements).
-3. Save manifest JSON to `SFX_DIR / sfx_id / manifest.json`.
-4. Store in session.
-5. Return summary.
-
-### 3.2 Get SFX Manifest
-
-```
-GET /api/sfx/{sfx_id}
-```
-
-**Response:** Full manifest JSON including all placements.
-
-Also returns `"rendered_path"` and `"waveform"` (peak data) if a render exists.
-
-### 3.3 List SFX Stems
-
-```
-GET /api/sfx
-```
-
-**Response:**
-```json
-{
-  "sfx_stems": [
-    {
-      "sfx_id": "sfx_a1b2c3",
-      "name": "Rain & Thunder",
-      "duration_ms": 240000,
-      "placement_count": 2,
-      "has_render": true
-    }
-  ]
-}
-```
-
-### 3.4 Add Placement
-
-```
-POST /api/sfx/{sfx_id}/placements
-```
-
-**Request body:**
-```json
-{
-  "clip_path": "/path/to/rain_loop.wav",
-  "start_ms": 0,
-  "volume": 0.8,
-  "fade_in_ms": 500,
-  "fade_out_ms": 2000,
-  "fade_curve": "cosine"
-}
-```
-
-**Logic:**
-1. Validate `sfx_id` exists, `clip_path` exists, `start_ms` is valid.
-2. Auto-populate `clip_name` from filename.
-3. Generate placement `id`.
-4. Append to manifest placements.
-5. Save manifest.
-6. Re-render WAV (call `render_sfx`).
-7. Return updated manifest + waveform data.
-
-**Response:** Full updated manifest with waveform peak data.
-
-### 3.5 Update Placement
-
-```
-PUT /api/sfx/{sfx_id}/placements/{placement_id}
-```
-
-**Request body** (all fields optional — only provided fields are updated):
-```json
-{
-  "clip_path": "/path/to/new_clip.wav",
-  "start_ms": 5000,
-  "volume": 1.0,
-  "fade_in_ms": 100,
-  "fade_out_ms": 500,
-  "fade_curve": "linear"
-}
-```
-
-**Logic:**
-1. Find placement by id.
-2. Update provided fields.
-3. Save manifest.
-4. Re-render.
-5. Return updated manifest + waveform data.
-
-### 3.6 Remove Placement
-
-```
-DELETE /api/sfx/{sfx_id}/placements/{placement_id}
-```
-
-**Logic:**
-1. Remove placement from manifest.
-2. Save manifest.
-3. Re-render (or write silence if no placements remain).
-4. Return updated manifest + waveform data.
-
-### 3.7 Update SFX Settings
-
-```
-PATCH /api/sfx/{sfx_id}
-```
-
-**Request body** (all optional):
-```json
-{
-  "name": "Updated Name",
-  "apply_limiter": true
-}
-```
-
-**Logic:** Update manifest-level settings, save, re-render if `apply_limiter` changed.
-
-### 3.8 Send to Mix
-
-```
-POST /api/sfx/{sfx_id}/send-to-mix
-```
-
-**Logic:**
-1. Verify render exists.
-2. Add as a `TrackState` to session mix tracks:
-   - `track_id`: `"sfx-{sfx_id}"`
-   - `label`: manifest `name`
-   - `source`: `"audio"`
-   - `path`: rendered WAV path
-3. Skip if track_id already exists in mix (idempotent).
-
-**Response:**
-```json
-{
-  "track_id": "sfx-sfx_a1b2c3",
-  "label": "Rain & Thunder",
-  "status": "added"
-}
-```
-
-### 3.9 Delete SFX Stem
-
-```
-DELETE /api/sfx/{sfx_id}
-```
-
-**Logic:**
-1. Remove from session.
-2. Remove corresponding mix track if present.
-3. Delete the `SFX_DIR / sfx_id /` directory.
-
-### 3.10 Preview / Stream
-
-```
-GET /api/sfx/{sfx_id}/stream
-```
-
-Serves the rendered WAV for playback. Reuse the `FileResponse` pattern from `audio.py`. Add the SFX directory to `_ALLOWED_ROOTS` in `audio.py`, or serve directly from this router.
-
-### 3.11 Reference Waveform
-
-```
-GET /api/sfx/{sfx_id}/reference-waveform
-```
-
-Returns waveform peak data for the reference stem (if one exists). Uses the same downsampling logic as `GET /api/audio/waveform`.
+Old manifests are backfilled on `GET /{sfx_id}` without blocking the response.
 
 ---
 
-## 4. Available Clips Source
+## 5. Where the Implementation Does Not Match the User's Intent (historical)
 
-The frontend needs to know which Synth-generated clips are available for placement. These live in `MUSICGEN_DIR` (the Stable Audio output directory).
+The user expressed that the "Align to" feature is **not working as envisioned**. Based on the conversation, the intent appears to be:
 
-```
-GET /api/sfx/available-clips
-```
+### What the user wants (inferred, needs clarification):
 
-**Logic:** List all `.wav` files in `MUSICGEN_DIR`, return filename + path + duration for each.
+1. **Reference waveform as a persistent visual ruler** — the selected stem should be shown as a waveform that acts as a visual timeline guide, with the SFX canvas waveform directly below it, **both at the same time scale simultaneously**. The user should be able to look at both at the same time and visually judge where sounds fall.
 
-**Response:**
-```json
-{
-  "clips": [
-    {
-      "path": "/path/to/output/musicgen/rain_20250301_143022.wav",
-      "name": "rain_20250301_143022.wav",
-      "duration_ms": 30000
-    }
-  ]
-}
-```
+2. **Clip placement relative to the reference** — the user generates sound effects and places them on the canvas with `start_ms`, `fade_in_ms`, `fade_out_ms` etc., looking at the reference waveform above to decide where each clip should go.
 
----
+3. **Visual adjustment** — after placing clips, the user should be able to see the result (SFX canvas waveform) and compare it to the reference stem to check alignment, then adjust `start_ms`, fade windows etc. on individual clips.
 
-## 5. Implementation Checklist
+4. **The reference is read-only** — it is never modified, only used for visual guidance.
 
-### Files to Create
-1. `backend/api/sfx.py` — New API router (all endpoints above)
-2. `backend/services/sfx_renderer.py` — Render engine (render_sfx, make_fade)
+### What the current implementation actually does:
 
-### Files to Modify
-1. `utils/paths.py` — Add `SFX_DIR`
-2. `backend/services/session_store.py` — Add SFX manifest storage, update `clear()` and `to_dict()`
-3. `backend/main.py` — Import and register `sfx.router`, ensure `SFX_DIR` is created at startup
-4. `backend/api/audio.py` — Add `SFX_DIR` to `_ALLOWED_ROOTS` if streaming through the shared audio endpoint
+- The reference waveform appears as a small non-interactive waveform in a card above the canvas — **but it is the same visual size and format as the canvas**, with no shared time axis or any indication that positions correspond
+- Both waveforms are independent wavesurfer instances with no time-sync mechanism
+- The placement controls (`start_ms`, `fade_in`, `fade_out`) are in a separate "ADD CLIP MANUALLY" card below the canvas — there is no visual connection between "I can see the reference waveform showing that the chorus starts at 45s" and "I type 45000 in the start_ms box"
+- There is no way to see **where on the reference waveform** a placed clip falls
+- The waveforms cannot be visually scrubbed together or compared side by side in a meaningful DAW-like way
 
-### Existing Patterns to Follow
-- **Router structure**: Match `backend/api/generate.py` and `backend/api/mix.py` patterns.
-- **Job manager**: Rendering is fast (array math, no ML inference), so run synchronously — no need for background jobs unless renders take > 1s on large files. If needed, use `job_manager` like separation does.
-- **Error handling**: Use `HTTPException` with 400/404/422 codes consistently.
-- **Path validation**: Reuse `_validate_path()` pattern from `audio.py` for clip_path inputs.
-- **Session access**: Use the lock-protected property pattern from existing session store code.
+### What is likely needed (but not yet designed):
 
-### Testing Plan
-1. **Create from reference**: POST `/api/sfx/create` with mode=reference pointing to an existing stem. Verify manifest JSON is written, duration matches source.
-2. **Create manual**: POST with mode=manual, duration_ms=60000. Verify defaults.
-3. **Add placement**: Add a clip, verify manifest updated, WAV rendered, waveform data returned.
-4. **Overlap**: Add two clips at overlapping timestamps, verify they sum correctly.
-5. **Update placement**: Move a clip (change start_ms), verify re-render.
-6. **Replace clip**: Change clip_path on existing placement, verify re-render.
-7. **Remove placement**: Delete a placement, verify manifest and render updated.
-8. **Limiter toggle**: Enable limiter, verify render changes.
-9. **Send to mix**: Verify track appears in `/api/mix/tracks`.
-10. **Delete SFX stem**: Verify cleanup of files, session, and mix track.
-11. **Edge cases**: Clip extends past canvas end (should truncate). Zero-length fade. Volume at 0.0 and 2.0. Empty placements list (should render silence).
+- A **shared time-axis view** where the reference stem and each SFX clip appear as horizontal tracks stacked vertically, all sharing the same horizontal time axis (like a multi-track DAW lane view)
+- **Drag-to-position** or at minimum a visual indicator showing where a clip falls on the timeline relative to the reference
+- **Clip markers** on the canvas waveform showing where each placement begins and ends
+- Possibly: the ability to **click on the reference waveform** to set the `start_ms` of the next clip to add
 
 ---
 
-## 6. Notes for Frontend (Later Phase)
+## 5. Files Involved
 
-After the backend is tested and working, the frontend will need:
-- A new "SFX Stem Builder" section in the Synth tab (below existing generation controls)
-- Reference waveform display (read-only, for visual alignment)
-- Canvas waveform display (updates after each edit)
-- Placement list with controls per clip (start time, volume slider+numeric, fade in/out, fade curve dropdown, remove button)
-- Dropdown of available clips from `GET /api/sfx/available-clips`
-- Limiter toggle
-- "Send to Mix" button
-- Preview/playback button
+| File | Role |
+|------|------|
+| `frontend/components/generate.js` | All Synth tab UI including SFX canvas, Align to, placement list |
+| `backend/api/sfx.py` | All SFX REST endpoints |
+| `backend/services/sfx_renderer.py` | Canvas rendering engine |
+| `frontend/components/waveform.js` | createWaveform() — color scheme |
+| `frontend/components/mix.js` | Mix track list — SFX label color |
+| `utils/paths.py` | SFX_DIR constant |
+| `backend/services/session_store.py` | SFX manifest storage in session |
 
-The frontend is a separate implementation phase — do not build it during backend work.
+---
+
+## 6. Key Design Questions for Clarification
+
+1. Should the reference stem and SFX clips share a **visual timeline** (DAW-style track lanes), or is two stacked waveforms with the same pixel width sufficient?
+
+2. Should clip placement be done by **clicking on the timeline** to set `start_ms`, or by **typing ms values** (current), or both?
+
+3. Should clip boundaries (start + end) be visible as **markers or regions** on the timeline?
+
+4. Should the user be able to **drag clips** to reposition them, or is a text-entry workflow acceptable?
+
+5. Should the reference waveform be **playable** (for listening reference) or truly read-only/display-only?
+
+6. Is the **generated clip waveform** needed in the placement UI, or just the filename?
+
+7. Should there be a **combined preview** where the reference stem and placed SFX clips play back together for monitoring?

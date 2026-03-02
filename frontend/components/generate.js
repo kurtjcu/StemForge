@@ -2,8 +2,8 @@
  * Synth tab — Stable Audio Open generation + SFX Stem Builder.
  *
  * Generate audio clips, then place them on an SFX canvas with
- * per-clip volume/fade controls. Render the composite and send
- * to the Mix tab.
+ * per-clip volume/fade controls. A DAW-style multi-track timeline
+ * shows the reference stem and clip placements on a shared time axis.
  */
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
@@ -17,10 +17,12 @@ function clearChildren(elem) {
 // ─── Module state ─────────────────────────────────────────────────────────
 
 let _currentSfxId = null;
-let _canvasWs = null;
-let _alignWs = null;          // read-only reference waveform for alignment
-let _alignedStemPaths = {};   // label → path, from stemsReady (audio, green)
-let _alignedMidiLabels = [];  // labels, from midiReady (purple, rendered on demand)
+let _canvasWs = null;          // hidden wavesurfer for audio-only playback
+let _alignAudioPath = null;    // resolved audio path for reference lane
+let _alignStemType = null;     // 'audio' | 'midi'
+let _timelineDurationMs = 0;   // current canvas duration in ms
+let _alignedStemPaths = {};    // label → path, from stemsReady (audio, green)
+let _alignedMidiLabels = [];   // labels, from midiReady (purple, rendered on demand)
 
 export function initGenerate() {
   const panel = document.getElementById('panel-synth');
@@ -137,15 +139,7 @@ export function initGenerate() {
 
   // -- SFX canvas section --
   const sfxSection = el('div', { className: 'hidden', id: 'sfx-section' },
-    // Align to stem
-    el('div', { className: 'card', style: { marginBottom: '8px' } },
-      el('div', { className: 'card-header' }, 'ALIGN TO STEM'),
-      el('select', { id: 'sfx-align-select', style: { width: '100%' } },
-        el('option', { value: '' }, '-- none --'),
-      ),
-      el('div', { id: 'sfx-align-waveform', className: 'stem-waveform hidden', style: { height: '80px', marginTop: '8px' } }),
-    ),
-    // Canvas waveform card
+    // Timeline card: header controls + align dropdown + timeline canvas
     el('div', { className: 'card', id: 'sfx-canvas-card' },
       el('div', { className: 'stem-card-header' },
         el('span', { className: 'stem-label', id: 'sfx-canvas-title' }, ''),
@@ -155,10 +149,24 @@ export function initGenerate() {
           el('button', { className: 'btn btn-sm', id: 'sfx-rewind-btn' }, '\u23EE'),
           el('span', { className: 'time-label', id: 'sfx-time-label' }, ''),
           el('button', { className: 'btn btn-sm', id: 'sfx-save-btn' }, '\u2193 Save'),
-          el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-send-mix-btn' }, 'Send to Mix'),
+          el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-show-mix-btn' }, 'Show in Mix'),
         ),
       ),
-      el('div', { className: 'stem-waveform', id: 'sfx-canvas-waveform', style: { height: '80px' } }),
+      // Align dropdown inside timeline card
+      el('div', { className: 'form-group', style: { margin: '8px 0 6px' } },
+        el('label', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', marginBottom: '3px' } }, 'Align to'),
+        el('select', { id: 'sfx-align-select', style: { width: '100%' } },
+          el('option', { value: '' }, '-- none --'),
+        ),
+      ),
+      // DAW-style timeline
+      el('div', { className: 'sfx-timeline', id: 'sfx-timeline' },
+        el('div', { className: 'sfx-timeline-ruler', id: 'sfx-timeline-ruler' }),
+        el('div', { className: 'sfx-timeline-lanes', id: 'sfx-timeline-lanes' }),
+        el('div', { className: 'sfx-timeline-playhead', id: 'sfx-timeline-playhead' }),
+      ),
+      // Hidden wavesurfer host (audio playback only — no visible rendering)
+      el('div', { id: 'sfx-canvas-waveform', style: { height: '0', overflow: 'hidden' } }),
       el('div', { className: 'sfx-canvas-info', id: 'sfx-canvas-info' }),
     ),
     // Settings row
@@ -260,14 +268,15 @@ export function initGenerate() {
     if (e.target.value) loadSfx(e.target.value);
   });
   document.getElementById('sfx-add-clip-btn').addEventListener('click', addClipManually);
-  document.getElementById('sfx-play-btn').addEventListener('click', playSfx);
   document.getElementById('sfx-save-btn').addEventListener('click', saveSfx);
-  document.getElementById('sfx-send-mix-btn').addEventListener('click', sendToMix);
+  document.getElementById('sfx-show-mix-btn').addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="mix"]').click();
+  });
   document.getElementById('sfx-delete-btn').addEventListener('click', deleteSfx);
   document.getElementById('sfx-limiter').addEventListener('change', toggleLimiter);
   document.getElementById('sfx-align-select').addEventListener('change', onAlignSelectChange);
 
-  // SFX local playback (mirrors separate.js stem cards — no global transport)
+  // SFX local playback (no global transport)
   document.getElementById('sfx-play-btn').addEventListener('click', () => {
     if (!_canvasWs) return;
     if (_canvasWs.isPlaying()) {
@@ -281,6 +290,16 @@ export function initGenerate() {
   });
   document.getElementById('sfx-rewind-btn').addEventListener('click', () => {
     if (_canvasWs) _canvasWs.setTime(0);
+  });
+
+  // Click on empty timeline space → set start_ms
+  document.getElementById('sfx-timeline-lanes').addEventListener('click', (e) => {
+    if (!_timelineDurationMs) return;
+    const t = e.target;
+    if (t.classList.contains('sfx-clip-block') || t.classList.contains('sfx-clip-label')) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ms = Math.round((e.clientX - rect.left) / rect.width * _timelineDurationMs / 100) * 100;
+    document.getElementById('sfx-clip-start').value = Math.max(0, ms);
   });
 
   // Populate conditioning sources + align dropdown when stems are ready
@@ -435,6 +454,7 @@ async function createSfxCanvas() {
     _currentSfxId = result.id;
     await refreshSfxSelector();
     await loadSfx(result.id);
+    appState.emit('sfxReady', { id: _currentSfxId });
   } catch (err) {
     alert(`Failed to create SFX canvas: ${err.message}`);
   }
@@ -517,6 +537,7 @@ async function addClipToCanvas(clipPath) {
       }),
     });
     await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
   } catch (err) {
     alert(`Failed to add clip: ${err.message}`);
   }
@@ -547,6 +568,7 @@ async function addClipManually() {
       }),
     });
     await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
   } catch (err) {
     alert(`Failed to add clip: ${err.message}`);
   }
@@ -560,6 +582,7 @@ async function updatePlacement(placementId, updates) {
       body: JSON.stringify(updates),
     });
     await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
   } catch (err) {
     alert(`Failed to update placement: ${err.message}`);
   }
@@ -570,12 +593,11 @@ async function removePlacement(placementId) {
   try {
     await api(`/sfx/${_currentSfxId}/placements/${placementId}`, { method: 'DELETE' });
     await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
   } catch (err) {
     alert(`Failed to remove placement: ${err.message}`);
   }
 }
-
-// playSfx removed — play/pause/stop/rewind now wired directly to _canvasWs in initGenerate()
 
 async function saveSfx() {
   if (!_currentSfxId) return;
@@ -590,21 +612,6 @@ async function saveSfx() {
   }
 }
 
-async function sendToMix() {
-  if (!_currentSfxId) return;
-  try {
-    const result = await api(`/sfx/${_currentSfxId}/send-to-mix`, { method: 'POST' });
-    appState.emit('sfxReady', { id: _currentSfxId, track_id: result.track_id });
-
-    const info = document.getElementById('sfx-canvas-info');
-    info.textContent = `Sent to Mix as "${result.label}"`;
-    info.className = 'sfx-canvas-info sfx-info-success';
-    setTimeout(() => { info.textContent = ''; info.className = 'sfx-canvas-info'; }, 3000);
-  } catch (err) {
-    alert(`Failed to send to Mix: ${err.message}`);
-  }
-}
-
 async function deleteSfx() {
   if (!_currentSfxId) return;
   if (!confirm('Delete this SFX canvas and all its placements?')) return;
@@ -612,8 +619,14 @@ async function deleteSfx() {
   try {
     await api(`/sfx/${_currentSfxId}`, { method: 'DELETE' });
     _currentSfxId = null;
+    _alignAudioPath = null;
+    _alignStemType = null;
+    _timelineDurationMs = 0;
     document.getElementById('sfx-section').classList.add('hidden');
     if (_canvasWs) { _canvasWs.destroy(); _canvasWs = null; }
+    document.getElementById('sfx-align-select').value = '';
+    clearChildren(document.getElementById('sfx-timeline-ruler'));
+    clearChildren(document.getElementById('sfx-timeline-lanes'));
     await refreshSfxSelector();
   } catch (err) {
     alert(`Delete failed: ${err.message}`);
@@ -645,12 +658,18 @@ async function onAlignSelectChange() {
   const select = document.getElementById('sfx-align-select');
   const value = select.value;
   const stemType = select.selectedOptions[0]?.dataset.stemType || 'audio';
-  const waveContainer = document.getElementById('sfx-align-waveform');
 
-  if (_alignWs) { _alignWs.destroy(); _alignWs = null; }
-  waveContainer.classList.add('hidden');
+  _alignAudioPath = null;
+  _alignStemType = null;
 
-  if (!value) return;
+  if (!value) {
+    // Re-render timeline without reference lane
+    if (_currentSfxId) {
+      const data = await api(`/sfx/${_currentSfxId}`);
+      renderTimeline(data.manifest);
+    }
+    return;
+  }
 
   try {
     let audioPath;
@@ -674,16 +693,11 @@ async function onAlignSelectChange() {
     const label = document.getElementById('sfx-duration-val');
     if (slider) { slider.value = stemSecs; label.textContent = `${stemSecs}s`; }
 
-    // Show read-only reference waveform — green for audio, purple for MIDI
-    waveContainer.classList.remove('hidden');
-    _alignWs = createWaveform(waveContainer, {
-      height: 80,
-      interact: false,
-      color: stemType === 'midi' ? 'midi' : 'audio',
-    });
-    _alignWs.load(`/api/audio/stream?path=${encodeURIComponent(audioPath)}`);
+    // Store for timeline rendering
+    _alignAudioPath = audioPath;
+    _alignStemType = stemType;
 
-    // Resize the active canvas to match so both waveforms share the same timescale
+    // Resize the active canvas to match so clips and reference share the same timescale
     if (_currentSfxId) {
       await api(`/sfx/${_currentSfxId}`, {
         method: 'PATCH',
@@ -704,6 +718,7 @@ async function toggleLimiter() {
       body: JSON.stringify({ apply_limiter: document.getElementById('sfx-limiter').checked }),
     });
     await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
   } catch (err) {
     alert(`Failed to update limiter: ${err.message}`);
   }
@@ -725,7 +740,10 @@ function showSfxCanvas(data) {
   // Limiter toggle
   document.getElementById('sfx-limiter').checked = manifest.apply_limiter || false;
 
-  // Canvas waveform — white, interactive, with local play/pause/stop wiring
+  // Render the DAW-style timeline
+  renderTimeline(manifest);
+
+  // Hidden wavesurfer for audio-only playback
   const waveContainer = document.getElementById('sfx-canvas-waveform');
   if (_canvasWs) { _canvasWs.destroy(); _canvasWs = null; }
 
@@ -743,11 +761,129 @@ function showSfxCanvas(data) {
     _canvasWs.on('timeupdate', (time) => {
       const dur = _canvasWs.getDuration();
       if (timeLabel) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+      // Move playhead
+      if (dur > 0) {
+        const playhead = document.getElementById('sfx-timeline-playhead');
+        if (playhead) {
+          playhead.style.display = '';
+          playhead.style.left = `${(time / dur * 100).toFixed(2)}%`;
+        }
+      }
     });
   }
 
-  // Placements
+  // Placements list
   renderPlacements(manifest.placements || []);
+}
+
+/**
+ * Pack placements into non-overlapping rows (greedy by start_ms).
+ * Returns an array of rows, each row being an array of placements.
+ */
+function packPlacements(placements) {
+  const sorted = [...placements].sort((a, b) => a.start_ms - b.start_ms);
+  const rows = [];
+  const rowEnds = [];
+
+  for (const p of sorted) {
+    const startMs = p.start_ms;
+    const durMs = p.clip_duration_ms || 1000;
+    const endMs = startMs + durMs;
+
+    let placed = false;
+    for (let i = 0; i < rows.length; i++) {
+      if (startMs >= rowEnds[i]) {
+        rows[i].push(p);
+        rowEnds[i] = endMs;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      rows.push([p]);
+      rowEnds.push(endMs);
+    }
+  }
+  return rows;
+}
+
+/**
+ * Render the DAW-style timeline: ruler ticks, reference lane, clip lanes.
+ */
+function renderTimeline(manifest) {
+  const durationMs = manifest.duration_ms || 0;
+  _timelineDurationMs = durationMs;
+
+  const ruler = document.getElementById('sfx-timeline-ruler');
+  const lanesContainer = document.getElementById('sfx-timeline-lanes');
+  const playhead = document.getElementById('sfx-timeline-playhead');
+  clearChildren(ruler);
+  clearChildren(lanesContainer);
+  if (playhead) playhead.style.display = 'none';
+
+  if (durationMs === 0) return;
+
+  const durSecs = durationMs / 1000;
+  const tickInterval = durSecs <= 10 ? 1 : durSecs <= 60 ? 5 : 10;
+
+  // Build ruler
+  for (let t = 0; t <= durSecs; t += tickInterval) {
+    const tick = el('div', { className: 'sfx-ruler-tick' });
+    tick.style.left = `${(t / durSecs * 100).toFixed(2)}%`;
+    tick.textContent = formatTime(t);
+    ruler.appendChild(tick);
+  }
+
+  // Reference lane (if align is set)
+  if (_alignAudioPath) {
+    const refLane = el('div', { className: 'sfx-lane sfx-lane-ref' });
+    const refBlock = el('div', {
+      className: `sfx-clip-block sfx-clip-ref${_alignStemType === 'midi' ? ' sfx-clip-ref-midi' : ''}`,
+    });
+    refBlock.style.left = '0';
+    refBlock.style.width = '100%';
+    const stemLabel = document.getElementById('sfx-align-select').selectedOptions[0]?.text || 'Reference';
+    refBlock.appendChild(el('span', { className: 'sfx-clip-label' }, stemLabel));
+    refLane.appendChild(refBlock);
+    lanesContainer.appendChild(refLane);
+  }
+
+  // Clip lanes
+  const placements = manifest.placements || [];
+  if (placements.length === 0) {
+    const emptyLane = el('div', { className: 'sfx-lane' });
+    emptyLane.appendChild(el('span', { className: 'sfx-lane-hint text-dim' },
+      'Click to set start position, then add a clip below'));
+    lanesContainer.appendChild(emptyLane);
+  } else {
+    const rows = packPlacements(placements);
+    for (const row of rows) {
+      const lane = el('div', { className: 'sfx-lane' });
+      for (const p of row) {
+        const clipDurMs = p.clip_duration_ms || 1000;
+        const leftPct = (p.start_ms / durationMs * 100).toFixed(2);
+        const widthPct = Math.max(0.5, clipDurMs / durationMs * 100).toFixed(2);
+        const clipName = p.clip_name || (p.clip_path || '').split('/').pop() || 'clip';
+
+        const block = el('div', { className: 'sfx-clip-block' });
+        block.style.left = `${leftPct}%`;
+        block.style.width = `${widthPct}%`;
+        block.title = `${clipName} @ ${p.start_ms}ms`;
+        block.appendChild(el('span', { className: 'sfx-clip-label' }, clipName));
+
+        // Click to open edit mode for this placement
+        block.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const row = document.querySelector(`#sfx-placements-list [data-pid="${p.id}"]`);
+          const editBtn = row?.querySelector('.btn:not(.btn-danger)');
+          if (editBtn) editBtn.click();
+        });
+
+        lane.appendChild(block);
+      }
+      lanesContainer.appendChild(lane);
+    }
+  }
 }
 
 function renderPlacements(placements) {
@@ -761,7 +897,7 @@ function renderPlacements(placements) {
   }
 
   for (const p of placements) {
-    const clipName = (p.clip_path || '').split('/').pop();
+    const clipName = p.clip_name || (p.clip_path || '').split('/').pop();
     const row = el('div', { className: 'sfx-placement-row' },
       el('div', { className: 'sfx-placement-info' },
         el('span', { className: 'sfx-placement-name' }, clipName),
@@ -779,6 +915,7 @@ function renderPlacements(placements) {
         }, 'Remove'),
       ),
     );
+    row.dataset.pid = p.id;
     container.appendChild(row);
   }
 }
