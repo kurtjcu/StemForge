@@ -73,7 +73,7 @@ async def add_audio_track(file: UploadFile = File(...)) -> dict:
         path=dest,
     )
     session.add_track(track)
-    return {"track_id": track.track_id, "label": track.label}
+    return {"track_id": track.track_id, "label": track.label, "path": str(dest)}
 
 
 @router.post("/add-midi")

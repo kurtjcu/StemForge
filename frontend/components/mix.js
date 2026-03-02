@@ -80,6 +80,10 @@ export function initMix() {
       const res = await fetch('/api/mix/add-audio', { method: 'POST', body: form });
       const data = await res.json();
       refreshTracks();
+      // Make the uploaded audio available as an align reference in the Synth tab
+      if (data.path) {
+        appState.emit('fileLoaded', { path: data.path, filename: data.label || file.name });
+      }
     } catch (err) { alert(`Error: ${err.message}`); }
   });
 
