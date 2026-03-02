@@ -8,7 +8,6 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import { transportLoad } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -63,6 +62,97 @@ function makeEditableName(initialName, getPath, onRenamed) {
   return span;
 }
 
+// ─── Inline audio players (exclusive playback) ───────────────────────────
+
+/** All active inline players — playing one stops the others. */
+const _players = [];
+
+function _stopOtherPlayers(except) {
+  for (const p of _players) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
+}
+
+/**
+ * Build a standard stem-card player with Play/Stop/Rewind/time/Save + waveform.
+ * Returns { card, ws, setUrl(url, label) } so the URL can be updated later.
+ */
+function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } = {}) {
+  const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+  const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+  const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+  const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+  const saveBtn = el('button', { className: 'btn btn-sm' }, '\u2193 Save');
+
+  const labelSpan = typeof label === 'string'
+    ? el('span', { className: 'stem-label' }, label) : label;
+
+  const card = el('div', { className: 'stem-card' },
+    el('div', { className: 'stem-card-header' },
+      labelSpan,
+      el('div', { className: 'stem-actions' },
+        playBtn, stopBtn, rewindBtn, timeLabel, saveBtn, ...extraButtons,
+      ),
+    ),
+  );
+
+  const waveContainer = el('div', { className: 'stem-waveform' });
+  card.appendChild(waveContainer);
+
+  const ws = createWaveform(waveContainer, { height: 50 });
+  if (url) ws.load(url);
+
+  const player = { ws, playBtn };
+  _players.push(player);
+
+  playBtn.addEventListener('click', () => {
+    if (ws.isPlaying()) {
+      ws.pause();
+      playBtn.textContent = '\u25B6 Play';
+    } else {
+      _stopOtherPlayers(ws);
+      ws.play();
+      playBtn.textContent = '\u23F8 Pause';
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    ws.stop();
+    playBtn.textContent = '\u25B6 Play';
+  });
+
+  rewindBtn.addEventListener('click', () => ws.setTime(0));
+
+  ws.on('timeupdate', (time) => {
+    const dur = ws.getDuration();
+    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+
+  saveBtn.addEventListener('click', () => {
+    const currentLabel = saveLabel || url || '';
+    const name = currentLabel.split('/').pop() || 'audio.wav';
+    const path = getUrl ? getUrl() : url;
+    // Build download URL from the stream URL or raw path
+    const dlUrl = path?.includes('/api/audio/stream')
+      ? path.replace('/audio/stream', '/audio/download')
+      : `/api/audio/download?path=${encodeURIComponent(path || '')}`;
+    saveFileAs(dlUrl, name);
+  });
+
+  function setUrl(newUrl, newLabel) {
+    ws.load(newUrl);
+    if (newLabel && typeof labelSpan.textContent !== 'undefined') {
+      labelSpan.textContent = newLabel;
+    }
+  }
+
+  return { card, ws, setUrl };
+}
+
 // ─── Module state ─────────────────────────────────────────────────────────
 
 let _currentSfxId = null;
@@ -70,6 +160,7 @@ let _canvasWs = null;          // hidden wavesurfer for audio-only playback
 let _alignAudioPath = null;    // resolved audio path for reference lane
 let _alignStemType = null;     // 'audio' | 'midi'
 let _alignPeaks = [];          // downsampled waveform peaks for reference lane
+let _refPlayer = null;         // createStemPlayer instance for reference stem
 let _timelineDurationMs = 0;   // current canvas duration in ms
 let _alignedStemPaths = {};    // label → path, from stemsReady (audio, green)
 let _alignedMidiLabels = [];   // labels, from midiReady (purple, rendered on demand)
@@ -214,6 +305,8 @@ export function initGenerate() {
           el('option', { value: '' }, '-- none --'),
         ),
       ),
+      // Reference stem player (populated when Align is selected)
+      el('div', { id: 'sfx-ref-player-container' }),
       // DAW-style timeline
       el('div', { className: 'sfx-timeline', id: 'sfx-timeline' },
         el('div', { className: 'sfx-timeline-ruler', id: 'sfx-timeline-ruler' }),
@@ -527,43 +620,19 @@ function showResult(result) {
     refreshClipList();
   });
 
-  const card = el('div', { className: 'stem-card' },
-    el('div', { className: 'stem-card-header' },
-      el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '6px', minWidth: '0', flex: '1' } },
-        nameSpan,
-        el('span', { className: 'text-dim', style: { fontSize: '11px', flexShrink: '0' } },
-          formatTime(result.duration)),
-      ),
-      el('div', { className: 'stem-actions' },
-        el('button', {
-          className: 'btn btn-sm',
-          onClick: () => transportLoad(
-            `/api/audio/stream?path=${encodeURIComponent(audioPath)}`,
-            nameSpan.textContent,
-          ),
-        }, '\u25B6 Play'),
-        el('button', {
-          className: 'btn btn-sm',
-          onClick: () => {
-            const fname = audioPath.split('/').pop() || 'generated.wav';
-            saveFileAs(`/api/audio/download?path=${encodeURIComponent(audioPath)}`, fname);
-          },
-        }, '\u2193 Save'),
-        el('button', {
-          className: 'btn btn-sm btn-primary',
-          onClick: () => addClipToCanvas(audioPath),
-        }, '+ SFX Canvas'),
-      ),
-    ),
-  );
+  const sfxBtn = el('button', {
+    className: 'btn btn-sm btn-primary',
+    onClick: () => addClipToCanvas(audioPath),
+  }, '+ SFX Canvas');
 
-  const waveContainer = el('div', { className: 'stem-waveform' });
-  card.appendChild(waveContainer);
+  const url = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
+  const { card } = createStemPlayer(nameSpan, url, {
+    getUrl: () => `/api/audio/stream?path=${encodeURIComponent(audioPath)}`,
+    saveLabel: audioPath,
+    extraButtons: [sfxBtn],
+  });
+
   container.appendChild(card);
-
-  const ws = createWaveform(waveContainer, { height: 50 });
-  ws.load(`/api/audio/stream?path=${encodeURIComponent(audioPath)}`);
-
   refreshClipList();
 }
 
@@ -789,10 +858,13 @@ async function deleteSfx() {
     _currentSfxId = null;
     _alignAudioPath = null;
     _alignStemType = null;
+    _alignPeaks = [];
     _timelineDurationMs = 0;
+    _refPlayer = null;
     document.getElementById('sfx-section').classList.add('hidden');
     if (_canvasWs) { _canvasWs.destroy(); _canvasWs = null; }
     document.getElementById('sfx-align-select').value = '';
+    clearChildren(document.getElementById('sfx-ref-player-container'));
     clearChildren(document.getElementById('sfx-timeline-ruler'));
     clearChildren(document.getElementById('sfx-timeline-lanes'));
     await refreshSfxSelector();
@@ -840,6 +912,11 @@ async function onAlignSelectChange() {
   _alignStemType = null;
   _alignPeaks = [];
 
+  // Remove reference player when deselected
+  const refContainer = document.getElementById('sfx-ref-player-container');
+  clearChildren(refContainer);
+  _refPlayer = null;
+
   if (!value) {
     // Re-render timeline without reference lane
     if (_currentSfxId) {
@@ -880,6 +957,17 @@ async function onAlignSelectChange() {
       const waveData = await api(`/audio/waveform?path=${encodeURIComponent(audioPath)}&points=500`);
       _alignPeaks = waveData.peaks || [];
     } catch { _alignPeaks = []; }
+
+    // Create reference stem player
+    const refLabel = select.selectedOptions[0]?.text || 'Reference';
+    const refUrl = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
+    _refPlayer = createStemPlayer(`Reference: ${refLabel}`, refUrl, {
+      getUrl: () => refUrl,
+      saveLabel: audioPath,
+    });
+    const refContainer2 = document.getElementById('sfx-ref-player-container');
+    clearChildren(refContainer2);
+    refContainer2.appendChild(_refPlayer.card);
 
     // Resize the active canvas to match so clips and reference share the same timescale
     if (_currentSfxId) {
