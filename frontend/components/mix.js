@@ -140,8 +140,11 @@ async function refreshTracks() {
           })(),
           el('span', { className: 'toggle-slider' }),
         ),
-        // Label
-        el('span', { className: 'track-label' }, track.label),
+        // Label — SFX tracks in white to distinguish from stems
+        el('span', {
+          className: 'track-label',
+          style: track.label.startsWith('SFX:') ? { color: '#ffffff', fontWeight: '600' } : {},
+        }, track.label),
         // Play button
         el('button', {
           className: 'btn btn-sm',

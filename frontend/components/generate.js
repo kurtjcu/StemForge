@@ -18,8 +18,9 @@ function clearChildren(elem) {
 
 let _currentSfxId = null;
 let _canvasWs = null;
-let _alignWs = null;        // read-only reference waveform for alignment
-let _alignedStemPaths = {}; // label → path, populated from stemsReady
+let _alignWs = null;          // read-only reference waveform for alignment
+let _alignedStemPaths = {};   // label → path, from stemsReady (audio, green)
+let _alignedMidiLabels = [];  // labels, from midiReady (purple, rendered on demand)
 
 export function initGenerate() {
   const panel = document.getElementById('panel-synth');
@@ -150,6 +151,9 @@ export function initGenerate() {
         el('span', { className: 'stem-label', id: 'sfx-canvas-title' }, ''),
         el('div', { className: 'stem-actions' },
           el('button', { className: 'btn btn-sm', id: 'sfx-play-btn' }, '\u25B6 Play'),
+          el('button', { className: 'btn btn-sm', id: 'sfx-stop-btn' }, '\u23F9'),
+          el('button', { className: 'btn btn-sm', id: 'sfx-rewind-btn' }, '\u23EE'),
+          el('span', { className: 'time-label', id: 'sfx-time-label' }, ''),
           el('button', { className: 'btn btn-sm', id: 'sfx-save-btn' }, '\u2193 Save'),
           el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-send-mix-btn' }, 'Send to Mix'),
         ),
@@ -263,7 +267,23 @@ export function initGenerate() {
   document.getElementById('sfx-limiter').addEventListener('change', toggleLimiter);
   document.getElementById('sfx-align-select').addEventListener('change', onAlignSelectChange);
 
-  // Populate conditioning sources and align dropdown when stems are ready
+  // SFX local playback (mirrors separate.js stem cards — no global transport)
+  document.getElementById('sfx-play-btn').addEventListener('click', () => {
+    if (!_canvasWs) return;
+    if (_canvasWs.isPlaying()) {
+      _canvasWs.pause();
+    } else {
+      _canvasWs.play();
+    }
+  });
+  document.getElementById('sfx-stop-btn').addEventListener('click', () => {
+    if (_canvasWs) _canvasWs.stop();
+  });
+  document.getElementById('sfx-rewind-btn').addEventListener('click', () => {
+    if (_canvasWs) _canvasWs.setTime(0);
+  });
+
+  // Populate conditioning sources + align dropdown when stems are ready
   appState.on('stemsReady', (stemPaths) => {
     _alignedStemPaths = stemPaths;
     const condSelect = document.getElementById('gen-cond-audio');
@@ -271,17 +291,14 @@ export function initGenerate() {
     for (const label of Object.keys(stemPaths)) {
       condSelect.appendChild(el('option', { value: stemPaths[label] }, label));
     }
-    const alignSelect = document.getElementById('sfx-align-select');
-    const current = alignSelect.value;
-    clearChildren(alignSelect);
-    alignSelect.appendChild(el('option', { value: '' }, '-- none --'));
-    for (const [label, path] of Object.entries(stemPaths)) {
-      alignSelect.appendChild(el('option', { value: path }, label));
-    }
-    if (current && [...alignSelect.options].some(o => o.value === current)) {
-      alignSelect.value = current;
-    }
+    refreshAlignDropdown();
     refreshClipList();
+  });
+
+  // Populate MIDI stems in align dropdown
+  appState.on('midiReady', (result) => {
+    _alignedMidiLabels = result.labels || [];
+    refreshAlignDropdown();
   });
 
   appState.on('generateReady', () => refreshClipList());
@@ -558,10 +575,7 @@ async function removePlacement(placementId) {
   }
 }
 
-function playSfx() {
-  if (!_currentSfxId) return;
-  transportLoad(`/api/sfx/${_currentSfxId}/stream`, 'SFX Preview');
-}
+// playSfx removed — play/pause/stop/rewind now wired directly to _canvasWs in initGenerate()
 
 async function saveSfx() {
   if (!_currentSfxId) return;
@@ -606,30 +620,68 @@ async function deleteSfx() {
   }
 }
 
+function refreshAlignDropdown() {
+  const select = document.getElementById('sfx-align-select');
+  if (!select) return;
+  const current = select.value;
+  clearChildren(select);
+  select.appendChild(el('option', { value: '' }, '-- none --'));
+  for (const [label, path] of Object.entries(_alignedStemPaths)) {
+    const opt = el('option', { value: path }, label);
+    opt.dataset.stemType = 'audio';
+    select.appendChild(opt);
+  }
+  for (const label of _alignedMidiLabels) {
+    const opt = el('option', { value: `midi:${label}` }, `${label} [MIDI]`);
+    opt.dataset.stemType = 'midi';
+    select.appendChild(opt);
+  }
+  if (current && [...select.options].some(o => o.value === current)) {
+    select.value = current;
+  }
+}
+
 async function onAlignSelectChange() {
-  const path = document.getElementById('sfx-align-select').value;
+  const select = document.getElementById('sfx-align-select');
+  const value = select.value;
+  const stemType = select.selectedOptions[0]?.dataset.stemType || 'audio';
   const waveContainer = document.getElementById('sfx-align-waveform');
 
-  // Tear down previous reference waveform
   if (_alignWs) { _alignWs.destroy(); _alignWs = null; }
   waveContainer.classList.add('hidden');
 
-  if (!path) return;
+  if (!value) return;
 
   try {
-    const info = await api(`/audio/info?path=${encodeURIComponent(path)}`);
+    let audioPath;
+    if (stemType === 'midi') {
+      const midiLabel = value.slice(5); // strip 'midi:'
+      const rendered = await api('/midi/render', {
+        method: 'POST',
+        body: JSON.stringify({ stem_label: midiLabel }),
+      });
+      audioPath = rendered.audio_path;
+    } else {
+      audioPath = value;
+    }
+
+    const info = await api(`/audio/info?path=${encodeURIComponent(audioPath)}`);
     const stemDurationMs = Math.round(info.duration * 1000);
     const stemSecs = Math.max(0, Math.min(120, Math.round(info.duration)));
 
-    // Update canvas duration slider (affects both new-canvas creation and display)
+    // Update canvas duration slider
     const slider = document.getElementById('sfx-duration');
     const label = document.getElementById('sfx-duration-val');
     if (slider) { slider.value = stemSecs; label.textContent = `${stemSecs}s`; }
 
-    // Show read-only reference waveform
+    // Show read-only reference waveform — green for audio, purple for MIDI
     waveContainer.classList.remove('hidden');
-    _alignWs = createWaveform(waveContainer, { height: 80, interact: false, color: 'midi' });
-    _alignWs.load(`/api/audio/stream?path=${encodeURIComponent(path)}`);
+    _alignWs = createWaveform(waveContainer, {
+      height: 80,
+      interact: false,
+      color: stemType === 'midi' ? 'midi' : 'audio',
+    });
+    _alignWs.load(`/api/audio/stream?path=${encodeURIComponent(audioPath)}`);
 
     // Resize the active canvas to match so both waveforms share the same timescale
     if (_currentSfxId) {
@@ -673,13 +725,25 @@ function showSfxCanvas(data) {
   // Limiter toggle
   document.getElementById('sfx-limiter').checked = manifest.apply_limiter || false;
 
-  // Canvas waveform
+  // Canvas waveform — white, interactive, with local play/pause/stop wiring
   const waveContainer = document.getElementById('sfx-canvas-waveform');
   if (_canvasWs) { _canvasWs.destroy(); _canvasWs = null; }
 
   if (rendered_path) {
-    _canvasWs = createWaveform(waveContainer, { height: 80 });
+    _canvasWs = createWaveform(waveContainer, { height: 80, color: 'sfx' });
     _canvasWs.load(`/api/sfx/${manifest.id}/stream`);
+
+    const playBtn = document.getElementById('sfx-play-btn');
+    const timeLabel = document.getElementById('sfx-time-label');
+    if (playBtn) playBtn.textContent = '\u25B6 Play';
+
+    _canvasWs.on('play',   () => { if (playBtn) playBtn.textContent = '\u23F8 Pause'; });
+    _canvasWs.on('pause',  () => { if (playBtn) playBtn.textContent = '\u25B6 Play'; });
+    _canvasWs.on('finish', () => { if (playBtn) playBtn.textContent = '\u25B6 Play'; });
+    _canvasWs.on('timeupdate', (time) => {
+      const dur = _canvasWs.getDuration();
+      if (timeLabel) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
   }
 
   // Placements

@@ -25,6 +25,8 @@ export function createWaveform(container, opts = {}) {
 
   const colors = color === 'midi'
     ? { waveColor: '#a855f7', progressColor: '#7c3aed' }
+    : color === 'sfx'
+    ? { waveColor: '#ffffff', progressColor: '#d1d5db' }
     : { waveColor: '#22c55e', progressColor: '#16a34a' };
 
   const ws = WaveSurfer.create({
