@@ -18,6 +18,7 @@ function clearChildren(elem) {
 
 let _currentSfxId = null;
 let _canvasWs = null;
+let _alignedStemPaths = {}; // label → path, populated from stemsReady
 
 export function initGenerate() {
   const panel = document.getElementById('panel-synth');
@@ -37,7 +38,7 @@ export function initGenerate() {
   const durationGroup = el('div', { className: 'form-group' },
     el('label', {}, 'Duration (seconds)'),
     el('div', { className: 'slider-row' },
-      el('input', { type: 'range', id: 'gen-duration', min: '5', max: '600', value: '30', step: '5' }),
+      el('input', { type: 'range', id: 'gen-duration', min: '0', max: '120', value: '30', step: '5' }),
       el('span', { className: 'slider-value', id: 'gen-duration-val' }, '30s'),
     ),
   );
@@ -99,7 +100,7 @@ export function initGenerate() {
     el('div', { className: 'form-group' },
       el('label', {}, 'Canvas duration (seconds)'),
       el('div', { className: 'slider-row' },
-        el('input', { type: 'range', id: 'sfx-duration', min: '1', max: '120', value: '30', step: '1' }),
+        el('input', { type: 'range', id: 'sfx-duration', min: '0', max: '120', value: '30', step: '1' }),
         el('span', { className: 'slider-value', id: 'sfx-duration-val' }, '30s'),
       ),
     ),
@@ -134,6 +135,13 @@ export function initGenerate() {
 
   // -- SFX canvas section --
   const sfxSection = el('div', { className: 'hidden', id: 'sfx-section' },
+    // Align to stem
+    el('div', { className: 'card', style: { marginBottom: '8px' } },
+      el('div', { className: 'card-header' }, 'ALIGN TO STEM'),
+      el('select', { id: 'sfx-align-select', style: { width: '100%' } },
+        el('option', { value: '' }, '-- none --'),
+      ),
+    ),
     // Canvas waveform card
     el('div', { className: 'card', id: 'sfx-canvas-card' },
       el('div', { className: 'stem-card-header' },
@@ -251,13 +259,25 @@ export function initGenerate() {
   document.getElementById('sfx-send-mix-btn').addEventListener('click', sendToMix);
   document.getElementById('sfx-delete-btn').addEventListener('click', deleteSfx);
   document.getElementById('sfx-limiter').addEventListener('change', toggleLimiter);
+  document.getElementById('sfx-align-select').addEventListener('change', onAlignSelectChange);
 
-  // Populate conditioning sources when stems are ready
+  // Populate conditioning sources and align dropdown when stems are ready
   appState.on('stemsReady', (stemPaths) => {
-    const select = document.getElementById('gen-cond-audio');
-    clearChildren(select);
+    _alignedStemPaths = stemPaths;
+    const condSelect = document.getElementById('gen-cond-audio');
+    clearChildren(condSelect);
     for (const label of Object.keys(stemPaths)) {
-      select.appendChild(el('option', { value: stemPaths[label] }, label));
+      condSelect.appendChild(el('option', { value: stemPaths[label] }, label));
+    }
+    const alignSelect = document.getElementById('sfx-align-select');
+    const current = alignSelect.value;
+    clearChildren(alignSelect);
+    alignSelect.appendChild(el('option', { value: '' }, '-- none --'));
+    for (const [label, path] of Object.entries(stemPaths)) {
+      alignSelect.appendChild(el('option', { value: path }, label));
+    }
+    if (current && [...alignSelect.options].some(o => o.value === current)) {
+      alignSelect.value = current;
     }
     refreshClipList();
   });
@@ -582,6 +602,18 @@ async function deleteSfx() {
   } catch (err) {
     alert(`Delete failed: ${err.message}`);
   }
+}
+
+async function onAlignSelectChange() {
+  const path = document.getElementById('sfx-align-select').value;
+  if (!path) return;
+  try {
+    const info = await api(`/audio/info?path=${encodeURIComponent(path)}`);
+    const secs = Math.max(0, Math.min(120, Math.round(info.duration)));
+    const slider = document.getElementById('sfx-duration');
+    const label = document.getElementById('sfx-duration-val');
+    if (slider) { slider.value = secs; label.textContent = `${secs}s`; }
+  } catch { /* leave slider unchanged if info fetch fails */ }
 }
 
 async function toggleLimiter() {
