@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import pathlib
+import re
 import shutil
+import unicodedata
 import uuid
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
@@ -244,6 +246,79 @@ async def upload_clip(file: UploadFile = File(...)) -> dict:
     dest.write_bytes(content)
 
     return {"path": str(dest), "name": filename, "group": "imported"}
+
+
+class RenameClipRequest(BaseModel):
+    path: str
+    new_name: str
+
+
+def _sanitize_clip_name(name: str, max_len: int = 30) -> str:
+    """Sanitize a user-provided clip name for use as a filename stem."""
+    text = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    text = re.sub(r"[^a-zA-Z0-9 ]", "", text).strip()
+    if len(text) > max_len:
+        text = text[:max_len].rsplit(" ", 1)[0]
+    return text.replace(" ", "_").lower() or "clip"
+
+
+@router.post("/rename-clip")
+def rename_clip(req: RenameClipRequest) -> dict:
+    """Rename a clip file and update any SFX manifest references."""
+    old_path = _validate_clip_path(req.path)
+
+    sanitized = _sanitize_clip_name(req.new_name)
+
+    # Preserve the unique suffix from the current filename ({name}_{id}.ext)
+    stem = old_path.stem
+    parts = stem.rsplit("_", 1)
+    if len(parts) == 2 and len(parts[1]) >= 6:
+        short_id = parts[1]
+    else:
+        short_id = uuid.uuid4().hex[:6]
+
+    new_filename = f"{sanitized}_{short_id}{old_path.suffix}"
+    new_path = old_path.parent / new_filename
+
+    if new_path == old_path:
+        return {"new_path": str(old_path), "name": req.new_name}
+
+    if new_path.exists():
+        raise HTTPException(409, f"File already exists: {new_filename}")
+
+    old_path.rename(new_path)
+    old_str, new_str = str(old_path), str(new_path)
+
+    # Update all SFX manifest references on disk + in session
+    if SFX_DIR.exists():
+        for sfx_dir in SFX_DIR.iterdir():
+            if not sfx_dir.is_dir():
+                continue
+            manifest_path = sfx_dir / "manifest.json"
+            if not manifest_path.exists():
+                continue
+            try:
+                with open(manifest_path) as f:
+                    m = json.load(f)
+                changed = False
+                for p in m.get("placements", []):
+                    if p.get("clip_path") == old_str:
+                        p["clip_path"] = new_str
+                        p["clip_name"] = new_path.name
+                        changed = True
+                if changed:
+                    with open(manifest_path, "w") as f:
+                        json.dump(m, f, indent=2)
+                    session.add_sfx_manifest(m)
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    # Update session musicgen path if it was the renamed file
+    if session.musicgen_path and str(session.musicgen_path) == old_str:
+        session.musicgen_path = new_path
+
+    log.info("Renamed clip %s → %s", old_path.name, new_path.name)
+    return {"new_path": new_str, "name": req.new_name}
 
 
 @router.get("/{sfx_id}")

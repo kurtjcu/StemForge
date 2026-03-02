@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import pathlib
+import re
+import unicodedata
 import uuid
 
 from fastapi import APIRouter, HTTPException
@@ -25,6 +27,15 @@ class GenerateRequest(BaseModel):
     conditioning_path: str | None = None
     vocal_preservation: bool = False
     negative_prompt: str = ""
+
+
+def _clip_name_from_prompt(prompt: str, max_len: int = 30) -> str:
+    """Derive a short filename-safe clip name from a generation prompt."""
+    text = unicodedata.normalize("NFKD", prompt).encode("ascii", "ignore").decode()
+    text = re.sub(r"[^a-zA-Z0-9 ]", "", text).strip()
+    if len(text) > max_len:
+        text = text[:max_len].rsplit(" ", 1)[0]
+    return text.replace(" ", "_").lower() or "clip"
 
 
 def _run_generation(req: GenerateRequest, job_id: str) -> dict:
@@ -76,11 +87,19 @@ def _run_generation(req: GenerateRequest, job_id: str) -> dict:
     pipeline.load_model()
     result = pipeline.run(req.prompt)
 
-    session.musicgen_path = result.audio_path
+    # Rename from timestamp to prompt-based name for identifiability
+    clip_name = _clip_name_from_prompt(req.prompt)
+    short_id = uuid.uuid4().hex[:6]
+    new_filename = f"{clip_name}_{short_id}.wav"
+    new_path = result.audio_path.parent / new_filename
+    result.audio_path.rename(new_path)
+
+    session.musicgen_path = new_path
 
     return {
-        "audio_path": str(result.audio_path),
+        "audio_path": str(new_path),
         "duration": result.duration_seconds,
+        "name": clip_name.replace("_", " ").title(),
     }
 
 

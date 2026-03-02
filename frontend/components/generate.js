@@ -14,6 +14,55 @@ function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
 
+/**
+ * Create a click-to-edit name label. getPath returns the current audio path;
+ * onRenamed is called with the new path after a successful rename.
+ */
+function makeEditableName(initialName, getPath, onRenamed) {
+  let currentName = initialName;
+  const span = el('span', { className: 'stem-label editable-name', title: 'Click to rename' }, currentName);
+
+  span.addEventListener('click', () => {
+    const input = el('input', {
+      type: 'text',
+      className: 'editable-name-input',
+      value: currentName,
+    });
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+
+    let committed = false;
+    async function commit() {
+      if (committed) return;
+      committed = true;
+      const newName = input.value.trim();
+      if (newName && newName !== currentName) {
+        try {
+          const res = await api('/sfx/rename-clip', {
+            method: 'POST',
+            body: JSON.stringify({ path: getPath(), new_name: newName }),
+          });
+          currentName = newName;
+          span.textContent = newName;
+          if (onRenamed) onRenamed(res.new_path);
+        } catch (err) {
+          alert(`Rename failed: ${err.message}`);
+        }
+      }
+      input.replaceWith(span);
+    }
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { committed = true; input.replaceWith(span); }
+    });
+  });
+
+  return span;
+}
+
 // ─── Module state ─────────────────────────────────────────────────────────
 
 let _currentSfxId = null;
@@ -425,30 +474,44 @@ async function startGeneration() {
 function showResult(result) {
   const container = document.getElementById('gen-result');
 
-  appState.musicgenPath = result.audio_path;
-  appState.emit('generateReady', result.audio_path);
+  // Mutable closure — updated if the clip is renamed
+  let audioPath = result.audio_path;
+
+  appState.musicgenPath = audioPath;
+  appState.emit('generateReady', audioPath);
+
+  const clipName = result.name || audioPath.split('/').pop()?.replace('.wav', '') || 'Clip';
+  const nameSpan = makeEditableName(clipName, () => audioPath, (newPath) => {
+    audioPath = newPath;
+    appState.musicgenPath = newPath;
+    refreshClipList();
+  });
 
   const card = el('div', { className: 'stem-card' },
     el('div', { className: 'stem-card-header' },
-      el('span', { className: 'stem-label' }, `Generated (${formatTime(result.duration)})`),
+      el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '6px', minWidth: '0', flex: '1' } },
+        nameSpan,
+        el('span', { className: 'text-dim', style: { fontSize: '11px', flexShrink: '0' } },
+          formatTime(result.duration)),
+      ),
       el('div', { className: 'stem-actions' },
         el('button', {
           className: 'btn btn-sm',
           onClick: () => transportLoad(
-            `/api/audio/stream?path=${encodeURIComponent(result.audio_path)}`,
-            'Generated audio',
+            `/api/audio/stream?path=${encodeURIComponent(audioPath)}`,
+            nameSpan.textContent,
           ),
         }, '\u25B6 Play'),
         el('button', {
           className: 'btn btn-sm',
           onClick: () => {
-            const name = result.audio_path.split('/').pop() || 'generated.wav';
-            saveFileAs(`/api/audio/download?path=${encodeURIComponent(result.audio_path)}`, name);
+            const fname = audioPath.split('/').pop() || 'generated.wav';
+            saveFileAs(`/api/audio/download?path=${encodeURIComponent(audioPath)}`, fname);
           },
         }, '\u2193 Save'),
         el('button', {
           className: 'btn btn-sm btn-primary',
-          onClick: () => addClipToCanvas(result.audio_path),
+          onClick: () => addClipToCanvas(audioPath),
         }, '+ SFX Canvas'),
       ),
     ),
@@ -459,9 +522,8 @@ function showResult(result) {
   container.appendChild(card);
 
   const ws = createWaveform(waveContainer, { height: 50 });
-  ws.load(`/api/audio/stream?path=${encodeURIComponent(result.audio_path)}`);
+  ws.load(`/api/audio/stream?path=${encodeURIComponent(audioPath)}`);
 
-  // Refresh clip list so the new clip is available
   refreshClipList();
 }
 
