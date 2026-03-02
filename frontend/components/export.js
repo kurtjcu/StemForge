@@ -68,6 +68,7 @@ export function initExport() {
   appState.on('generateReady', refreshArtifacts);
   appState.on('composeReady', refreshArtifacts);
   appState.on('mixReady', refreshArtifacts);
+  appState.on('sfxReady', refreshArtifacts);
 }
 
 function refreshArtifacts() {
@@ -112,6 +113,11 @@ function collectArtifacts() {
     if (entry.path) {
       items.push({ label: entry.title || 'Composed', path: entry.path, type: 'composed' });
     }
+  }
+
+  // SFX stems
+  for (const [label, path] of Object.entries(appState.sfxPaths || {})) {
+    items.push({ label, path, type: 'sfx' });
   }
 
   // Mix

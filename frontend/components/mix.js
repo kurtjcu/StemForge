@@ -102,6 +102,7 @@ export function initMix() {
   appState.on('midiReady', () => refreshTracks());
   appState.on('generateReady', () => refreshTracks());
   appState.on('composeReady', () => refreshTracks());
+  appState.on('sfxReady', () => refreshTracks());
 }
 
 async function refreshTracks() {

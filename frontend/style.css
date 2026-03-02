@@ -1527,3 +1527,78 @@ input[type="range"]::-webkit-slider-thumb {
     border-bottom: none;
   }
 }
+
+/* =========================================================================
+   SFX Tab
+   ========================================================================= */
+
+.sfx-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  cursor: default;
+}
+
+.sfx-list-item.sfx-list-active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.sfx-list-name {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sfx-canvas-info {
+  font-size: 12px;
+  color: var(--text-dim);
+  min-height: 18px;
+  margin-top: 4px;
+}
+
+.sfx-info-success {
+  color: var(--success);
+}
+
+.sfx-placement-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+}
+
+.sfx-placement-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.sfx-placement-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sfx-placement-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
