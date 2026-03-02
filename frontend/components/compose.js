@@ -974,18 +974,18 @@ async function ensureAceStep() {
     if (elapsedEl) elapsedEl.textContent = m > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
   }, 1000);
 
-  // Poll health until running (up to 10 minutes — model downloads can be large)
-  const MAX_WAIT = 600_000;
+  // Poll health until running — no fixed timeout; keeps going as long as
+  // AceStep is still starting (downloading/loading models).  Backend sets
+  // "crashed" only when the process actually exits, so we'll catch that.
   const POLL_INTERVAL = 3000;
   try {
-    const deadline = Date.now() + MAX_WAIT;
-    while (Date.now() < deadline) {
+    while (true) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
       const h = await api('/compose/health');
       if (h.acestep_status === 'running') return;
       if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
+      if (h.acestep_status === 'disabled') throw new Error('AceStep is disabled');
     }
-    throw new Error('AceStep startup timed out (10 min)');
   } finally {
     clearInterval(elapsedTimer);
     // Restore generating panel to its normal state

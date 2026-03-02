@@ -121,6 +121,10 @@ def _monitor(proc: subprocess.Popen) -> None:
     Polls AceStep's /health endpoint until ``models_initialized`` is true,
     only then sets status to ``"running"``.  This prevents the frontend from
     enabling the Generate button while models are still downloading/loading.
+
+    There is no fixed timeout — as long as the process is alive it is
+    presumably still downloading or loading models, so we keep waiting.
+    Only sets ``"crashed"`` when the process actually exits.
     """
     import json as _json
     import urllib.request
@@ -131,16 +135,10 @@ def _monitor(proc: subprocess.Popen) -> None:
     # Give the process a moment to start
     time.sleep(5)
 
-    # Poll health endpoint until models are loaded (10 min timeout)
-    deadline = time.monotonic() + 600
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            code = proc.returncode
-            set_status("crashed", exit_code=code,
-                       error=f"AceStep exited with code {code}")
-            print(f"[stemforge] AceStep crashed during startup (exit code {code})")
-            return
-
+    # Poll health endpoint until models are loaded.
+    # No timeout — keep going as long as the process is alive.
+    polls = 0
+    while proc.poll() is None:
         try:
             with urllib.request.urlopen(url, timeout=5) as resp:
                 data = _json.loads(resp.read())
@@ -151,10 +149,18 @@ def _monitor(proc: subprocess.Popen) -> None:
         except Exception:
             pass  # Server not yet accepting connections
 
+        polls += 1
+        if polls % 20 == 0:  # Log every ~60s so the user knows it's still working
+            mins = polls * 3 // 60
+            print(f"[stemforge] Still waiting for AceStep models ({mins}m elapsed)...")
+
         time.sleep(3)
     else:
-        set_status("crashed", error="AceStep startup timed out (10 min)")
-        print("[stemforge] AceStep startup timed out waiting for models")
+        # Process exited before models were ready
+        code = proc.returncode
+        set_status("crashed", exit_code=code,
+                   error=f"AceStep exited with code {code}")
+        print(f"[stemforge] AceStep crashed during startup (exit code {code})")
         return
 
     # Crash monitoring loop
