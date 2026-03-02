@@ -156,7 +156,7 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
 // ─── Module state ─────────────────────────────────────────────────────────
 
 let _currentSfxId = null;
-let _canvasWs = null;          // hidden wavesurfer for audio-only playback
+let _canvasPlayer = null;      // createStemPlayer instance for canvas playback
 let _alignAudioPath = null;    // resolved audio path for reference lane
 let _alignStemType = null;     // 'audio' | 'midi'
 let _alignPeaks = [];          // downsampled waveform peaks for reference lane
@@ -286,10 +286,6 @@ export function initGenerate() {
       el('div', { className: 'stem-card-header' },
         el('span', { className: 'stem-label', id: 'sfx-canvas-title' }, ''),
         el('div', { className: 'stem-actions' },
-          el('button', { className: 'btn btn-sm', id: 'sfx-play-btn' }, '\u25B6 Play'),
-          el('button', { className: 'btn btn-sm', id: 'sfx-stop-btn' }, '\u23F9'),
-          el('button', { className: 'btn btn-sm', id: 'sfx-rewind-btn' }, '\u23EE'),
-          el('span', { className: 'time-label', id: 'sfx-time-label' }, ''),
           el('button', { className: 'btn btn-sm', id: 'sfx-save-btn' }, '\u2193 Save'),
           el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-render-mix-btn' }, 'Render Canvas'),
         ),
@@ -313,9 +309,8 @@ export function initGenerate() {
         el('div', { className: 'sfx-timeline-lanes', id: 'sfx-timeline-lanes' }),
         el('div', { className: 'sfx-timeline-playhead', id: 'sfx-timeline-playhead' }),
       ),
-      // Hidden wavesurfer host (audio playback only — no visible rendering)
-      el('div', { id: 'sfx-canvas-waveform', style: { height: '0', overflow: 'hidden' } }),
-      el('div', { className: 'sfx-canvas-info', id: 'sfx-canvas-info' }),
+      // Canvas player (populated after render)
+      el('div', { id: 'sfx-canvas-player-container' }),
     ),
     // Settings row
     el('div', { className: 'card', style: { marginTop: '8px' } },
@@ -475,22 +470,6 @@ export function initGenerate() {
       alert(`Load reference failed: ${err.message}`);
     }
     e.target.value = '';
-  });
-
-  // SFX local playback (no global transport)
-  document.getElementById('sfx-play-btn').addEventListener('click', () => {
-    if (!_canvasWs) return;
-    if (_canvasWs.isPlaying()) {
-      _canvasWs.pause();
-    } else {
-      _canvasWs.play();
-    }
-  });
-  document.getElementById('sfx-stop-btn').addEventListener('click', () => {
-    if (_canvasWs) _canvasWs.stop();
-  });
-  document.getElementById('sfx-rewind-btn').addEventListener('click', () => {
-    if (_canvasWs) _canvasWs.setTime(0);
   });
 
   // Click on empty timeline space → set start_ms
@@ -862,7 +841,13 @@ async function deleteSfx() {
     _timelineDurationMs = 0;
     _refPlayer = null;
     document.getElementById('sfx-section').classList.add('hidden');
-    if (_canvasWs) { _canvasWs.destroy(); _canvasWs = null; }
+    if (_canvasPlayer) {
+      _canvasPlayer.ws.destroy();
+      const idx = _players.indexOf(_players.find(p => p.ws === _canvasPlayer.ws));
+      if (idx >= 0) _players.splice(idx, 1);
+      _canvasPlayer = null;
+    }
+    clearChildren(document.getElementById('sfx-canvas-player-container'));
     document.getElementById('sfx-align-select').value = '';
     clearChildren(document.getElementById('sfx-ref-player-container'));
     clearChildren(document.getElementById('sfx-timeline-ruler'));
@@ -1015,25 +1000,27 @@ function showSfxCanvas(data) {
   // Render the DAW-style timeline
   renderTimeline(manifest);
 
-  // Hidden wavesurfer for audio-only playback
-  const waveContainer = document.getElementById('sfx-canvas-waveform');
-  if (_canvasWs) { _canvasWs.destroy(); _canvasWs = null; }
+  // Canvas player — visible stem-card below the timeline
+  const playerContainer = document.getElementById('sfx-canvas-player-container');
+  if (_canvasPlayer) {
+    _canvasPlayer.ws.destroy();
+    const idx = _players.indexOf(_players.find(p => p.ws === _canvasPlayer.ws));
+    if (idx >= 0) _players.splice(idx, 1);
+    _canvasPlayer = null;
+  }
+  clearChildren(playerContainer);
 
   if (rendered_path) {
-    _canvasWs = createWaveform(waveContainer, { height: 80, color: 'sfx' });
-    _canvasWs.load(`/api/sfx/${manifest.id}/stream`);
+    const url = `/api/sfx/${manifest.id}/stream`;
+    _canvasPlayer = createStemPlayer('Canvas', url, {
+      getUrl: () => `/api/sfx/${manifest.id}/stream`,
+      saveLabel: rendered_path,
+    });
+    playerContainer.appendChild(_canvasPlayer.card);
 
-    const playBtn = document.getElementById('sfx-play-btn');
-    const timeLabel = document.getElementById('sfx-time-label');
-    if (playBtn) playBtn.textContent = '\u25B6 Play';
-
-    _canvasWs.on('play',   () => { if (playBtn) playBtn.textContent = '\u23F8 Pause'; });
-    _canvasWs.on('pause',  () => { if (playBtn) playBtn.textContent = '\u25B6 Play'; });
-    _canvasWs.on('finish', () => { if (playBtn) playBtn.textContent = '\u25B6 Play'; });
-    _canvasWs.on('timeupdate', (time) => {
-      const dur = _canvasWs.getDuration();
-      if (timeLabel) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-      // Move playhead
+    // Wire playhead to timeline
+    _canvasPlayer.ws.on('timeupdate', (time) => {
+      const dur = _canvasPlayer.ws.getDuration();
       if (dur > 0) {
         const playhead = document.getElementById('sfx-timeline-playhead');
         if (playhead) {
