@@ -12,8 +12,10 @@ function clearChildren(elem) {
 // ─── Inline audio players (exclusive playback) ───────────────────────────
 
 const _players = [];
+let _playingAll = false;   // when true, suppress exclusive playback
 
 function _stopOtherPlayers(except) {
+  if (_playingAll) return;   // multi-track preview active — don't stop siblings
   for (const p of _players) {
     if (p.ws !== except && p.ws.isPlaying()) {
       p.ws.stop();
@@ -111,7 +113,20 @@ export function initMix() {
     style: { padding: '20px', textAlign: 'center' },
   }, 'No tracks yet. Run separation or add files manually.');
 
-  // Render button
+  // Preview + Render buttons
+  const previewBtn = el('button', {
+    className: 'btn',
+    id: 'mix-preview',
+    style: { marginTop: '16px' },
+    disabled: 'true',
+  }, '\u25B6 Preview');
+
+  const previewStopBtn = el('button', {
+    className: 'btn',
+    id: 'mix-preview-stop',
+    style: { marginTop: '16px', display: 'none' },
+  }, '\u25A0 Stop');
+
   const renderBtn = el('button', {
     className: 'btn btn-primary',
     id: 'mix-render',
@@ -131,10 +146,16 @@ export function initMix() {
     ),
   );
 
-  panel.append(masterSection, trackHeader, noTracksMsg, trackList, progressCard, renderBtn);
+  const actionRow = el('div', {
+    style: { display: 'flex', gap: '8px', alignItems: 'center' },
+  }, previewBtn, previewStopBtn, renderBtn);
+
+  panel.append(masterSection, trackHeader, noTracksMsg, trackList, progressCard, actionRow);
 
   // ─── Wire events ───
   document.getElementById('mix-render').addEventListener('click', startRender);
+  document.getElementById('mix-preview').addEventListener('click', togglePreview);
+  document.getElementById('mix-preview-stop').addEventListener('click', stopPreview);
 
   // Add audio/midi file inputs (hidden)
   const audioInput = el('input', { type: 'file', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' }, id: 'mix-audio-input' });
@@ -182,6 +203,9 @@ export function initMix() {
 
 async function refreshTracks() {
   try {
+    // Stop any active preview since track players are being rebuilt
+    if (_playingAll) stopPreview();
+
     const data = await api('/mix/tracks');
     const tracks = data.tracks || [];
     const trackList = document.getElementById('mix-tracks');
@@ -200,11 +224,13 @@ async function refreshTracks() {
     if (tracks.length === 0) {
       emptyMsg.style.display = '';
       document.getElementById('mix-render').disabled = true;
+      document.getElementById('mix-preview').disabled = true;
       return;
     }
 
     emptyMsg.style.display = 'none';
     document.getElementById('mix-render').disabled = false;
+    document.getElementById('mix-preview').disabled = false;
 
     for (const track of tracks) {
       const container = el('div', { className: 'mix-track-card' });
@@ -277,7 +303,7 @@ async function refreshTracks() {
         const ws = createWaveform(waveContainer, { height: 40 });
         ws.load(url);
 
-        const player = { ws, playBtn, _isTrack: true };
+        const player = { ws, playBtn, enableInput, _isTrack: true };
         _players.push(player);
 
         playBtn.addEventListener('click', () => {
@@ -310,7 +336,82 @@ async function refreshTracks() {
   } catch { /* ignore */ }
 }
 
+// ─── Multi-track preview ──────────────────────────────────────────────────
+
+function _getEnabledTrackPlayers() {
+  return _players.filter(p => p._isTrack && p.enableInput && p.enableInput.checked);
+}
+
+function togglePreview() {
+  const btn = document.getElementById('mix-preview');
+  const stopBtn = document.getElementById('mix-preview-stop');
+
+  if (_playingAll) {
+    // Pause all
+    _playingAll = false;
+    for (const p of _getEnabledTrackPlayers()) {
+      if (p.ws.isPlaying()) {
+        p.ws.pause();
+        p.playBtn.textContent = '\u25B6 Play';
+      }
+    }
+    btn.textContent = '\u25B6 Preview';
+    stopBtn.style.display = 'none';
+    return;
+  }
+
+  const enabled = _getEnabledTrackPlayers();
+  if (enabled.length === 0) { alert('No enabled audio tracks to preview'); return; }
+
+  // Stop any solo players first
+  for (const p of _players) {
+    if (p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
+
+  _playingAll = true;
+  btn.textContent = '\u23F8 Pause';
+  stopBtn.style.display = '';
+
+  // Sync all enabled track players to start from the beginning
+  for (const p of enabled) {
+    p.ws.setTime(0);
+    p.ws.play();
+    p.playBtn.textContent = '\u23F8 Pause';
+  }
+
+  // When the longest track finishes, end the preview
+  let finishCount = 0;
+  for (const p of enabled) {
+    p.ws.once('finish', () => {
+      p.playBtn.textContent = '\u25B6 Play';
+      finishCount++;
+      if (finishCount >= enabled.length) stopPreview();
+    });
+  }
+}
+
+function stopPreview() {
+  _playingAll = false;
+  for (const p of _players) {
+    if (p._isTrack && p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
+  const btn = document.getElementById('mix-preview');
+  const stopBtn = document.getElementById('mix-preview-stop');
+  btn.textContent = '\u25B6 Preview';
+  stopBtn.style.display = 'none';
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────
+
 async function startRender() {
+  if (_playingAll) stopPreview();
+
   const progressCard = document.getElementById('mix-progress');
   progressCard.classList.remove('hidden');
   document.getElementById('mix-render').disabled = true;
