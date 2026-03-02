@@ -142,7 +142,9 @@ def _monitor(proc: subprocess.Popen) -> None:
         try:
             with urllib.request.urlopen(url, timeout=5) as resp:
                 data = _json.loads(resp.read())
-            if data.get("models_initialized"):
+            # AceStep wraps responses: {"data": {...}, "code": 200, ...}
+            inner = data.get("data") if isinstance(data.get("data"), dict) else data
+            if inner.get("models_initialized"):
                 set_status("running")
                 print("[stemforge] AceStep is ready (models loaded)")
                 break
