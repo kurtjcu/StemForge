@@ -19,6 +19,7 @@ Additional systems:
 - **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
 - **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, and FLAC render
+- **SFX Stem Builder** (`backend/api/sfx.py`) — DAW-style canvas for placing audio clips on a timeline, aligned to a reference stem, with per-clip fades and volume; renders to a single stem for the Mix engine
 
 **Architecture**: FastAPI backend (`backend/`) + vanilla HTML/CSS/JS frontend (`frontend/`) + AceStep subprocess.
 Run with `python run.py` → open `http://localhost:8765` in browser.
@@ -35,8 +36,9 @@ All pipelines and the full web UI are implemented:
 - Automatic engine/model recommendation from spectral audio analysis
 - MIDI extraction — BasicPitch for instruments, faster-whisper + PYIN pitch for vocals
 - MIDI preview — server-side FluidSynth render, streamed to browser via wavesurfer.js
-- Mix tab — per-track volume controls, audio/MIDI source types, FLAC render
+- Mix tab — per-track volume controls, audio/MIDI source types, FLAC render, multi-track preview
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
+- SFX Stem Builder (Synth tab) — DAW timeline, clip placement with fades, align-to reference waveform, render canvas to Mix
 - AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
 - Waveform visualization via wavesurfer.js with global transport bar
@@ -72,6 +74,7 @@ StemForge/
 │   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
 │   │   ├── acestep_wrapper.py      # HTTP client for AceStep API
 │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
+│   │   ├── sfx.py                  # /api/sfx/* (SFX Stem Builder — canvas, placements, render)
 │   │   └── export.py               # /api/export, /api/export/download-zip
 │   └── services/
 │       ├── __init__.py
@@ -190,6 +193,20 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | POST | /api/mix/add-audio | sync | Add manual audio track |
 | POST | /api/mix/add-midi | sync | Add manual MIDI track |
 | DELETE | /api/mix/tracks/{id} | sync | Remove track |
+| POST | /api/sfx/create | sync | Create SFX canvas |
+| GET | /api/sfx | sync | List all SFX canvases |
+| GET | /api/sfx/available-clips | sync | Clips grouped by session/saved/imported |
+| POST | /api/sfx/upload-clip | sync | Import external audio clip |
+| POST | /api/sfx/rename-clip | sync | Rename clip file + update manifests |
+| GET | /api/sfx/{id} | sync | Get canvas manifest + rendered path |
+| POST | /api/sfx/{id}/placements | sync | Add clip placement |
+| PUT | /api/sfx/{id}/placements/{pid} | sync | Update placement |
+| DELETE | /api/sfx/{id}/placements/{pid} | sync | Remove placement |
+| PATCH | /api/sfx/{id} | sync | Update canvas (duration, limiter, align) |
+| POST | /api/sfx/{id}/send-to-mix | sync | Render canvas + add as Mix track |
+| DELETE | /api/sfx/{id} | sync | Delete canvas |
+| GET | /api/sfx/{id}/stream | sync | Stream rendered canvas audio |
+| GET | /api/sfx/{id}/reference-waveform | sync | Downsampled peaks for align ref |
 | POST | /api/export | job | Start export |
 | POST | /api/export/download-zip | sync | Zip download |
 
@@ -205,13 +222,14 @@ MIDI done      → appState.emit("midiReady", {labels, noteCounts})
 Generate done  → appState.emit("generateReady", audioPath)
 Compose done   → appState.emit("composeReady", {path, title, metadata})
 Mix done       → appState.emit("mixReady", mixPath)
-File loaded    → appState.emit("fileLoaded", audioInfo)
+SFX ready      → appState.emit("sfxReady", {id})
+File loaded    → appState.emit("fileLoaded", {path, filename})
 ```
 
 Downstream components subscribe in their `init*()` functions:
 - MIDI listens to `stemsReady` → populate stem checkboxes
-- Mix listens to `stemsReady` + `generateReady` + `composeReady` → add/refresh tracks
-- Generate listens to `stemsReady` + `midiReady` + `mixReady` → populate conditioning sources
+- Mix listens to `stemsReady` + `generateReady` + `composeReady` + `sfxReady` → add/refresh tracks
+- Generate listens to `stemsReady` + `midiReady` + `mixReady` + `fileLoaded` → populate conditioning/align sources
 - Export listens to all (including `composeReady`) → enable artifact checkboxes
 - Separate listens to `fileLoaded` → enable separation button
 
@@ -269,6 +287,7 @@ StemForgeError
 | `MUSICGEN_DIR` | `~/.local/share/stemforge/output/musicgen/` |
 | `COMPOSE_DIR` | `~/.local/share/stemforge/output/compose/` |
 | `MIX_DIR` | `~/.local/share/stemforge/output/mix/` |
+| `SFX_DIR` | `~/.local/share/stemforge/output/sfx/` |
 | `EXPORT_DIR` | `~/.local/share/stemforge/output/exports/` |
 
 ---
