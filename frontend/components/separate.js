@@ -76,6 +76,7 @@ export function initSeparate() {
   loadModels();
 
   document.getElementById('sep-engine').addEventListener('change', updateModelOptions);
+  document.getElementById('sep-model').addEventListener('change', updateStemCheckboxes);
   document.getElementById('sep-help').addEventListener('click', runRecommend);
   document.getElementById('sep-start').addEventListener('click', startSeparation);
 
