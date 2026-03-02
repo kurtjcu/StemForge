@@ -229,10 +229,23 @@ async function initComponents() {
   initTransport();
 }
 
+// ─── New Session ─────────────────────────────────────────────────────────
+
+function initNewSession() {
+  document.getElementById('new-session-btn').addEventListener('click', async () => {
+    if (!confirm('Start a new session? All tracks, stems, and canvases will be cleared.')) return;
+    try {
+      await api('/session', { method: 'DELETE' });
+    } catch { /* server may be unreachable, reload anyway */ }
+    window.location.reload();
+  });
+}
+
 // ─── Boot ───────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initDeviceBadge();
+  initNewSession();
   initComponents();
 });
