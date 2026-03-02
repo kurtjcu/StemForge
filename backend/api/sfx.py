@@ -8,7 +8,7 @@ import pathlib
 import shutil
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -20,7 +20,7 @@ from backend.services.sfx_renderer import (
     CANVAS_CHANNELS,
 )
 from utils.paths import SFX_DIR, MUSICGEN_DIR, STEMS_DIR
-from utils.audio_io import probe
+from utils.audio_io import probe, SUPPORTED_EXTENSIONS
 
 log = logging.getLogger(__name__)
 
@@ -177,18 +177,81 @@ def list_sfx() -> dict:
 
 
 @router.get("/available-clips")
-def available_clips() -> dict:
-    """List WAV files available as SFX clips (from Synth output)."""
-    clips = []
-    for d in [MUSICGEN_DIR, STEMS_DIR]:
-        if d.exists():
-            for f in sorted(d.rglob("*.wav")):
+def available_clips(exclude_id: str | None = Query(None)) -> dict:
+    """List clips available for SFX placement, grouped by source."""
+    clips: list[dict] = []
+
+    # 1. Session — synth outputs
+    if MUSICGEN_DIR.exists():
+        for f in sorted(MUSICGEN_DIR.rglob("*.wav")):
+            clips.append({"path": str(f), "name": f.name, "group": "session"})
+
+    # 2. Saved SFX canvases — rendered.wav where manifest.json exists
+    if SFX_DIR.exists():
+        for sfx_dir in sorted(SFX_DIR.iterdir()):
+            if not sfx_dir.is_dir():
+                continue
+            manifest_path = sfx_dir / "manifest.json"
+            rendered_path = sfx_dir / "rendered.wav"
+            if not manifest_path.exists() or not rendered_path.exists():
+                continue
+            sfx_id = sfx_dir.name
+            if exclude_id and sfx_id == exclude_id:
+                continue
+            try:
+                with open(manifest_path) as f:
+                    m = json.load(f)
+                clips.append({
+                    "path": str(rendered_path),
+                    "name": m.get("name", sfx_id),
+                    "group": "saved_sfx",
+                    "duration_ms": m.get("duration_ms", 0),
+                    "clip_count": len(m.get("placements", [])),
+                })
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    # 3. Imported external samples
+    imports_dir = SFX_DIR / "imports"
+    if imports_dir.exists():
+        for f in sorted(imports_dir.iterdir()):
+            if f.suffix.lower() in {".wav", ".flac", ".mp3", ".ogg"}:
+                # Strip UUID prefix: {uuid8}_{original}
+                raw_name = f.name
+                if len(raw_name) > 9 and raw_name[8] == "_":
+                    display_name = raw_name[9:]
+                else:
+                    display_name = raw_name
                 clips.append({
                     "path": str(f),
-                    "name": f.name,
-                    "source": "synth" if d == MUSICGEN_DIR else "stem",
+                    "name": display_name,
+                    "group": "imported",
                 })
+
     return {"clips": clips}
+
+
+@router.post("/upload-clip")
+async def upload_clip(file: UploadFile = File(...)) -> dict:
+    """Import an external audio file for use as an SFX clip."""
+    filename = file.filename or "clip.wav"
+    ext = pathlib.Path(filename).suffix.lower()
+    if ext not in SUPPORTED_EXTENSIONS:
+        raise HTTPException(
+            400,
+            f"Unsupported format '{ext}'. Supported: {sorted(SUPPORTED_EXTENSIONS)}",
+        )
+
+    imports_dir = SFX_DIR / "imports"
+    imports_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = f"{uuid.uuid4().hex[:8]}_{filename}"
+    dest = imports_dir / safe_name
+
+    content = await file.read()
+    dest.write_bytes(content)
+
+    return {"path": str(dest), "name": filename, "group": "imported"}
 
 
 @router.get("/{sfx_id}")

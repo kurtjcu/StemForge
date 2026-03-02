@@ -189,7 +189,11 @@ export function initGenerate() {
     el('div', { className: 'card', id: 'sfx-add-card', style: { marginTop: '8px' } },
       el('div', { className: 'card-header' }, 'ADD CLIP MANUALLY'),
       el('div', { className: 'form-group' },
-        el('label', {}, 'Clip source'),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+          el('label', { style: { margin: '0' } }, 'Clip source'),
+          el('button', { className: 'btn btn-sm', id: 'sfx-import-btn', style: { padding: '2px 8px', fontSize: '11px' } }, '+ Import'),
+        ),
+        el('input', { type: 'file', id: 'sfx-import-input', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' } }),
         el('select', { id: 'sfx-clip-select' },
           el('option', { value: '' }, '-- loading clips --'),
         ),
@@ -268,6 +272,30 @@ export function initGenerate() {
     if (e.target.value) loadSfx(e.target.value);
   });
   document.getElementById('sfx-add-clip-btn').addEventListener('click', addClipManually);
+
+  // Import clip: button triggers hidden file input, file input uploads
+  document.getElementById('sfx-import-btn').addEventListener('click', () => {
+    document.getElementById('sfx-import-input').click();
+  });
+  document.getElementById('sfx-import-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const resp = await fetch('/api/sfx/upload-clip', { method: 'POST', body: form });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || resp.statusText);
+      }
+      const result = await resp.json();
+      await refreshClipList();
+      document.getElementById('sfx-clip-select').value = result.path;
+    } catch (err) {
+      alert(`Import failed: ${err.message}`);
+    }
+    e.target.value = '';  // reset so same file can be re-imported
+  });
   document.getElementById('sfx-save-btn').addEventListener('click', saveSfx);
   document.getElementById('sfx-show-mix-btn').addEventListener('click', () => {
     document.querySelector('.tab-btn[data-tab="mix"]').click();
@@ -469,6 +497,7 @@ async function loadSfx(sfxId) {
     document.getElementById('sfx-select').value = sfxId;
 
     showSfxCanvas(data);
+    refreshClipList();
   } catch (err) {
     alert(`Failed to load SFX: ${err.message}`);
   }
@@ -493,14 +522,35 @@ async function refreshSfxSelector() {
 
 async function refreshClipList() {
   try {
-    const data = await api('/sfx/available-clips');
+    let url = '/sfx/available-clips';
+    if (_currentSfxId) url += `?exclude_id=${_currentSfxId}`;
+    const data = await api(url);
     const select = document.getElementById('sfx-clip-select');
     clearChildren(select);
     select.appendChild(el('option', { value: '' }, '-- select clip --'));
+
+    const groups = { session: [], saved_sfx: [], imported: [] };
     for (const clip of data.clips || []) {
-      select.appendChild(
-        el('option', { value: clip.path }, `[${clip.source}] ${clip.name}`),
-      );
+      const g = clip.group || 'session';
+      if (groups[g]) groups[g].push(clip);
+    }
+
+    const groupLabels = { session: 'This Session', saved_sfx: 'Saved SFX', imported: 'Imported' };
+    for (const [key, label] of Object.entries(groupLabels)) {
+      const items = groups[key];
+      if (!items.length) continue;
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = label;
+      for (const clip of items) {
+        let text = clip.name;
+        if (key === 'saved_sfx') {
+          const secs = ((clip.duration_ms || 0) / 1000).toFixed(1);
+          const n = clip.clip_count ?? 0;
+          text = `${clip.name} (${secs}s, ${n} clip${n !== 1 ? 's' : ''})`;
+        }
+        optgroup.appendChild(el('option', { value: clip.path }, text));
+      }
+      select.appendChild(optgroup);
     }
   } catch { /* silent */ }
 }
