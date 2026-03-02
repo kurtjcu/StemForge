@@ -58,6 +58,7 @@ class UpdatePlacementRequest(BaseModel):
 class UpdateSFXSettingsRequest(BaseModel):
     name: str | None = None
     apply_limiter: bool | None = None
+    duration_ms: int | None = None  # resize canvas; clips beyond new end are truncated
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +298,11 @@ def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest) -> dict:
         manifest["name"] = req.name
     if req.apply_limiter is not None and req.apply_limiter != manifest.get("apply_limiter"):
         manifest["apply_limiter"] = req.apply_limiter
+        needs_render = True
+    if req.duration_ms is not None:
+        new_ms = max(0, req.duration_ms)
+        manifest["duration_ms"] = new_ms
+        manifest["total_samples"] = int(manifest["sample_rate"] * new_ms / 1000)
         needs_render = True
 
     if needs_render:

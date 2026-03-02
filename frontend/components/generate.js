@@ -18,6 +18,7 @@ function clearChildren(elem) {
 
 let _currentSfxId = null;
 let _canvasWs = null;
+let _alignWs = null;        // read-only reference waveform for alignment
 let _alignedStemPaths = {}; // label → path, populated from stemsReady
 
 export function initGenerate() {
@@ -141,6 +142,7 @@ export function initGenerate() {
       el('select', { id: 'sfx-align-select', style: { width: '100%' } },
         el('option', { value: '' }, '-- none --'),
       ),
+      el('div', { id: 'sfx-align-waveform', className: 'stem-waveform hidden', style: { height: '80px', marginTop: '8px' } }),
     ),
     // Canvas waveform card
     el('div', { className: 'card', id: 'sfx-canvas-card' },
@@ -606,14 +608,40 @@ async function deleteSfx() {
 
 async function onAlignSelectChange() {
   const path = document.getElementById('sfx-align-select').value;
+  const waveContainer = document.getElementById('sfx-align-waveform');
+
+  // Tear down previous reference waveform
+  if (_alignWs) { _alignWs.destroy(); _alignWs = null; }
+  waveContainer.classList.add('hidden');
+
   if (!path) return;
+
   try {
     const info = await api(`/audio/info?path=${encodeURIComponent(path)}`);
-    const secs = Math.max(0, Math.min(120, Math.round(info.duration)));
+    const stemDurationMs = Math.round(info.duration * 1000);
+    const stemSecs = Math.max(0, Math.min(120, Math.round(info.duration)));
+
+    // Update canvas duration slider (affects both new-canvas creation and display)
     const slider = document.getElementById('sfx-duration');
     const label = document.getElementById('sfx-duration-val');
-    if (slider) { slider.value = secs; label.textContent = `${secs}s`; }
-  } catch { /* leave slider unchanged if info fetch fails */ }
+    if (slider) { slider.value = stemSecs; label.textContent = `${stemSecs}s`; }
+
+    // Show read-only reference waveform
+    waveContainer.classList.remove('hidden');
+    _alignWs = createWaveform(waveContainer, { height: 80, interact: false, color: 'midi' });
+    _alignWs.load(`/api/audio/stream?path=${encodeURIComponent(path)}`);
+
+    // Resize the active canvas to match so both waveforms share the same timescale
+    if (_currentSfxId) {
+      await api(`/sfx/${_currentSfxId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ duration_ms: stemDurationMs }),
+      });
+      await loadSfx(_currentSfxId);
+    }
+  } catch (err) {
+    console.error('Align to stem failed:', err);
+  }
 }
 
 async function toggleLimiter() {
