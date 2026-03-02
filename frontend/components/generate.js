@@ -20,6 +20,7 @@ let _currentSfxId = null;
 let _canvasWs = null;          // hidden wavesurfer for audio-only playback
 let _alignAudioPath = null;    // resolved audio path for reference lane
 let _alignStemType = null;     // 'audio' | 'midi'
+let _alignPeaks = [];          // downsampled waveform peaks for reference lane
 let _timelineDurationMs = 0;   // current canvas duration in ms
 let _alignedStemPaths = {};    // label → path, from stemsReady (audio, green)
 let _alignedMidiLabels = [];   // labels, from midiReady (purple, rendered on demand)
@@ -149,7 +150,7 @@ export function initGenerate() {
           el('button', { className: 'btn btn-sm', id: 'sfx-rewind-btn' }, '\u23EE'),
           el('span', { className: 'time-label', id: 'sfx-time-label' }, ''),
           el('button', { className: 'btn btn-sm', id: 'sfx-save-btn' }, '\u2193 Save'),
-          el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-show-mix-btn' }, 'Show in Mix'),
+          el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-render-mix-btn' }, 'Render Canvas'),
         ),
       ),
       // Align dropdown inside timeline card
@@ -297,9 +298,7 @@ export function initGenerate() {
     e.target.value = '';  // reset so same file can be re-imported
   });
   document.getElementById('sfx-save-btn').addEventListener('click', saveSfx);
-  document.getElementById('sfx-show-mix-btn').addEventListener('click', () => {
-    document.querySelector('.tab-btn[data-tab="mix"]').click();
-  });
+  document.getElementById('sfx-render-mix-btn').addEventListener('click', renderCanvasToMix);
   document.getElementById('sfx-delete-btn').addEventListener('click', deleteSfx);
   document.getElementById('sfx-limiter').addEventListener('change', toggleLimiter);
   document.getElementById('sfx-align-select').addEventListener('change', onAlignSelectChange);
@@ -662,6 +661,23 @@ async function saveSfx() {
   }
 }
 
+async function renderCanvasToMix() {
+  if (!_currentSfxId) { alert('Create or select an SFX canvas first'); return; }
+  const btn = document.getElementById('sfx-render-mix-btn');
+  btn.disabled = true;
+  btn.textContent = 'Rendering…';
+  try {
+    const result = await api(`/sfx/${_currentSfxId}/send-to-mix`, { method: 'POST' });
+    appState.emit('sfxReady', { id: _currentSfxId });
+    btn.textContent = `Sent: ${result.label}`;
+    setTimeout(() => { btn.textContent = 'Render Canvas'; }, 2000);
+  } catch (err) {
+    alert(`Render to mix failed: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function deleteSfx() {
   if (!_currentSfxId) return;
   if (!confirm('Delete this SFX canvas and all its placements?')) return;
@@ -711,6 +727,7 @@ async function onAlignSelectChange() {
 
   _alignAudioPath = null;
   _alignStemType = null;
+  _alignPeaks = [];
 
   if (!value) {
     // Re-render timeline without reference lane
@@ -746,6 +763,12 @@ async function onAlignSelectChange() {
     // Store for timeline rendering
     _alignAudioPath = audioPath;
     _alignStemType = stemType;
+
+    // Fetch waveform peaks for reference lane visualization
+    try {
+      const waveData = await api(`/audio/waveform?path=${encodeURIComponent(audioPath)}&points=500`);
+      _alignPeaks = waveData.peaks || [];
+    } catch { _alignPeaks = []; }
 
     // Resize the active canvas to match so clips and reference share the same timescale
     if (_currentSfxId) {
@@ -858,6 +881,28 @@ function packPlacements(placements) {
 }
 
 /**
+ * Draw waveform peaks on a canvas inside the reference lane.
+ */
+function drawRefWaveform(canvas, peaks, isMidi) {
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width;
+  const h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  if (!peaks.length) return;
+
+  const mid = h / 2;
+  const color = isMidi ? 'rgba(168, 85, 247, 0.7)' : 'rgba(34, 197, 94, 0.7)';
+  ctx.fillStyle = color;
+
+  const barW = w / peaks.length;
+  for (let i = 0; i < peaks.length; i++) {
+    const amp = Math.min(1, Math.abs(peaks[i]));
+    const barH = amp * mid * 0.9;
+    ctx.fillRect(i * barW, mid - barH, Math.max(1, barW), barH * 2);
+  }
+}
+
+/**
  * Render the DAW-style timeline: ruler ticks, reference lane, clip lanes.
  */
 function renderTimeline(manifest) {
@@ -884,18 +929,33 @@ function renderTimeline(manifest) {
     ruler.appendChild(tick);
   }
 
-  // Reference lane (if align is set)
+  // Reference lane with waveform visualization (if align is set)
   if (_alignAudioPath) {
+    const isMidi = _alignStemType === 'midi';
     const refLane = el('div', { className: 'sfx-lane sfx-lane-ref' });
     const refBlock = el('div', {
-      className: `sfx-clip-block sfx-clip-ref${_alignStemType === 'midi' ? ' sfx-clip-ref-midi' : ''}`,
+      className: `sfx-clip-block sfx-clip-ref${isMidi ? ' sfx-clip-ref-midi' : ''}`,
     });
     refBlock.style.left = '0';
     refBlock.style.width = '100%';
+
+    const waveCanvas = document.createElement('canvas');
+    waveCanvas.className = 'sfx-ref-waveform';
+    refBlock.appendChild(waveCanvas);
+
     const stemLabel = document.getElementById('sfx-align-select').selectedOptions[0]?.text || 'Reference';
     refBlock.appendChild(el('span', { className: 'sfx-clip-label' }, stemLabel));
     refLane.appendChild(refBlock);
     lanesContainer.appendChild(refLane);
+
+    // Draw after layout so clientWidth/Height are available
+    if (_alignPeaks.length) {
+      requestAnimationFrame(() => {
+        waveCanvas.width = refBlock.clientWidth;
+        waveCanvas.height = refBlock.clientHeight;
+        drawRefWaveform(waveCanvas, _alignPeaks, isMidi);
+      });
+    }
   }
 
   // Clip lanes

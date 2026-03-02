@@ -1689,22 +1689,31 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .sfx-clip-ref {
-  background: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.12);
   border-color: rgba(34, 197, 94, 0.5);
   cursor: default;
 }
 
+.sfx-ref-waveform {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 .sfx-clip-ref:hover {
-  background: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.12);
 }
 
 .sfx-clip-ref-midi {
-  background: rgba(168, 85, 247, 0.25);
+  background: rgba(168, 85, 247, 0.12);
   border-color: rgba(168, 85, 247, 0.5);
 }
 
 .sfx-clip-ref-midi:hover {
-  background: rgba(168, 85, 247, 0.25);
+  background: rgba(168, 85, 247, 0.12);
 }
 
 .sfx-clip-label {

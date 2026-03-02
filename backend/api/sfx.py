@@ -143,14 +143,6 @@ def create_sfx(req: CreateSFXRequest) -> dict:
 
     rendered_path = _render_and_save(manifest)
 
-    track = TrackState(
-        track_id=mix_track_id,
-        label=f"SFX: {req.name}",
-        source="audio",
-        path=rendered_path,
-    )
-    session.add_track(track)
-
     return {
         "id": sfx_id,
         "name": req.name,
