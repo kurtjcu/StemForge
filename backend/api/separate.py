@@ -49,7 +49,10 @@ def _run_separation(
 
         config = RoformerConfig(
             model_id=model_id,
+            stems=stems or list(spec.available_stems),
             output_dir=STEMS_DIR,
+            chunk_size=spec.default_chunk_size,
+            num_overlap=spec.default_num_overlap,
         )
         pipeline.configure(config)
         pipeline.set_progress_callback(pipeline_cb)
