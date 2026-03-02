@@ -163,8 +163,8 @@ Expect significantly faster inference than CPU-only, but slower than CUDA on a d
 
 The Synth tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
 a gated model. You must accept its license and authenticate before StemForge can download it.
-See [docs/SYNTH.md](docs/SYNTH.md) for full documentation on conditioning modes, parameters,
-and Vocal Preservation Mode.
+See the [Synth section in INSTRUCTIONS.md](INSTRUCTIONS.md#3-synth--audio-generation--sfx-stem-builder)
+for usage details.
 
 **Step 1 — Accept the license**
 
@@ -275,9 +275,8 @@ After updating, run `uv sync` to pick up any dependency changes.
     │   ├── frontend/                   # Wrangler's standalone frontend (reference)
     │   └── run.py                      # Wrangler's standalone launcher (unused in StemForge)
     │
+    ├── INSTRUCTIONS.md                    # User guide — how to use each tab
     ├── docs/
-    │   ├── SYNTH.md                    # Synth tab deep-dive (conditioning, params, vocal stems)
-    │   ├── COMPOSE.md                  # Compose tab reference (modes, lyrics, controls, cross-tab)
     │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
     │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
     │
@@ -365,11 +364,11 @@ Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
 Optional conditioning from audio stems, MIDI, or the current mix.
 Duration up to 600 s (chunked generation, 47 s per chunk).
 Includes Vocal Preservation Mode.
-See [docs/SYNTH.md](docs/SYNTH.md) for full documentation.
+See [INSTRUCTIONS.md](INSTRUCTIONS.md#3-synth--audio-generation--sfx-stem-builder) for usage details.
 
 ### Compose
 Full song generation via AceStep 1.5, running as a managed subprocess.
-See [docs/COMPOSE.md](docs/COMPOSE.md) for full documentation.
+See [INSTRUCTIONS.md](INSTRUCTIONS.md#4-compose--full-song-generation-acestep) for usage details.
 
 - **Initialize** — on first visit, the button says "Initialize". Click it to start the AceStep backend and download models (~20 GB on first run). Once ready, the button becomes "Generate".
 - **Create mode** — build a song from genre/mood tags, song parameters, and lyrics (manual, AI-generated, or instrumental)
