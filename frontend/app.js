@@ -206,7 +206,6 @@ async function initComponents() {
     { initMix },
     { initGenerate },
     { initCompose },
-    { initSfx },
     { initExport },
     { initTransport },
   ] = await Promise.all([
@@ -216,7 +215,6 @@ async function initComponents() {
     import('./components/mix.js'),
     import('./components/generate.js'),
     import('./components/compose.js'),
-    import('./components/sfx.js'),
     import('./components/export.js'),
     import('./components/audio-player.js'),
   ]);
@@ -227,7 +225,6 @@ async function initComponents() {
   initMix();
   initGenerate();
   initCompose();
-  initSfx();
   initExport();
   initTransport();
 }
