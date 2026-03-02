@@ -39,6 +39,7 @@ class SessionStore:
         self._mix_path: pathlib.Path | None = None
         self._mix_tracks: list[TrackState] = []
         self._compose_paths: list[dict[str, Any]] = []
+        self._sfx_manifests: dict[str, dict] = {}  # sfx_id → manifest dict
 
     # -- audio_path --
     @property
@@ -160,6 +161,25 @@ class SessionStore:
                     return t
             return None
 
+    # -- sfx_manifests --
+    def add_sfx_manifest(self, manifest: dict) -> None:
+        with self._lock:
+            self._sfx_manifests[manifest["id"]] = manifest
+
+    def get_sfx_manifest(self, sfx_id: str) -> dict | None:
+        with self._lock:
+            m = self._sfx_manifests.get(sfx_id)
+            return dict(m) if m else None
+
+    def remove_sfx_manifest(self, sfx_id: str) -> bool:
+        with self._lock:
+            return self._sfx_manifests.pop(sfx_id, None) is not None
+
+    @property
+    def sfx_manifest_ids(self) -> list[str]:
+        with self._lock:
+            return list(self._sfx_manifests.keys())
+
     def clear(self) -> None:
         with self._lock:
             self._audio_path = None
@@ -171,6 +191,7 @@ class SessionStore:
             self._mix_path = None
             self._mix_tracks = []
             self._compose_paths = []
+            self._sfx_manifests = {}
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -195,6 +216,10 @@ class SessionStore:
                         "is_drum": t.is_drum,
                     }
                     for t in self._mix_tracks
+                ],
+                "sfx_manifests": [
+                    {"id": m["id"], "name": m["name"]}
+                    for m in self._sfx_manifests.values()
                 ],
             }
 
