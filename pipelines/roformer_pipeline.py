@@ -162,6 +162,15 @@ class RoformerPipeline:
         spec = get_spec(self._config.model_id)
         assert isinstance(spec, RoformerSpec)
 
+        # Override chunk_size and num_overlap from the YAML if available,
+        # since model authors tune these per checkpoint.
+        yaml_audio = (self._yaml_config or {}).get("audio", {})
+        yaml_infer = (self._yaml_config or {}).get("inference", {})
+        if "chunk_size" in yaml_audio:
+            self._config.chunk_size = yaml_audio["chunk_size"]
+        if "num_overlap" in yaml_infer:
+            self._config.num_overlap = yaml_infer["num_overlap"]
+
         self._report(10.0, "Reading audio...")
         waveform, sr = read_audio(path, target_rate=self._config.sample_rate, mono=False)
         # waveform: (channels, samples) float32 numpy

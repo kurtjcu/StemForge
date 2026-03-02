@@ -653,7 +653,7 @@ ROFORMER_VIPERX = _register(RoformerSpec(
     other_fix=True,
     available_stems=("vocals", "other"),
     default_chunk_size=352_800,
-    default_num_overlap=2,
+    default_num_overlap=4,
 ))
 
 ROFORMER_KJ = _register(RoformerSpec(
