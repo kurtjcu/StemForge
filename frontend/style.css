@@ -483,9 +483,16 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ─── Track Rows (Mix tab) ───────────────────────────────────────────── */
 
+.mix-track-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
 .track-row {
   display: grid;
-  grid-template-columns: 40px 1fr auto auto auto auto;
+  grid-template-columns: 40px 1fr auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 10px 12px;

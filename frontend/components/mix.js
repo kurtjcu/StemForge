@@ -2,22 +2,95 @@
  * Mix tab — multi-track mixer with render.
  */
 
-import { appState, api, pollJob, el, formatTime } from '../app.js';
+import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import { transportLoad } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
 
+// ─── Inline audio players (exclusive playback) ───────────────────────────
+
+const _players = [];
+
+function _stopOtherPlayers(except) {
+  for (const p of _players) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
+}
+
+/**
+ * Build a standard stem-card player.
+ * Returns { card, ws }.
+ */
+function createMixPlayer(label, url, audioPath) {
+  const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+  const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+  const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+  const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+  const saveBtn = el('button', {
+    className: 'btn btn-sm',
+    onClick: () => {
+      const name = (audioPath || '').split('/').pop() || 'audio.wav';
+      saveFileAs(`/api/audio/download?path=${encodeURIComponent(audioPath || '')}`, name);
+    },
+  }, '\u2193 Save');
+
+  const card = el('div', { className: 'stem-card' },
+    el('div', { className: 'stem-card-header' },
+      el('span', { className: 'stem-label' }, label),
+      el('div', { className: 'stem-actions' },
+        playBtn, stopBtn, rewindBtn, timeLabel, saveBtn,
+      ),
+    ),
+  );
+
+  const waveContainer = el('div', { className: 'stem-waveform' });
+  card.appendChild(waveContainer);
+
+  const ws = createWaveform(waveContainer, { height: 50 });
+  ws.load(url);
+
+  const player = { ws, playBtn };
+  _players.push(player);
+
+  playBtn.addEventListener('click', () => {
+    if (ws.isPlaying()) {
+      ws.pause();
+      playBtn.textContent = '\u25B6 Play';
+    } else {
+      _stopOtherPlayers(ws);
+      ws.play();
+      playBtn.textContent = '\u23F8 Pause';
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    ws.stop();
+    playBtn.textContent = '\u25B6 Play';
+  });
+
+  rewindBtn.addEventListener('click', () => ws.setTime(0));
+
+  ws.on('timeupdate', (time) => {
+    const dur = ws.getDuration();
+    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+
+  return { card, ws };
+}
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+
 export function initMix() {
   const panel = document.getElementById('panel-mix');
 
-  // Master waveform
-  const masterSection = el('div', { className: 'card', id: 'mix-master-card', style: { display: 'none' } },
-    el('div', { className: 'card-header' }, 'MASTER'),
-    el('div', { className: 'stem-waveform', id: 'mix-master-waveform' }),
-  );
+  // Master player (populated after render)
+  const masterSection = el('div', { id: 'mix-master-container', style: { display: 'none', marginBottom: '12px' } });
 
   // Track list
   const trackHeader = el('div', {
@@ -100,9 +173,7 @@ export function initMix() {
   });
 
   // Auto-refresh tracks when stems/midi/generated are ready
-  // (stem tracks are added server-side by the separation job)
   appState.on('stemsReady', () => refreshTracks());
-
   appState.on('midiReady', () => refreshTracks());
   appState.on('generateReady', () => refreshTracks());
   appState.on('composeReady', () => refreshTracks());
@@ -116,6 +187,14 @@ async function refreshTracks() {
     const trackList = document.getElementById('mix-tracks');
     const emptyMsg = document.getElementById('mix-empty');
 
+    // Destroy old track players (but keep master)
+    for (let i = _players.length - 1; i >= 0; i--) {
+      if (_players[i]._isTrack) {
+        _players[i].ws.destroy();
+        _players.splice(i, 1);
+      }
+    }
+
     clearChildren(trackList);
 
     if (tracks.length === 0) {
@@ -128,57 +207,44 @@ async function refreshTracks() {
     document.getElementById('mix-render').disabled = false;
 
     for (const track of tracks) {
-      const row = el('div', { className: 'track-row' },
-        // Enable toggle
+      const container = el('div', { className: 'mix-track-card' });
+
+      // ─── Control row ───
+      const enableInput = el('input', { type: 'checkbox' });
+      enableInput.checked = track.enabled;
+      enableInput.addEventListener('change', () => {
+        api('/mix/tracks', {
+          method: 'POST',
+          body: JSON.stringify({ track_id: track.track_id, enabled: enableInput.checked }),
+        });
+      });
+
+      const volumeSlider = el('input', {
+        type: 'range',
+        className: 'volume-slider',
+        min: '0',
+        max: '1',
+        step: '0.05',
+        value: String(track.volume),
+      });
+      volumeSlider.addEventListener('change', () => {
+        api('/mix/tracks', {
+          method: 'POST',
+          body: JSON.stringify({ track_id: track.track_id, volume: parseFloat(volumeSlider.value) }),
+        });
+      });
+
+      const controlRow = el('div', { className: 'track-row' },
         el('label', { className: 'toggle' },
-          (() => {
-            const inp = el('input', { type: 'checkbox' });
-            inp.checked = track.enabled;
-            inp.addEventListener('change', () => {
-              api('/mix/tracks', {
-                method: 'POST',
-                body: JSON.stringify({ track_id: track.track_id, enabled: inp.checked }),
-              });
-            });
-            return inp;
-          })(),
+          enableInput,
           el('span', { className: 'toggle-slider' }),
         ),
-        // Label — SFX tracks in white to distinguish from stems
         el('span', {
           className: 'track-label',
           style: track.label.startsWith('SFX:') ? { color: '#ffffff', fontWeight: '600' } : {},
         }, track.label),
-        // Play button
-        el('button', {
-          className: 'btn btn-sm',
-          onClick: () => {
-            if (track.path) {
-              transportLoad(`/api/audio/stream?path=${encodeURIComponent(track.path)}`, track.label);
-            }
-          },
-        }, '\u25B6'),
-        // Volume slider
-        (() => {
-          const slider = el('input', {
-            type: 'range',
-            className: 'volume-slider',
-            min: '0',
-            max: '1',
-            step: '0.05',
-            value: String(track.volume),
-          });
-          slider.addEventListener('change', () => {
-            api('/mix/tracks', {
-              method: 'POST',
-              body: JSON.stringify({ track_id: track.track_id, volume: parseFloat(slider.value) }),
-            });
-          });
-          return slider;
-        })(),
-        // Source badge
+        volumeSlider,
         el('span', { className: 'badge' }, track.source),
-        // Remove button
         el('button', {
           className: 'btn btn-sm btn-danger',
           onClick: async () => {
@@ -187,7 +253,59 @@ async function refreshTracks() {
           },
         }, '\u2715'),
       );
-      trackList.appendChild(row);
+
+      container.appendChild(controlRow);
+
+      // ─── Waveform player for audio tracks ───
+      if (track.source === 'audio' && track.path) {
+        const url = `/api/audio/stream?path=${encodeURIComponent(track.path)}`;
+
+        const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+        const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+        const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+        const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+        const playerRow = el('div', { className: 'stem-card-header', style: { padding: '4px 12px 0', borderBottom: 'none' } },
+          el('div', { className: 'stem-actions' },
+            playBtn, stopBtn, rewindBtn, timeLabel,
+          ),
+        );
+
+        const waveContainer = el('div', { className: 'stem-waveform', style: { padding: '0 12px 8px' } });
+        container.append(playerRow, waveContainer);
+
+        const ws = createWaveform(waveContainer, { height: 40 });
+        ws.load(url);
+
+        const player = { ws, playBtn, _isTrack: true };
+        _players.push(player);
+
+        playBtn.addEventListener('click', () => {
+          if (ws.isPlaying()) {
+            ws.pause();
+            playBtn.textContent = '\u25B6 Play';
+          } else {
+            _stopOtherPlayers(ws);
+            ws.play();
+            playBtn.textContent = '\u23F8 Pause';
+          }
+        });
+
+        stopBtn.addEventListener('click', () => {
+          ws.stop();
+          playBtn.textContent = '\u25B6 Play';
+        });
+
+        rewindBtn.addEventListener('click', () => ws.setTime(0));
+
+        ws.on('timeupdate', (time) => {
+          const dur = ws.getDuration();
+          timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+        });
+        ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+      }
+
+      trackList.appendChild(container);
     }
   } catch { /* ignore */ }
 }
@@ -229,14 +347,27 @@ function showMixResult(result) {
   appState.mixPath = result.mix_path;
   appState.emit('mixReady', result.mix_path);
 
-  const masterCard = document.getElementById('mix-master-card');
-  masterCard.style.display = '';
+  const container = document.getElementById('mix-master-container');
+  container.style.display = '';
 
-  const waveContainer = document.getElementById('mix-master-waveform');
-  clearChildren(waveContainer);
+  // Destroy previous master player
+  for (let i = _players.length - 1; i >= 0; i--) {
+    if (_players[i]._isMaster) {
+      _players[i].ws.destroy();
+      _players.splice(i, 1);
+    }
+  }
+  clearChildren(container);
 
-  const ws = createWaveform(waveContainer, { height: 50 });
-  ws.load(`/api/audio/stream?path=${encodeURIComponent(result.mix_path)}`);
+  const url = `/api/audio/stream?path=${encodeURIComponent(result.mix_path)}`;
+  const { card, ws } = createMixPlayer('Master Mix', url, result.mix_path);
+  card.classList.add('mix-master-card');
+  container.appendChild(card);
 
-  transportLoad(`/api/audio/stream?path=${encodeURIComponent(result.mix_path)}`, 'Mix');
+  // Tag as master so we can clean up on re-render
+  const player = _players[_players.length - 1];
+  player._isMaster = true;
+
+  // Auto-play the result
+  ws.once('ready', () => ws.play());
 }
