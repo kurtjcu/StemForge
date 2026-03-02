@@ -61,6 +61,13 @@ _SCHEDULER = {
     "ddim": "ddim",
 }
 
+_LM_MODEL = {
+    "none": None,
+    "0.6b": "acestep-5Hz-lm-0.6B",
+    "1.7b": "acestep-5Hz-lm-1.7B",
+    "4b": "acestep-5Hz-lm-4B",
+}
+
 # ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
@@ -76,6 +83,7 @@ class GenerateRequest(BaseModel):
 
     seed: Optional[int] = None
     gen_model: str = "turbo"
+    lm_model: str = "1.7b"
     batch_size: int = 1
     scheduler: str = "euler"
     audio_format: str = "mp3"
@@ -205,6 +213,10 @@ def _build_payload(req: GenerateRequest) -> dict:
     model_name = _GEN_MODEL.get(req.gen_model)
     if model_name:
         payload["model"] = model_name
+
+    lm_path = _LM_MODEL.get(req.lm_model)
+    if lm_path:
+        payload["lm_model_path"] = lm_path
 
     if req.task_type in ("cover", "repaint"):
         payload["task_type"] = req.task_type

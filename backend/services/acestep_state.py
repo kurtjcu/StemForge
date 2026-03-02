@@ -116,14 +116,48 @@ def launch() -> bool:
 
 
 def _monitor(proc: subprocess.Popen) -> None:
-    """Daemon thread that watches the subprocess and updates shared state."""
-    # Wait for process to start, then mark running
-    time.sleep(3)
-    if proc.poll() is None:
-        set_status("running")
-        print("[stemforge] AceStep is ready")
+    """Daemon thread that watches the subprocess and updates shared state.
 
-    # Poll until process exits
+    Polls AceStep's /health endpoint until ``models_initialized`` is true,
+    only then sets status to ``"running"``.  This prevents the frontend from
+    enabling the Generate button while models are still downloading/loading.
+    """
+    import json as _json
+    import urllib.request
+
+    port = _state["port"]
+    url = f"http://127.0.0.1:{port}/health"
+
+    # Give the process a moment to start
+    time.sleep(5)
+
+    # Poll health endpoint until models are loaded (10 min timeout)
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            code = proc.returncode
+            set_status("crashed", exit_code=code,
+                       error=f"AceStep exited with code {code}")
+            print(f"[stemforge] AceStep crashed during startup (exit code {code})")
+            return
+
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                data = _json.loads(resp.read())
+            if data.get("models_initialized"):
+                set_status("running")
+                print("[stemforge] AceStep is ready (models loaded)")
+                break
+        except Exception:
+            pass  # Server not yet accepting connections
+
+        time.sleep(3)
+    else:
+        set_status("crashed", error="AceStep startup timed out (10 min)")
+        print("[stemforge] AceStep startup timed out waiting for models")
+        return
+
+    # Crash monitoring loop
     while proc.poll() is None:
         time.sleep(1)
 

@@ -879,6 +879,7 @@ function buildPayload() {
     quality: Number((_id('compose-quality') || {}).value || 1),
     seed: seedRaw !== '' ? parseInt(seedRaw, 10) : null,
     gen_model: (_id('compose-gen-model') || {}).value || 'turbo',
+    lm_model: (_id('compose-lm-model') || {}).value || '1.7b',
     batch_size: Number((_id('compose-batch-size') || {}).value || 1),
     scheduler: (_id('compose-scheduler') || {}).value || 'euler',
     audio_format: (_id('compose-audio-format') || {}).value || 'mp3',
@@ -973,8 +974,8 @@ async function ensureAceStep() {
     if (elapsedEl) elapsedEl.textContent = m > 0 ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
   }, 1000);
 
-  // Poll health until running (up to 5 minutes)
-  const MAX_WAIT = 300_000;
+  // Poll health until running (up to 10 minutes — model downloads can be large)
+  const MAX_WAIT = 600_000;
   const POLL_INTERVAL = 3000;
   try {
     const deadline = Date.now() + MAX_WAIT;
@@ -984,7 +985,7 @@ async function ensureAceStep() {
       if (h.acestep_status === 'running') return;
       if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
     }
-    throw new Error('AceStep startup timed out (5 min)');
+    throw new Error('AceStep startup timed out (10 min)');
   } finally {
     clearInterval(elapsedTimer);
     // Restore generating panel to its normal state
