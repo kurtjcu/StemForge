@@ -40,6 +40,7 @@ All pipelines and the full web UI are implemented:
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
 - SFX Stem Builder (Synth tab) — DAW timeline, clip placement with fades, align-to reference waveform, render canvas to Mix
 - AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
+- Upload supports audio (WAV, FLAC, MP3, OGG, AIFF) and video (MP4, MKV, WEBM, AVI, MOV) — video audio extracted via FFmpeg
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
 - Waveform visualization via wavesurfer.js with global transport bar
 - Deterministic uv environment, Python 3.11, CUDA 13.0 wheels
@@ -162,7 +163,7 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | GET | /api/models | sync | All registered models |
 | GET | /api/session | sync | Current session state |
 | DELETE | /api/session | sync | Clear session |
-| POST | /api/upload | sync | Upload audio file |
+| POST | /api/upload | sync | Upload audio/video file (video → FFmpeg audio extraction) |
 | GET | /api/audio/stream | sync | Stream audio (inline) |
 | GET | /api/audio/download | sync | Download audio (attachment) |
 | GET | /api/audio/waveform | sync | Downsampled peaks JSON |
