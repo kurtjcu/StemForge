@@ -36,10 +36,11 @@ def _validate_path(path_str: str) -> pathlib.Path:
 
 @router.post("/upload")
 async def upload_file(file: UploadFile = File(...)) -> dict:
-    from utils.audio_io import probe, SUPPORTED_EXTENSIONS
+    import subprocess
+    from utils.audio_io import probe, SUPPORTED_EXTENSIONS, VIDEO_EXTENSIONS
 
     ext = pathlib.Path(file.filename or "upload").suffix.lower()
-    if ext not in SUPPORTED_EXTENSIONS:
+    if ext not in SUPPORTED_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
         raise HTTPException(422, f"Unsupported format: {ext}")
 
     _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -48,10 +49,26 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    # Extract audio from video files via FFmpeg
+    if ext in VIDEO_EXTENSIONS:
+        wav_dest = dest.with_suffix(".wav")
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", str(dest), "-vn", "-acodec", "pcm_s16le",
+                 "-ar", "44100", str(wav_dest)],
+                check=True, capture_output=True, timeout=120,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            dest.unlink(missing_ok=True)
+            raise HTTPException(422, f"Failed to extract audio from video: {exc}")
+        dest.unlink(missing_ok=True)
+        dest = wav_dest
+
+    display_name = file.filename
     info = probe(dest)
     session.audio_path = dest
     session.audio_info = {
-        "filename": file.filename,
+        "filename": display_name,
         "path": str(dest),
         "duration": info.duration,
         "sample_rate": info.sample_rate,
@@ -60,7 +77,7 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
     }
 
     return {
-        "filename": file.filename,
+        "filename": display_name,
         "path": str(dest),
         "duration": info.duration,
         "sample_rate": info.sample_rate,

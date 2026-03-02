@@ -47,6 +47,11 @@ SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     {".wav", ".flac", ".mp3", ".ogg", ".aiff", ".aif"}
 )
 
+# Video formats from which audio can be extracted via FFmpeg.
+VIDEO_EXTENSIONS: frozenset[str] = frozenset(
+    {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".flv"}
+)
+
 # Formats supported for *writing* without an extra backend.
 # MP3 is read-only via soundfile; write via pydub (see write_audio).
 _LOSSLESS_WRITE_FORMATS: frozenset[str] = frozenset({"wav", "flac", "ogg"})

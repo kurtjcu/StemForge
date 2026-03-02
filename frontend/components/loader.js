@@ -16,12 +16,12 @@ export function initLoader() {
   const dropZone = el('div', { className: 'drop-zone', id: 'drop-zone' },
     el('span', { className: 'drop-icon' }, '\u{1F3B5}'),
     el('span', { className: 'drop-text' }, 'Drop an audio file here or click to browse'),
-    el('span', { className: 'drop-hint' }, 'WAV, FLAC, MP3, OGG, AIFF'),
+    el('span', { className: 'drop-hint' }, 'WAV, FLAC, MP3, OGG, AIFF — or video: MP4, MKV, WEBM, AVI, MOV'),
   );
 
   const fileInput = el('input', {
     type: 'file',
-    accept: '.wav,.flac,.mp3,.ogg,.aiff,.aif',
+    accept: '.wav,.flac,.mp3,.ogg,.aiff,.aif,.mp4,.mkv,.webm,.avi,.mov,.m4v,.flv',
     style: { display: 'none' },
     id: 'file-input',
   });
