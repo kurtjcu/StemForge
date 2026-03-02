@@ -73,6 +73,7 @@ let _alignPeaks = [];          // downsampled waveform peaks for reference lane
 let _timelineDurationMs = 0;   // current canvas duration in ms
 let _alignedStemPaths = {};    // label → path, from stemsReady (audio, green)
 let _alignedMidiLabels = [];   // labels, from midiReady (purple, rendered on demand)
+let _alignedRefPaths = {};     // label → path, from fileLoaded or manual import
 
 export function initGenerate() {
   const panel = document.getElementById('panel-synth');
@@ -204,7 +205,11 @@ export function initGenerate() {
       ),
       // Align dropdown inside timeline card
       el('div', { className: 'form-group', style: { margin: '8px 0 6px' } },
-        el('label', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', marginBottom: '3px' } }, 'Align to'),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+          el('label', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', margin: '0' } }, 'Align to'),
+          el('button', { className: 'btn btn-sm', id: 'sfx-align-import-btn', style: { padding: '2px 8px', fontSize: '11px' } }, '+ Load Reference'),
+        ),
+        el('input', { type: 'file', id: 'sfx-align-import-input', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' } }),
         el('select', { id: 'sfx-align-select', style: { width: '100%' } },
           el('option', { value: '' }, '-- none --'),
         ),
@@ -352,6 +357,33 @@ export function initGenerate() {
   document.getElementById('sfx-limiter').addEventListener('change', toggleLimiter);
   document.getElementById('sfx-align-select').addEventListener('change', onAlignSelectChange);
 
+  // Align: load reference WAV directly
+  document.getElementById('sfx-align-import-btn').addEventListener('click', () => {
+    document.getElementById('sfx-align-import-input').click();
+  });
+  document.getElementById('sfx-align-import-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const resp = await fetch('/api/sfx/upload-clip', { method: 'POST', body: form });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || resp.statusText);
+      }
+      const result = await resp.json();
+      _alignedRefPaths[result.name] = result.path;
+      refreshAlignDropdown();
+      // Auto-select and trigger align
+      document.getElementById('sfx-align-select').value = result.path;
+      onAlignSelectChange();
+    } catch (err) {
+      alert(`Load reference failed: ${err.message}`);
+    }
+    e.target.value = '';
+  });
+
   // SFX local playback (no global transport)
   document.getElementById('sfx-play-btn').addEventListener('click', () => {
     if (!_canvasWs) return;
@@ -394,6 +426,14 @@ export function initGenerate() {
   appState.on('midiReady', (result) => {
     _alignedMidiLabels = result.labels || [];
     refreshAlignDropdown();
+  });
+
+  // Uploaded file → available as align reference
+  appState.on('fileLoaded', (info) => {
+    if (info && info.path && info.filename) {
+      _alignedRefPaths[info.filename] = info.path;
+      refreshAlignDropdown();
+    }
   });
 
   appState.on('generateReady', () => refreshClipList());
@@ -767,11 +807,20 @@ function refreshAlignDropdown() {
   const current = select.value;
   clearChildren(select);
   select.appendChild(el('option', { value: '' }, '-- none --'));
+
+  // Reference files (uploaded or imported directly)
+  for (const [label, path] of Object.entries(_alignedRefPaths)) {
+    const opt = el('option', { value: path }, label);
+    opt.dataset.stemType = 'audio';
+    select.appendChild(opt);
+  }
+  // Separated stems
   for (const [label, path] of Object.entries(_alignedStemPaths)) {
     const opt = el('option', { value: path }, label);
     opt.dataset.stemType = 'audio';
     select.appendChild(opt);
   }
+  // MIDI stems
   for (const label of _alignedMidiLabels) {
     const opt = el('option', { value: `midi:${label}` }, `${label} [MIDI]`);
     opt.dataset.stemType = 'midi';
