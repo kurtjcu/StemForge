@@ -15,7 +15,7 @@
 ![AceStep](https://img.shields.io/badge/AceStep-enabled-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
-StemForge is a local, GPU-accelerated web application that chains multiple AI music pipelines into a single creative workflow. Upload a song, separate it into stems, extract MIDI, generate new audio or compose entirely new songs, mix everything together, and export — all from one interface, all running on your own hardware. No cloud uploads, no subscriptions, no per-track fees.
+StemForge is a local, GPU-accelerated web application that chains multiple AI music pipelines into a single creative workflow. Upload a song, separate it into stems, extract MIDI, generate new audio or compose entirely new songs, generate or load special effect sound tracks, mix everything together, and export — all from one interface, all running on your own hardware. No cloud uploads, no subscriptions, no per-track fees.
 
 ## Why StemForge?
 
