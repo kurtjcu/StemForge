@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="StemForgeLogo.png" alt="StemForge" width="260"/>
-  <br/>
-  <strong>StemForge</strong>
+  <img src="StemForgeLogo.png" alt="StemForge — AI-powered stem separation, MIDI extraction, audio generation, and music production tool" width="260"/>
 </p>
+
+# StemForge
+
+**Open-source, GPU-accelerated AI audio workstation for stem separation, MIDI extraction, audio generation, and song composition — running locally in your browser.**
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![CUDA](https://img.shields.io/badge/CUDA-13.0-blue)
@@ -13,13 +15,21 @@
 ![AceStep](https://img.shields.io/badge/AceStep-enabled-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
-StemForge is a local, GPU-accelerated web application for AI-powered audio work:
+StemForge is a local, GPU-accelerated web application that chains multiple AI music pipelines into a single creative workflow. Upload a song, separate it into stems, extract MIDI, generate new audio or compose entirely new songs, mix everything together, and export — all from one interface, all running on your own hardware. No cloud uploads, no subscriptions, no per-track fees.
+
+## Why StemForge?
+
+Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, and remix — not just separate.
+
+StemForge runs entirely on your local machine with no internet connection required after initial model downloads. Your audio never leaves your computer.
+
+## Features
 
 - **Demucs** — stem separation (vocals, drums, bass, other) — 4 models including fine-tuned and MDX variants
-- **BS-Roformer** — high-quality separation with 2-stem vocal, 4-stem, and 6-stem (guitar + piano) models
+- **BS-Roformer** — high-quality AI stem separation with 2-stem vocal, 4-stem, and 6-stem (guitar + piano) models
 - **MIDI extraction** — polyphonic BasicPitch for instruments, faster-whisper + pitch tracking for vocals; per-stem MIDI preview via FluidSynth
 - **Stable Audio Open** — text-conditioned audio generation up to 600 s, with optional audio and MIDI conditioning (Synth tab)
-- **AceStep** — full song generation from style descriptions + lyrics, with Create and Rework modes (Compose tab)
+- **AceStep** — full AI song generation from style descriptions + lyrics, with Create and Rework modes (Compose tab)
 - **Mix** — multi-track mixer combining audio stems, MIDI-rendered tracks, synth outputs, and composed songs; per-track instrument, volume, and FLAC render
 - **Export** — transcode any pipeline output (stems, MIDI, mix, generated audio, composed songs) to wav / flac / mp3 / ogg
 
@@ -28,6 +38,20 @@ Everything runs locally with deterministic environments via uv.
 **Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
 
 See [Future Plans](docs/FUTURE_PLANS.md) for the roadmap, including voice transformation and native packaging.
+
+---
+
+## Quick Start
+
+```bash
+git clone --recursive git@github.com:tsondo/StemForge.git
+cd StemForge
+uv sync
+uv run python run.py
+# Open http://localhost:8765
+```
+
+See [Requirements](#requirements) and [Install & Run](#install--run) below for full details including system dependencies.
 
 ---
 
@@ -250,114 +274,15 @@ that first:
 
 After updating, run `uv sync` to pick up any dependency changes.
 
-### Launcher flags
-
-| Flag | Default | Description |
-|------|---------|-------------|
-| `--port` | 8765 | StemForge server port (also `STEMFORGE_PORT` env var) |
-| `--no-acestep` | off | Disable AceStep subprocess — all tabs except Compose work normally |
-| `--acestep-port` | 8001 | AceStep API port (also `ACESTEP_PORT` env var) |
-| `--gpu N` | auto | Set `CUDA_VISIBLE_DEVICES=N` on the AceStep subprocess only |
-| `--model-dir` | `~/.cache/stemforge/` | Shared model cache directory (also `MODEL_LOCATION` env var) |
-
 ---
 
-## Project Structure
-
-    StemForge/
-    ├── run.py                          # Launcher: uvicorn + AceStep subprocess management
-    ├── pyproject.toml
-    ├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
-    │
-    ├── Ace-Step-Wrangler/              # Git submodule (independently runnable)
-    │   ├── vendor/ACE-Step-1.5/        # Nested submodule — upstream AceStep
-    │   ├── backend/                    # Wrangler's standalone backend (reference)
-    │   ├── frontend/                   # Wrangler's standalone frontend (reference)
-    │   └── run.py                      # Wrangler's standalone launcher (unused in StemForge)
-    │
-    ├── INSTRUCTIONS.md                    # User guide — how to use each tab
-    ├── docs/
-    │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
-    │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
-    │
-    ├── backend/
-    │   ├── main.py                     # FastAPI app, router registration, static mount
-    │   ├── api/
-    │   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
-    │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info|profile
-    │   │   ├── separate.py             # /api/separate, /api/separate/recommend, /api/jobs/{id}
-    │   │   ├── midi.py                 # /api/midi/extract|render|save|stems
-    │   │   ├── generate.py             # /api/generate (Synth tab)
-    │   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
-    │   │   ├── acestep_wrapper.py      # HTTP client for AceStep API
-    │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
-    │   │   └── export.py               # /api/export, /api/export/download-zip
-    │   └── services/
-    │       ├── job_manager.py          # Background thread runner + in-memory job store
-    │       ├── session_store.py        # Thread-safe session state
-    │       ├── pipeline_manager.py     # Lazy-loaded pipeline singletons
-    │       └── acestep_state.py        # AceStep subprocess status (disabled/starting/running/crashed)
-    │
-    ├── frontend/
-    │   ├── index.html                  # SPA shell — header, tab bar, tab panels, transport bar
-    │   ├── style.css                   # Design tokens + full layout (dark DAW aesthetic)
-    │   ├── app.js                      # State management, event bus, tab switching, poll helper
-    │   └── components/
-    │       ├── loader.js               # Drag-and-drop upload + file info
-    │       ├── waveform.js             # wavesurfer.js wrapper
-    │       ├── separate.js             # Separation tab
-    │       ├── midi.js                 # MIDI tab
-    │       ├── generate.js             # Synth tab (Stable Audio Open)
-    │       ├── compose.js              # Compose tab (AceStep — 3-column layout)
-    │       ├── mix.js                  # Mix tab
-    │       ├── export.js               # Export tab
-    │       ├── midi-viz.js             # Canvas piano roll
-    │       └── audio-player.js         # Global transport bar
-    │
-    ├── pipelines/
-    │   ├── demucs_pipeline.py          # Demucs separation pipeline
-    │   ├── roformer_pipeline.py        # BS-Roformer separation pipeline
-    │   ├── midi_pipeline.py            # Unified MIDI extraction pipeline
-    │   ├── basicpitch_pipeline.py      # BasicPitch inference pipeline
-    │   ├── vocal_midi_pipeline.py      # Vocal pitch-to-MIDI pipeline
-    │   ├── musicgen_pipeline.py        # Stable Audio Open generation pipeline
-    │   └── resample.py                 # Audio resampling pipeline
-    │
-    ├── models/
-    │   ├── registry.py                 # Model registry (specs + metadata)
-    │   ├── demucs_loader.py            # Demucs model loader
-    │   ├── roformer_loader.py          # BS-Roformer model loader
-    │   ├── midi_loader.py              # BasicPitch + Whisper loader
-    │   ├── basicpitch_loader.py        # Vendored BasicPitch TFLite loader
-    │   ├── basicpitch/                 # Vendored BasicPitch (ai-edge-litert)
-    │   └── musicgen_loader.py          # Stable Audio Open loader
-    │
-    └── utils/
-        ├── cache.py                    # Model cache dir resolution (MODEL_LOCATION)
-        ├── paths.py                    # Output directory constants
-        ├── audio_io.py                 # read_audio / write_audio
-        ├── audio_profile.py            # Spectral analysis + engine recommendation
-        ├── midi_io.py                  # MIDI read / write / helpers
-        ├── device.py                   # get_device / is_mps — platform-aware torch device
-        ├── platform.py                 # get_data_dir — OS-idiomatic data paths
-        ├── logging_utils.py            # configure_logging
-        └── errors.py                   # Custom exception hierarchy
-
----
-
-## Tabs
+## Pipelines
 
 ### Separate
-Choose between **Demucs** (4 models) and **BS-Roformer** (6 models including 6-stem guitar + piano).
-"Help me choose" runs spectral analysis and suggests the best engine and model.
-Separated stems appear as inline players with waveform visualization, play/pause, stop, rewind,
-and save-as buttons.
+AI-powered stem separation using Demucs and BS-Roformer. Upload any audio or video file, choose an engine and model, and split it into individual stems (vocals, drums, bass, other, guitar, piano). Automatic engine and model recommendation based on spectral analysis of your audio.
 
 ### MIDI
-Extracts MIDI from any separated stem or a manually loaded audio file.
-Instrument stems use BasicPitch (polyphonic); vocal stems use faster-whisper + pitch tracking.
-Each stem gets a preview player rendered server-side via FluidSynth.
-Extracted MIDI is kept in memory until explicitly saved.
+Extract MIDI from separated stems. BasicPitch handles polyphonic instrument stems; faster-whisper + PYIN pitch tracking handles vocal melodies. Per-stem FluidSynth preview lets you audition MIDI renderings directly in the browser via wavesurfer.js.
 
 ### Synth
 Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
@@ -386,6 +311,18 @@ Renders to FLAC.
 ### Export
 Select any combination of pipeline outputs, choose format (wav/flac/mp3/ogg),
 and download individually or as a ZIP archive.
+
+---
+
+## Launcher flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | 8765 | StemForge server port (also `STEMFORGE_PORT` env var) |
+| `--no-acestep` | off | Disable AceStep subprocess — all tabs except Compose work normally |
+| `--acestep-port` | 8001 | AceStep API port (also `ACESTEP_PORT` env var) |
+| `--gpu N` | auto | Set `CUDA_VISIBLE_DEVICES=N` on the AceStep subprocess only |
+| `--model-dir` | `~/.cache/stemforge/` | Shared model cache directory (also `MODEL_LOCATION` env var) |
 
 ---
 
@@ -434,6 +371,72 @@ All pipelines and the full web UI are implemented and working:
 - macOS support via MPS acceleration (separate `pyproject.toml.MAC`)
 
 StemForge is evolving into a musical playground where you can regenerate and remix any part of any song.
+
+---
+
+## Project Structure
+
+    StemForge/
+    ├── run.py                          # Launcher: uvicorn + AceStep subprocess management
+    ├── pyproject.toml
+    ├── pyproject.toml.MAC              # macOS variant (MPS, no CUDA index)
+    │
+    ├── Ace-Step-Wrangler/              # Git submodule (independently runnable)
+    │   ├── vendor/ACE-Step-1.5/        # Nested submodule — upstream AceStep
+    │   ├── backend/                    # Wrangler's standalone backend (reference)
+    │   ├── frontend/                   # Wrangler's standalone frontend (reference)
+    │   └── run.py                      # Wrangler's standalone launcher (unused in StemForge)
+    │
+    ├── INSTRUCTIONS.md                    # User guide — how to use each tab
+    ├── docs/
+    │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
+    │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
+    │
+    ├── backend/
+    │   ├── main.py                     # FastAPI app, router registration, static mount
+    │   ├── api/
+    │   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
+    │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info|profile
+    │   │   ├── separate.py             # /api/separate, /api/separate/status, /api/stems/*
+    │   │   ├── midi.py                 # /api/midi/extract, /api/midi/status, /api/midi/preview
+    │   │   ├── generate.py             # /api/generate (Stable Audio Open)
+    │   │   ├── compose.py              # /api/compose/* (AceStep proxy)
+    │   │   ├── mix.py                  # /api/mix/render, /api/mix/tracks
+    │   │   └── export.py               # /api/export
+    │   └── services/
+    │       ├── job_manager.py          # Background thread runner + progress tracking
+    │       ├── session_store.py        # Thread-safe state: audio, stems, MIDI, mix, compose
+    │       ├── pipeline_manager.py     # Lazy-loaded pipeline singletons with GPU lock
+    │       └── acestep_state.py        # AceStep subprocess lifecycle management
+    │
+    ├── frontend/                       # Vanilla HTML/CSS/JS SPA (served by FastAPI)
+    │   ├── index.html
+    │   ├── style.css                   # Dark DAW aesthetic
+    │   ├── app.js                      # Tab router, event bus, session management
+    │   └── components/                 # Per-tab JS modules
+    │
+    ├── pipelines/                      # ML pipeline implementations
+    │   ├── demucs_pipeline.py
+    │   ├── roformer_pipeline.py
+    │   ├── midi_pipeline.py
+    │   ├── basicpitch_pipeline.py
+    │   ├── vocal_midi_pipeline.py
+    │   └── musicgen_pipeline.py
+    │
+    ├── models/                         # Model registry + loaders
+    │   ├── registry.py
+    │   ├── demucs_loader.py
+    │   ├── roformer_loader.py
+    │   └── musicgen_loader.py
+    │
+    └── utils/                          # Shared utilities
+        ├── cache.py                    # Model cache dir resolution
+        ├── paths.py                    # Output directory constants
+        ├── audio_io.py                 # read_audio / write_audio
+        ├── device.py                   # get_device / is_mps
+        ├── platform.py                 # OS-idiomatic data paths
+        ├── logging_utils.py            # Rotating file + console logging
+        └── errors.py                   # Custom exception hierarchy
 
 ---
 
