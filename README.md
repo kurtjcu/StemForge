@@ -19,7 +19,7 @@ StemForge is a local, GPU-accelerated web application that chains multiple AI mu
 
 ## Why StemForge?
 
-Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, and remix — not just separate.
+Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, or generate literally any sound effect with Stable Audio, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, and remix — not just separate.
 
 StemForge runs entirely on your local machine with no internet connection required after initial model downloads. Your audio never leaves your computer.
 
