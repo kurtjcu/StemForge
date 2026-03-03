@@ -117,7 +117,7 @@ def _run_mix_render(job_id: str) -> dict:
     for i, track in enumerate(enabled):
         progress_cb(0.05 + 0.7 * i / len(enabled), f"Rendering {track.label}...")
 
-        if track.source == "audio" and track.path:
+        if track.source in ("audio", "synth") and track.path:
             from utils.audio_io import read_audio
             waveform, file_sr = read_audio(track.path, mono=False, target_rate=sr)
             # Convert to mono for mixing simplicity

@@ -253,12 +253,25 @@ async function refreshTracks() {
         step: '0.05',
         value: String(track.volume),
       });
+      const volumeLabel = el('span', { className: 'volume-label' }, `${Math.round(track.volume * 100)}%`);
+      volumeSlider.addEventListener('input', () => {
+        const vol = parseFloat(volumeSlider.value);
+        volumeLabel.textContent = `${Math.round(vol * 100)}%`;
+        // Update live playback volume on the track's wavesurfer player
+        const trackPlayer = _players.find(p => p._trackId === track.track_id);
+        if (trackPlayer) trackPlayer.ws.setVolume(vol);
+      });
       volumeSlider.addEventListener('change', () => {
         api('/mix/tracks', {
           method: 'POST',
           body: JSON.stringify({ track_id: track.track_id, volume: parseFloat(volumeSlider.value) }),
         });
       });
+
+      // Determine badge class based on source type
+      const badgeClass = track.source === 'midi' ? 'badge badge-midi'
+        : track.source === 'synth' ? 'badge badge-synth'
+        : 'badge badge-audio';
 
       const controlRow = el('div', { className: 'track-row' },
         el('label', { className: 'toggle' },
@@ -270,7 +283,8 @@ async function refreshTracks() {
           style: track.label.startsWith('SFX:') ? { color: '#ffffff', fontWeight: '600' } : {},
         }, track.label),
         volumeSlider,
-        el('span', { className: 'badge' }, track.source),
+        volumeLabel,
+        el('span', { className: badgeClass }, track.source),
         el('button', {
           className: 'btn btn-sm btn-danger',
           onClick: async () => {
@@ -282,8 +296,8 @@ async function refreshTracks() {
 
       container.appendChild(controlRow);
 
-      // ─── Waveform player for audio tracks ───
-      if (track.source === 'audio' && track.path) {
+      // ─── Waveform player for audio/synth tracks ───
+      if ((track.source === 'audio' || track.source === 'synth') && track.path) {
         const url = `/api/audio/stream?path=${encodeURIComponent(track.path)}`;
 
         const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
@@ -303,8 +317,11 @@ async function refreshTracks() {
         const ws = createWaveform(waveContainer, { height: 40 });
         ws.load(url);
 
-        const player = { ws, playBtn, enableInput, _isTrack: true };
+        const player = { ws, playBtn, enableInput, _isTrack: true, _trackId: track.track_id };
         _players.push(player);
+
+        // Set initial playback volume from track state
+        ws.setVolume(track.volume);
 
         playBtn.addEventListener('click', () => {
           if (ws.isPlaying()) {

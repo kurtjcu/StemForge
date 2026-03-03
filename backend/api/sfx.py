@@ -505,7 +505,7 @@ def send_to_mix(sfx_id: str) -> dict:
     track = TrackState(
         track_id=track_id,
         label=f"SFX: {manifest['name']}",
-        source="audio",
+        source="synth",
         path=rendered_path,
     )
     session.add_track(track)
