@@ -743,6 +743,24 @@ function switchMode(mode) {
   const centerCol = document.querySelector('.compose-col-center');
   if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete');
 
+  // Lock gen_model to base for analyze modes (extract/lego/complete require it)
+  const isAnalyze = mode === 'lego' || mode === 'complete';
+  const genModelSel = _id('compose-gen-model');
+  if (genModelSel) {
+    if (isAnalyze) {
+      if (!genModelSel.dataset.prevValue) genModelSel.dataset.prevValue = genModelSel.value;
+      genModelSel.value = 'base';
+      genModelSel.disabled = true;
+    } else {
+      if (genModelSel.dataset.prevValue) {
+        genModelSel.value = genModelSel.dataset.prevValue;
+        delete genModelSel.dataset.prevValue;
+      }
+      genModelSel.disabled = false;
+    }
+    updateBatchLimit();
+  }
+
   const btn = _id('compose-generate-btn');
   if (btn && !btn.disabled && _aceStepRunning) {
     btn.textContent = _modeLabel();
