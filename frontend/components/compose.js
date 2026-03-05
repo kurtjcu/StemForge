@@ -699,21 +699,21 @@ function buildLeftColumn() {
       voiceModelSelect,
       voiceModelStatus,
       el('div', { className: 'voice-model-actions', style: { display: 'flex', gap: '6px', marginTop: '6px' } },
-        el('button', { className: 'compose-ghost-btn', onClick: showVoiceModelImport }, 'Import from HF'),
+        el('button', { className: 'compose-ghost-btn', onClick: showVoiceModelImport }, 'Find more voices'),
         el('button', { className: 'compose-ghost-btn', onClick: browseVoiceModel }, 'Upload .pth'),
       ),
       el('div', { className: 'hidden', id: 'voice-model-import-row', style: { marginTop: '6px' } },
-        el('input', { type: 'text', id: 'voice-model-import-repo', className: 'compose-input',
-          placeholder: 'owner/repo (e.g. binant/Ariana_Grande__RVC_V2_)',
-          style: { fontSize: '12px', width: '100%', marginBottom: '4px' } }),
-        el('input', { type: 'text', id: 'voice-model-import-name', className: 'compose-input',
-          placeholder: 'Display name (optional)',
-          style: { fontSize: '12px', width: '100%', marginBottom: '4px' } }),
-        el('div', { style: { display: 'flex', gap: '6px' } },
-          el('button', { className: 'btn btn-sm', onClick: doVoiceModelImport }, 'Download'),
-          el('button', { className: 'compose-ghost-btn', onClick: () => _id('voice-model-import-row')?.classList.add('hidden') }, 'Cancel'),
+        el('div', { style: { display: 'flex', gap: '4px', marginBottom: '4px' } },
+          el('input', { type: 'text', id: 'voice-model-search-input', className: 'compose-input',
+            placeholder: 'Search voices (e.g. ariana, drake, morgan)',
+            style: { fontSize: '12px', flex: '1' },
+            onKeydown: (e) => { if (e.key === 'Enter') doVoiceModelSearch(); } }),
+          el('button', { className: 'btn btn-sm', onClick: doVoiceModelSearch }, 'Search'),
         ),
+        el('div', { id: 'voice-model-search-results', style: { maxHeight: '180px', overflowY: 'auto' } }),
         el('span', { id: 'voice-model-import-status', className: 'compose-hint', style: { fontSize: '11px' } }),
+        el('button', { className: 'compose-ghost-btn', style: { marginTop: '4px', fontSize: '11px' },
+          onClick: () => _id('voice-model-import-row')?.classList.add('hidden') }, 'Close'),
       ),
     ),
     el('div', { className: 'compose-divider' }),
@@ -1913,31 +1913,64 @@ function _reloadVoiceModels() {
 }
 
 function showVoiceModelImport() {
-  _id('voice-model-import-row')?.classList.remove('hidden');
+  const row = _id('voice-model-import-row');
+  if (!row) return;
+  row.classList.remove('hidden');
+  _id('voice-model-search-input')?.focus();
 }
 
-async function doVoiceModelImport() {
-  const repo = (_id('voice-model-import-repo') || {}).value?.trim();
-  const name = (_id('voice-model-import-name') || {}).value?.trim();
+async function doVoiceModelSearch() {
+  const query = (_id('voice-model-search-input') || {}).value?.trim();
+  const container = _id('voice-model-search-results');
   const status = _id('voice-model-import-status');
-  if (!repo) { if (status) status.textContent = 'Enter a HuggingFace repo ID.'; return; }
+  if (!query || query.length < 2) {
+    if (status) status.textContent = 'Type at least 2 characters.';
+    return;
+  }
 
-  if (status) status.textContent = 'Downloading...';
+  if (status) status.textContent = 'Searching...';
+  if (container) clearChildren(container);
+
+  try {
+    const data = await api(`/voice/models/search?q=${encodeURIComponent(query)}`);
+    const results = data.results || [];
+    if (status) status.textContent = results.length ? `${results.length} result(s)` : 'No models found.';
+    if (!container) return;
+
+    for (const r of results) {
+      const row = el('div', { className: 'voice-search-result',
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '4px 6px', borderBottom: '1px solid var(--border)', fontSize: '12px' } },
+        el('span', { style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+          title: r.repo_id }, r.display),
+        el('button', { className: 'btn btn-sm', style: { flexShrink: '0', marginLeft: '6px' },
+          onClick: () => doVoiceModelDownload(r.repo_id, r.display) }, 'Download'),
+      );
+      container.appendChild(row);
+    }
+  } catch (err) {
+    if (status) status.textContent = `Search failed: ${err.message || err}`;
+  }
+}
+
+async function doVoiceModelDownload(repoId, displayName) {
+  const status = _id('voice-model-import-status');
+  if (status) status.textContent = `Downloading ${displayName}...`;
+
   try {
     const data = await api('/voice/models/import', {
       method: 'POST',
-      body: JSON.stringify({ repo_id: repo, name: name || '' }),
+      body: JSON.stringify({ repo_id: repoId, name: displayName }),
     });
     if (status) status.textContent = `Imported "${data.name}" (${data.size_mb} MB)`;
     _id('voice-model-import-row')?.classList.add('hidden');
     _reloadVoiceModels();
-    // Auto-select the imported model
     setTimeout(() => {
       const sel = _id('compose-voice-model');
       if (sel) sel.value = data.name;
     }, 500);
   } catch (err) {
-    if (status) status.textContent = `Import failed: ${err.message || err}`;
+    if (status) status.textContent = `Download failed: ${err.message || err}`;
   }
 }
 

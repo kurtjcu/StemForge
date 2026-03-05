@@ -276,6 +276,42 @@ def list_voice_models() -> dict:
     return {"models": models}
 
 
+@router.get("/voice/models/search")
+def search_voice_models(q: str = "") -> dict:
+    """Search HuggingFace for RVC voice models matching a query."""
+    from huggingface_hub import HfApi
+
+    query = q.strip()
+    if not query or len(query) < 2:
+        return {"results": []}
+
+    api = HfApi()
+    results = []
+    try:
+        models = list(api.list_models(search=f"rvc {query}", limit=20))
+        for m in models:
+            # Quick heuristic: repo should have model files
+            repo_name = m.id.split("/")[-1] if "/" in m.id else m.id
+            # Clean up display name from repo name
+            display = repo_name.replace("_", " ").replace("--", " - ").replace("  ", " ")
+            # Strip common suffixes for cleaner display
+            for suffix in ["RVC v2", "RVC V2", "RVC v2 ", "RVC V2 "]:
+                display = display.replace(suffix, "").strip()
+            while display.endswith(" "):
+                display = display.rstrip()
+            results.append({
+                "repo_id": m.id,
+                "display": display,
+                "downloads": m.downloads or 0,
+            })
+        # Sort by downloads descending
+        results.sort(key=lambda x: x["downloads"], reverse=True)
+    except Exception:
+        pass
+
+    return {"results": results[:15]}
+
+
 class VoiceModelImportRequest(BaseModel):
     repo_id: str
     name: str = ""
