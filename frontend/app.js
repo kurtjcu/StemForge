@@ -28,6 +28,7 @@ export const appState = {
   mixPath: null,
   composePaths: [],
   sfxPaths: {},
+  voicePaths: {},
 };
 
 // ─── API Helpers ────────────────────────────────────────────────────────

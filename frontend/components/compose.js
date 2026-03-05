@@ -5,7 +5,7 @@
  * StemForge's ES module pattern. All DOM built programmatically via el().
  */
 
-import { appState, api, el, formatTime, saveFileAs } from '../app.js';
+import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
 import { transportLoad, transportStop, transportIsPlaying, transportPlayPause } from './audio-player.js';
 
@@ -15,7 +15,7 @@ function clearChildren(elem) {
 
 // ─── Module state ────────────────────────────────────────────────────
 
-let _mode = 'create';          // 'create' | 'rework' | 'lego' | 'complete'
+let _mode = 'create';          // 'create' | 'rework' | 'lego' | 'complete' | 'voice'
 let _createTab = 'my-lyrics';  // 'my-lyrics' | 'ai-lyrics' | 'instrumental'
 let _approach = 'cover';       // 'cover' | 'repaint'
 let _uploadedPath = null;
@@ -26,6 +26,13 @@ let _completeUploadedPath = null;
 let _completeUploadedDuration = null;
 let _selectedLegoTrack = 'vocals';
 let _selectedCompleteTracks = [];
+
+// Voice mode state
+let _voiceSourcePath = null;
+let _voiceSourceDuration = null;
+let _voiceSourcePeaks = null;
+let _voiceModels = [];
+let _voiceJobId = null;
 
 const ACE_TRACKS = [
   'vocals', 'backing_vocals', 'drums', 'bass', 'guitar', 'keyboard',
@@ -199,6 +206,7 @@ function _modeLabel() {
   if (_mode === 'rework') return _approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend';
   if (_mode === 'lego') return '\u25B6 Replace Track';
   if (_mode === 'complete') return '\u25B6 Complete';
+  if (_mode === 'voice') return '\u25B6 Transform Voice';
   return '\u25B6 Generate';
 }
 
@@ -258,6 +266,7 @@ function buildUI(panel) {
       el('button', { className: 'compose-mode-btn', 'data-mode': 'rework', onClick: () => switchMode('rework') }, 'Rework'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'lego', onClick: () => switchMode('lego') }, 'Lego'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'complete', onClick: () => switchMode('complete') }, 'Complete'),
+      el('button', { className: 'compose-mode-btn', 'data-mode': 'voice', onClick: () => switchMode('voice') }, 'Voice'),
     ),
     el('div', { className: 'compose-create-tabs', id: 'compose-create-tabs' },
       el('button', { className: 'compose-create-tab active', 'data-tab': 'my-lyrics', onClick: () => switchCreateTab('my-lyrics') }, 'My Lyrics'),
@@ -291,6 +300,11 @@ function buildUI(panel) {
 
   // Sync advanced sliders from friendly defaults
   syncAdvancedFromFriendly();
+
+  // Populate voice stem selector when stems become available
+  appState.on('stemsReady', () => _populateVoiceStemSelect());
+  // Also populate if stems already exist
+  _populateVoiceStemSelect();
 }
 
 // ─── Left Column (Style / Rework) ───────────────────────────────────
@@ -601,7 +615,116 @@ function buildLeftColumn() {
 
   setupUploadDragDrop(completeUploadZone, handleCompleteAudioUpload);
 
-  col.append(createPanel, reworkPanel, legoPanel, completePanel);
+  // VOICE MODE panel
+  const voicePanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-voice-panel' });
+
+  // Voice source selector — from separated stems
+  const voiceStemSelect = el('select', { id: 'compose-voice-stem', className: 'compose-select',
+    onChange: () => selectVoiceStem() });
+  voiceStemSelect.appendChild(el('option', { value: '' }, 'Select a stem...'));
+
+  const voiceFileBtn = el('button', { className: 'compose-ghost-btn', onClick: browseVoiceAudio }, 'Load file...');
+
+  const voiceSourceInfo = el('div', { className: 'hidden', id: 'compose-voice-source-info' },
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+      el('span', { id: 'compose-voice-source-name', style: { fontWeight: '600', fontSize: '13px' } }),
+      el('span', { id: 'compose-voice-source-duration', style: { fontSize: '12px', color: 'var(--text-dim)' } }),
+    ),
+    el('button', { className: 'compose-ghost-btn', onClick: removeVoiceSource }, 'Remove'),
+  );
+
+  // Voice model selector
+  const voiceModelSelect = el('select', { id: 'compose-voice-model', className: 'compose-select' });
+  voiceModelSelect.appendChild(el('option', { value: '' }, 'Loading models...'));
+  const voiceModelStatus = el('span', { id: 'compose-voice-model-status', className: 'compose-hint', style: { fontSize: '11px' } });
+
+  // Pitch slider (-24 to +24)
+  const voicePitchSlider = el('input', { type: 'range', className: 'compose-slider voice-pitch-slider',
+    id: 'compose-voice-pitch', min: '-24', max: '24', value: '0', step: '1' });
+  voicePitchSlider.addEventListener('input', () => {
+    const v = Number(voicePitchSlider.value);
+    _id('compose-voice-pitch-value').textContent = (v > 0 ? '+' : '') + v + ' st';
+  });
+
+  // F0 method
+  const voiceF0Select = el('select', { id: 'compose-voice-f0', className: 'compose-select' },
+    el('option', { value: 'rmvpe', selected: 'true' }, 'RMVPE (default)'),
+    el('option', { value: 'crepe' }, 'CREPE'),
+    el('option', { value: 'fcpe' }, 'FCPE'),
+  );
+
+  // Index rate (voice character)
+  const voiceIndexSlider = el('input', { type: 'range', className: 'compose-slider',
+    id: 'compose-voice-index', min: '0', max: '1', value: '0.3', step: '0.05' });
+  voiceIndexSlider.addEventListener('input', () => {
+    _id('compose-voice-index-value').textContent = Number(voiceIndexSlider.value).toFixed(2);
+  });
+
+  // Protect (consonant protection)
+  const voiceProtectSlider = el('input', { type: 'range', className: 'compose-slider',
+    id: 'compose-voice-protect', min: '0', max: '0.5', value: '0.33', step: '0.01' });
+  voiceProtectSlider.addEventListener('input', () => {
+    _id('compose-voice-protect-value').textContent = Number(voiceProtectSlider.value).toFixed(2);
+  });
+
+  // Voice source + result waveforms
+  const voiceSourceWf = el('div', { className: 'analyze-wf-section hidden', id: 'voice-wf-source-section' },
+    el('span', { className: 'analyze-wf-label' }, 'Source'),
+    el('div', { className: 'analyze-wf-container', id: 'voice-wf-source' },
+      el('canvas', { className: 'analyze-wf-canvas', id: 'voice-wf-source-canvas' }),
+    ),
+  );
+  const voiceResultWf = el('div', { className: 'analyze-wf-section hidden', id: 'voice-wf-result-section' },
+    el('span', { className: 'analyze-wf-label' }, 'Result'),
+    el('div', { className: 'analyze-wf-container', id: 'voice-wf-result' },
+      el('canvas', { className: 'analyze-wf-canvas', id: 'voice-wf-result-canvas' }),
+    ),
+  );
+
+  voicePanel.append(
+    el('div', { className: 'compose-field-group' },
+      el('label', { className: 'compose-field-label' }, 'Source audio'),
+      voiceStemSelect,
+      voiceFileBtn,
+      voiceSourceInfo,
+    ),
+    voiceSourceWf,
+    el('div', { className: 'compose-divider' }),
+    el('div', { className: 'compose-field-group' },
+      el('label', { className: 'compose-field-label' }, 'Voice model'),
+      voiceModelSelect,
+      voiceModelStatus,
+    ),
+    el('div', { className: 'compose-divider' }),
+    el('div', { className: 'compose-control-group' },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('label', { className: 'compose-field-label' }, 'Pitch shift'),
+        el('span', { id: 'compose-voice-pitch-value', className: 'compose-value' }, '0 st'),
+      ),
+      voicePitchSlider,
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'F0 method'),
+      voiceF0Select,
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('label', { className: 'compose-field-label' }, 'Voice character'),
+        el('span', { id: 'compose-voice-index-value', className: 'compose-value' }, '0.30'),
+      ),
+      voiceIndexSlider,
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('label', { className: 'compose-field-label' }, 'Consonant protection'),
+        el('span', { id: 'compose-voice-protect-value', className: 'compose-value' }, '0.33'),
+      ),
+      voiceProtectSlider,
+    ),
+    voiceResultWf,
+  );
+
+  col.append(createPanel, reworkPanel, legoPanel, completePanel, voicePanel);
   return col;
 }
 
@@ -899,16 +1022,23 @@ function switchMode(mode) {
   const rp = _id('compose-rework-panel');
   const lp = _id('compose-lego-panel');
   const mp = _id('compose-complete-panel');
+  const vp = _id('compose-voice-panel');
   const tabs = _id('compose-create-tabs');
   if (cp) cp.classList.toggle('hidden', mode !== 'create');
   if (rp) rp.classList.toggle('hidden', mode !== 'rework');
   if (lp) lp.classList.toggle('hidden', mode !== 'lego');
   if (mp) mp.classList.toggle('hidden', mode !== 'complete');
+  if (vp) vp.classList.toggle('hidden', mode !== 'voice');
   if (tabs) tabs.classList.toggle('hidden', mode !== 'create');
 
-  // For lego/complete, hide the center column lyrics (not relevant)
+  // For lego/complete/voice, hide the center column lyrics and right column controls
   const centerCol = document.querySelector('.compose-col-center');
-  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete');
+  const rightCol = document.querySelector('.compose-col-right');
+  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice');
+  if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice');
+
+  // Load voice models when entering voice mode for the first time
+  if (mode === 'voice') loadVoiceModels();
 
   // Lock gen_model to base for analyze modes (extract/lego/complete require it)
   const isAnalyze = mode === 'lego' || mode === 'complete';
@@ -942,8 +1072,11 @@ function switchMode(mode) {
   }
 
   const btn = _id('compose-generate-btn');
-  if (btn && !btn.disabled && _aceStepRunning) {
-    btn.textContent = _modeLabel();
+  if (btn && !btn.disabled) {
+    // Voice mode doesn't need AceStep — always show the action label
+    if (mode === 'voice' || _aceStepRunning) {
+      btn.textContent = _modeLabel();
+    }
   }
 }
 
@@ -1474,6 +1607,12 @@ async function handleGenerate() {
   const btn = _id('compose-generate-btn');
   const hint = _id('compose-hint');
 
+  // ── Voice mode — runs local RVC pipeline, not AceStep ──
+  if (_mode === 'voice') {
+    handleVoiceGenerate();
+    return;
+  }
+
   // ── Initialize flow (AceStep not yet running) ──
   if (!_aceStepRunning) {
     if (btn) { btn.disabled = true; btn.textContent = 'Starting\u2026'; }
@@ -1726,6 +1865,270 @@ function buildResultCard(taskId, index, total, result, fmt) {
   card.appendChild(actions);
 
   return card;
+}
+
+// ─── Voice Mode ─────────────────────────────────────────────────────
+
+async function loadVoiceModels() {
+  if (_voiceModels.length > 0) return;  // already loaded
+  const sel = _id('compose-voice-model');
+  if (!sel) return;
+  try {
+    const data = await api('/voice/models');
+    _voiceModels = data.models || [];
+    clearChildren(sel);
+    sel.appendChild(el('option', { value: '' }, 'Select a voice...'));
+    for (const m of _voiceModels) {
+      const label = m.downloaded ? m.name : `${m.name} (download)`;
+      sel.appendChild(el('option', { value: m.name }, label));
+    }
+  } catch {
+    clearChildren(sel);
+    sel.appendChild(el('option', { value: '' }, 'Failed to load models'));
+  }
+}
+
+function _populateVoiceStemSelect() {
+  const sel = _id('compose-voice-stem');
+  if (!sel) return;
+  const stemPaths = appState.stemPaths || {};
+  // Keep first "Select" option, remove the rest
+  while (sel.options.length > 1) sel.remove(1);
+  for (const [label, path] of Object.entries(stemPaths)) {
+    sel.appendChild(el('option', { value: path }, label));
+  }
+}
+
+function selectVoiceStem() {
+  const sel = _id('compose-voice-stem');
+  if (!sel || !sel.value) return;
+  const path = sel.value;
+  const label = sel.options[sel.selectedIndex]?.text || 'stem';
+  _voiceSourcePath = path;
+  _voiceSourceDuration = null;
+
+  const nameEl = _id('compose-voice-source-name');
+  const durEl = _id('compose-voice-source-duration');
+  const infoEl = _id('compose-voice-source-info');
+  if (nameEl) nameEl.textContent = label;
+  if (durEl) durEl.textContent = '';
+  if (infoEl) infoEl.classList.remove('hidden');
+
+  // Get duration via audio info endpoint
+  fetch(`/api/audio/info?path=${encodeURIComponent(path)}`)
+    .then(r => r.json())
+    .then(info => {
+      _voiceSourceDuration = info.duration;
+      if (durEl) durEl.textContent = _formatDuration(info.duration);
+    })
+    .catch(() => {});
+
+  // Render source waveform
+  _voiceSourcePeaks = null;
+  _id('voice-wf-result-section')?.classList.add('hidden');
+  const audioUrl = `/api/audio/stream?path=${encodeURIComponent(path)}`;
+  _renderSourceWaveform(audioUrl, 'voice-wf-source', 'voice-wf-source-canvas',
+    (peaks) => { _voiceSourcePeaks = peaks; });
+}
+
+function browseVoiceAudio() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'audio/*';
+  input.addEventListener('change', () => { if (input.files[0]) handleVoiceFileUpload(input.files[0]); });
+  input.click();
+}
+
+async function handleVoiceFileUpload(file) {
+  if (!file || !file.type.startsWith('audio/')) return;
+
+  // Upload to compose endpoint (reuse existing upload)
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    _voiceSourcePath = data.path;
+
+    const nameEl = _id('compose-voice-source-name');
+    const durEl = _id('compose-voice-source-duration');
+    const infoEl = _id('compose-voice-source-info');
+    if (nameEl) nameEl.textContent = file.name;
+    if (infoEl) infoEl.classList.remove('hidden');
+
+    // Clear stem selector since we're using a file
+    const sel = _id('compose-voice-stem');
+    if (sel) sel.value = '';
+
+    const blobUrl = URL.createObjectURL(file);
+    const audio = new Audio(blobUrl);
+    audio.addEventListener('loadedmetadata', () => {
+      _voiceSourceDuration = audio.duration;
+      if (durEl) durEl.textContent = _formatDuration(audio.duration);
+    });
+
+    // Render source waveform
+    _voiceSourcePeaks = null;
+    _id('voice-wf-result-section')?.classList.add('hidden');
+    _renderSourceWaveform(blobUrl, 'voice-wf-source', 'voice-wf-source-canvas',
+      (peaks) => { _voiceSourcePeaks = peaks; });
+  } catch {
+    removeVoiceSource();
+  }
+}
+
+function removeVoiceSource() {
+  _voiceSourcePath = null;
+  _voiceSourceDuration = null;
+  _voiceSourcePeaks = null;
+  const sel = _id('compose-voice-stem');
+  if (sel) sel.value = '';
+  _id('compose-voice-source-info')?.classList.add('hidden');
+  _id('voice-wf-source-section')?.classList.add('hidden');
+  _id('voice-wf-result-section')?.classList.add('hidden');
+}
+
+async function handleVoiceGenerate() {
+  const btn = _id('compose-generate-btn');
+  const hint = _id('compose-hint');
+
+  if (!_voiceSourcePath) {
+    if (hint) hint.textContent = 'Select source audio first.';
+    return;
+  }
+  const modelName = (_id('compose-voice-model') || {}).value;
+  if (!modelName) {
+    if (hint) hint.textContent = 'Select a voice model.';
+    return;
+  }
+  if (hint) hint.textContent = '';
+
+  const payload = {
+    audio_path: _voiceSourcePath,
+    model_name: modelName,
+    pitch: Number((_id('compose-voice-pitch') || {}).value || 0),
+    f0_method: (_id('compose-voice-f0') || {}).value || 'rmvpe',
+    index_rate: Number((_id('compose-voice-index') || {}).value || 0.3),
+    protect: Number((_id('compose-voice-protect') || {}).value || 0.33),
+  };
+
+  setGenerating(true);
+
+  try {
+    const res = await fetch('/api/voice/convert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    const { job_id } = await res.json();
+    _voiceJobId = job_id;
+
+    // Poll via standard StemForge job polling
+    pollJob(job_id, {
+      onProgress(progress, stage) {
+        // Reuse the compose elapsed display
+        const elapsed = _id('compose-elapsed');
+        if (elapsed) elapsed.textContent = stage || '';
+      },
+      onDone(result) {
+        _voiceJobId = null;
+        setGenerating(false);
+        showVoiceResult(result);
+      },
+      onError(msg) {
+        _voiceJobId = null;
+        setGenerating(false);
+        if (hint) hint.textContent = `Voice conversion failed: ${msg}`;
+      },
+    });
+  } catch (err) {
+    setGenerating(false);
+    if (hint) hint.textContent = `Error: ${err.message}`;
+  }
+}
+
+function showVoiceResult(result) {
+  const output = _id('compose-output');
+  const idle = _id('compose-output-idle');
+  if (idle) idle.classList.add('hidden');
+
+  const audioPath = result.output_path;
+  const audioSrc = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
+  const label = `Voice (${result.model_name})`;
+
+  // Build result card (reuse same pattern as buildResultCard)
+  const card = el('div', { className: 'stem-card' });
+
+  const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+  const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+  const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+  const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+  const saveBtn = el('button', {
+    className: 'btn btn-sm',
+    onClick: () => saveFileAs(`/api/audio/download?path=${encodeURIComponent(audioPath)}`,
+      audioPath.split('/').pop() || 'voice.wav'),
+  }, '\u2193 Save');
+
+  const header = el('div', { className: 'stem-card-header' },
+    el('span', { className: 'stem-label' }, label),
+    el('div', { className: 'stem-actions' }, playBtn, stopBtn, rewindBtn, timeLabel, saveBtn),
+  );
+
+  const waveContainer = el('div', { className: 'stem-waveform' });
+  card.append(header, waveContainer);
+
+  const ws = createWaveform(waveContainer, { height: 50 });
+  ws.load(audioSrc);
+
+  _resultPlayers.push({ ws, playBtn });
+
+  playBtn.addEventListener('click', () => {
+    if (ws.isPlaying()) {
+      ws.pause();
+      playBtn.textContent = '\u25B6 Play';
+    } else {
+      _stopOtherPlayers(ws);
+      ws.play();
+      playBtn.textContent = '\u23F8 Pause';
+      transportLoad(audioSrc, label, false);
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    ws.stop();
+    transportStop();
+    playBtn.textContent = '\u25B6 Play';
+  });
+
+  rewindBtn.addEventListener('click', () => ws.setTime(0));
+
+  ws.on('timeupdate', (time) => {
+    const dur = ws.getDuration();
+    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
+
+  // Actions row
+  const actions = el('div', { className: 'compose-card-actions' },
+    el('button', { className: 'btn btn-sm btn-primary', onClick: () => sendToSeparate(audioPath) }, '\u2192 Separate'),
+  );
+  card.appendChild(actions);
+
+  if (output) output.appendChild(card);
+
+  // Store in app state and emit for cross-tab integration (Mix + Export)
+  appState.voicePaths[label] = audioPath;
+  appState.emit('transformReady', { path: audioPath, title: label });
+
+  // Render diff waveform
+  if (_voiceSourcePeaks) {
+    _renderResultWaveform(audioSrc, 'voice-wf-result', 'voice-wf-result-canvas', _voiceSourcePeaks);
+  }
 }
 
 // ─── Send to Separate ───────────────────────────────────────────────
