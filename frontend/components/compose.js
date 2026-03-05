@@ -623,7 +623,7 @@ function buildLeftColumn() {
     onChange: () => selectVoiceStem() });
   voiceStemSelect.appendChild(el('option', { value: '' }, 'Select a stem...'));
 
-  const voiceFileBtn = el('button', { className: 'compose-ghost-btn', onClick: browseVoiceAudio }, 'Load file...');
+  const voiceFileBtn = el('button', { className: 'compose-ghost-btn', onClick: browseVoiceAudio }, 'Load file (works best with a clean voice stem)');
 
   const voiceSourceInfo = el('div', { className: 'hidden', id: 'compose-voice-source-info' },
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -667,13 +667,7 @@ function buildLeftColumn() {
     _id('compose-voice-protect-value').textContent = Number(voiceProtectSlider.value).toFixed(2);
   });
 
-  // Voice source + result waveforms
-  const voiceSourceWf = el('div', { className: 'analyze-wf-section hidden', id: 'voice-wf-source-section' },
-    el('span', { className: 'analyze-wf-label' }, 'Source'),
-    el('div', { className: 'analyze-wf-container', id: 'voice-wf-source' },
-      el('canvas', { className: 'analyze-wf-canvas', id: 'voice-wf-source-canvas' }),
-    ),
-  );
+  // Voice result waveform (diff visualization)
   const voiceResultWf = el('div', { className: 'analyze-wf-section hidden', id: 'voice-wf-result-section' },
     el('span', { className: 'analyze-wf-label' }, 'Result'),
     el('div', { className: 'analyze-wf-container', id: 'voice-wf-result' },
@@ -692,7 +686,6 @@ function buildLeftColumn() {
       voiceSourceInfo,
     ),
     voiceSourcePlayer,
-    voiceSourceWf,
     el('div', { className: 'compose-divider' }),
     el('div', { className: 'compose-field-group' },
       el('label', { className: 'compose-field-label' }, 'Voice model'),
@@ -746,6 +739,7 @@ function buildLeftColumn() {
     el('button', { className: 'compose-generate-btn', id: 'compose-voice-transform-btn',
       onClick: handleVoiceGenerate }, '\u25B6 Transform Voice'),
     el('div', { className: 'compose-hint', id: 'compose-voice-hint' }),
+    el('div', { id: 'compose-voice-result-container' }),
     voiceResultWf,
   );
 
@@ -2054,12 +2048,8 @@ function selectVoiceStem() {
   // Build playable source card
   const audioUrl = `/api/audio/stream?path=${encodeURIComponent(path)}`;
   _buildVoiceSourcePlayer(audioUrl, label);
-
-  // Render source waveform (analyze diff canvas)
   _voiceSourcePeaks = null;
   _id('voice-wf-result-section')?.classList.add('hidden');
-  _renderSourceWaveform(audioUrl, 'voice-wf-source', 'voice-wf-source-canvas',
-    (peaks) => { _voiceSourcePeaks = peaks; });
 }
 
 let _voiceSourceWs = null;
@@ -2146,12 +2136,8 @@ async function handleVoiceFileUpload(file) {
     // Build playable source card (use server URL so wavesurfer can stream)
     const serverUrl = `/api/audio/stream?path=${encodeURIComponent(data.path)}`;
     _buildVoiceSourcePlayer(serverUrl, file.name);
-
-    // Render source waveform (analyze diff canvas)
     _voiceSourcePeaks = null;
     _id('voice-wf-result-section')?.classList.add('hidden');
-    _renderSourceWaveform(blobUrl, 'voice-wf-source', 'voice-wf-source-canvas',
-      (peaks) => { _voiceSourcePeaks = peaks; });
   } catch {
     removeVoiceSource();
   }
@@ -2167,7 +2153,6 @@ function removeVoiceSource() {
   _id('compose-voice-source-info')?.classList.add('hidden');
   const playerEl = _id('compose-voice-source-player');
   if (playerEl) { clearChildren(playerEl); playerEl.classList.add('hidden'); }
-  _id('voice-wf-source-section')?.classList.add('hidden');
   _id('voice-wf-result-section')?.classList.add('hidden');
 }
 
@@ -2234,9 +2219,8 @@ async function handleVoiceGenerate() {
 }
 
 function showVoiceResult(result) {
-  const output = _id('compose-output');
-  const idle = _id('compose-output-idle');
-  if (idle) idle.classList.add('hidden');
+  // Voice results go in the voice panel (left column), not compose-output (hidden in voice mode)
+  const output = _id('compose-voice-result-container');
 
   const audioPath = result.output_path;
   const audioSrc = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
