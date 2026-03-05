@@ -6,10 +6,7 @@
  */
 
 import { appState, api, el, formatTime, saveFileAs } from '../app.js';
-import {
-  transportLoad, transportPlayPause, transportStop, transportSeekTo,
-  transportIsPlaying, transportOnTimeUpdate, transportOnStateChange,
-} from './audio-player.js';
+import { createWaveform } from './waveform.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -1599,6 +1596,12 @@ function showResults(taskId, results, payload) {
   const idle = _id('compose-output-idle');
   if (idle) idle.classList.add('hidden');
 
+  // Destroy previous players
+  for (const p of _resultPlayers) {
+    try { p.ws.destroy(); } catch {}
+  }
+  _resultPlayers.length = 0;
+
   // AI Lyrics — populate the Generated Lyrics textarea
   if (_createTab === 'ai-lyrics' && results[0]?.lyrics) {
     const display = _id('compose-ai-lyrics-display');
@@ -1628,6 +1631,19 @@ function showResults(taskId, results, payload) {
   }
 }
 
+/** All active result players — used for exclusive playback. */
+const _resultPlayers = [];
+
+/** Stop all other result players except the given one. */
+function _stopOtherPlayers(except) {
+  for (const p of _resultPlayers) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
+}
+
 function buildResultCard(taskId, index, total, result, fmt) {
   const audioPath = result.audio_url || '';
   const audioSrc = `/api/compose/audio?path=${encodeURIComponent(audioPath)}`;
@@ -1635,105 +1651,76 @@ function buildResultCard(taskId, index, total, result, fmt) {
   const dlJsonUrl = `/api/compose/download/${taskId}/${index}/json`;
   const filename = `acestep-${taskId.slice(0, 8)}-${index + 1}.${fmt}`;
 
-  const card = el('div', { className: 'compose-result-card' });
+  const card = el('div', { className: 'stem-card' });
 
-  if (total > 1) {
-    card.appendChild(el('div', { className: 'compose-card-label' }, `Result ${index + 1} of ${total}`));
-  }
+  const label = total > 1 ? `Result ${index + 1} of ${total}` : 'Result';
 
-  // Inline player controls — delegates all playback to the global transport bar
   if (audioPath) {
-    const playBtn = el('button', { className: 'compose-player-btn compose-player-play', type: 'button', title: 'Play' }, '\u25B6');
-    const stopBtn = el('button', { className: 'compose-player-btn compose-player-stop', type: 'button', title: 'Stop', disabled: true }, '\u23F9');
-    const rewindBtn = el('button', { className: 'compose-player-btn compose-player-rewind', type: 'button', title: 'Rewind' }, '\u23EA');
-    const scrubberFill = el('div', { className: 'compose-scrubber-fill' });
-    const scrubber = el('div', { className: 'compose-scrubber' }, scrubberFill);
-    const timeEl = el('span', { className: 'compose-player-time' }, '0:00 / 0:00');
+    // Transport buttons
+    const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+    const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+    const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+    const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
 
-    const player = el('div', { className: 'compose-audio-player' },
-      rewindBtn, playBtn, stopBtn, scrubber, timeEl,
+    const saveBtn = el('button', {
+      className: 'btn btn-sm',
+      onClick: () => saveFileAs(dlAudioUrl, filename),
+    }, '\u2193 Save');
+
+    const header = el('div', { className: 'stem-card-header' },
+      el('span', { className: 'stem-label' }, label),
+      el('div', { className: 'stem-actions' },
+        playBtn, stopBtn, rewindBtn, timeLabel, saveBtn,
+      ),
     );
-    card.appendChild(player);
 
-    _initCardPlayer(audioSrc, playBtn, stopBtn, rewindBtn, scrubber, scrubberFill, timeEl);
+    const waveContainer = el('div', { className: 'stem-waveform' });
+    card.append(header, waveContainer);
+
+    // Wavesurfer inline player
+    const ws = createWaveform(waveContainer, { height: 50 });
+    ws.load(audioSrc);
+
+    _resultPlayers.push({ ws, playBtn });
+
+    playBtn.addEventListener('click', () => {
+      if (ws.isPlaying()) {
+        ws.pause();
+        playBtn.textContent = '\u25B6 Play';
+      } else {
+        _stopOtherPlayers(ws);
+        ws.play();
+        playBtn.textContent = '\u23F8 Pause';
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      ws.stop();
+      playBtn.textContent = '\u25B6 Play';
+    });
+
+    rewindBtn.addEventListener('click', () => {
+      ws.setTime(0);
+    });
+
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+    });
   }
 
   // Actions row
   const actions = el('div', { className: 'compose-card-actions' },
-    el('button', { className: 'btn btn-sm', onClick: () => saveFileAs(dlAudioUrl, filename) }, '\u2193 Download'),
     el('a', { className: 'btn btn-sm', href: dlJsonUrl, download: `acestep-${taskId.slice(0, 8)}-${index + 1}.json` }, 'JSON'),
     el('button', { className: 'btn btn-sm btn-primary', onClick: () => sendToSeparate(audioPath) }, '\u2192 Separate'),
   );
   card.appendChild(actions);
 
   return card;
-}
-
-// Track active card so only one card syncs with the transport at a time
-let _activeCardUrl = null;
-let _unsubTime = null;
-let _unsubState = null;
-
-function _initCardPlayer(audioSrc, playBtn, stopBtn, rewindBtn, scrubber, fill, timeEl) {
-
-  function fmtTime(s) {
-    if (!isFinite(s)) return '0:00';
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${String(sec).padStart(2, '0')}`;
-  }
-
-  function updateProgress(cur, dur) {
-    fill.style.width = dur ? ((cur / dur) * 100) + '%' : '0%';
-    timeEl.textContent = `${fmtTime(cur)} / ${fmtTime(dur)}`;
-  }
-
-  function syncButtons(playing) {
-    stopBtn.disabled = !playing;
-    playBtn.textContent = playing ? '\u23F8' : '\u25B6';
-    playBtn.title = playing ? 'Pause' : 'Play';
-  }
-
-  // Become the active card — subscribe to transport events
-  function activate() {
-    if (_activeCardUrl === audioSrc) return; // already active
-    // Unsubscribe previous card
-    if (_unsubTime) _unsubTime();
-    if (_unsubState) _unsubState();
-    _activeCardUrl = audioSrc;
-    _unsubTime = transportOnTimeUpdate(updateProgress);
-    _unsubState = transportOnStateChange(syncButtons);
-  }
-
-  playBtn.addEventListener('click', () => {
-    if (_activeCardUrl !== audioSrc) {
-      // Load this card's audio into the transport
-      transportLoad(audioSrc, 'Composed', true);
-      activate();
-    } else {
-      transportPlayPause();
-    }
-  });
-
-  stopBtn.addEventListener('click', () => {
-    transportStop();
-  });
-
-  rewindBtn.addEventListener('click', () => {
-    transportSeekTo(0);
-  });
-
-  scrubber.addEventListener('click', (e) => {
-    if (_activeCardUrl !== audioSrc) {
-      transportLoad(audioSrc, 'Composed', false);
-      activate();
-    }
-    const rect = scrubber.getBoundingClientRect();
-    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const fraction = x / rect.width;
-    transportSeekTo(fraction);
-    if (!transportIsPlaying()) transportPlayPause();
-  });
 }
 
 // ─── Send to Separate ───────────────────────────────────────────────
