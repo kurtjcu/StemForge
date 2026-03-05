@@ -44,6 +44,10 @@ def _get_or_create(name: str) -> Any:
             from pipelines.musicgen_pipeline import MusicGenPipeline
             _pipelines[name] = MusicGenPipeline()
 
+        elif name == "rvc":
+            from pipelines.rvc_pipeline import RvcPipeline
+            _pipelines[name] = RvcPipeline()
+
         else:
             raise ValueError(f"Unknown pipeline: {name!r}")
 
@@ -64,6 +68,10 @@ def get_midi() -> Any:
 
 def get_musicgen() -> Any:
     return _get_or_create("musicgen")
+
+
+def get_rvc() -> Any:
+    return _get_or_create("rvc")
 
 
 def evict(name: str) -> None:
