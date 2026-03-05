@@ -17,11 +17,22 @@ function clearChildren(elem) {
 
 // ─── Module state ────────────────────────────────────────────────────
 
-let _mode = 'create';          // 'create' | 'rework'
+let _mode = 'create';          // 'create' | 'rework' | 'lego' | 'complete'
 let _createTab = 'my-lyrics';  // 'my-lyrics' | 'ai-lyrics' | 'instrumental'
 let _approach = 'cover';       // 'cover' | 'repaint'
 let _uploadedPath = null;
 let _uploadedDuration = null;
+let _legoUploadedPath = null;
+let _legoUploadedDuration = null;
+let _completeUploadedPath = null;
+let _completeUploadedDuration = null;
+let _selectedLegoTrack = 'vocals';
+let _selectedCompleteTracks = [];
+
+const ACE_TRACKS = [
+  'vocals', 'backing_vocals', 'drums', 'bass', 'guitar', 'keyboard',
+  'strings', 'brass', 'woodwinds', 'synth', 'percussion', 'fx',
+];
 let _autoOn = false;
 let _aceStepRunning = false;
 let _pollTimer = null;
@@ -50,9 +61,10 @@ function _updateSlider(slider) {
 }
 
 function _modeLabel() {
-  return _mode === 'rework'
-    ? (_approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend')
-    : '\u25B6 Generate';
+  if (_mode === 'rework') return _approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend';
+  if (_mode === 'lego') return '\u25B6 Replace Track';
+  if (_mode === 'complete') return '\u25B6 Complete';
+  return '\u25B6 Generate';
 }
 
 function _formatDuration(secs) {
@@ -104,11 +116,13 @@ async function checkHealth(panel) {
 // ─── Build Full UI ───────────────────────────────────────────────────
 
 function buildUI(panel) {
-  // Mode selector (Create / Rework) + create tabs
+  // Mode selector (Create / Rework / Lego / Complete) + create tabs
   const modeBar = el('div', { className: 'compose-mode-bar' },
     el('div', { className: 'compose-mode-selector' },
       el('button', { className: 'compose-mode-btn active', 'data-mode': 'create', onClick: () => switchMode('create') }, 'Create'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'rework', onClick: () => switchMode('rework') }, 'Rework'),
+      el('button', { className: 'compose-mode-btn', 'data-mode': 'lego', onClick: () => switchMode('lego') }, 'Lego'),
+      el('button', { className: 'compose-mode-btn', 'data-mode': 'complete', onClick: () => switchMode('complete') }, 'Complete'),
     ),
     el('div', { className: 'compose-create-tabs', id: 'compose-create-tabs' },
       el('button', { className: 'compose-create-tab active', 'data-tab': 'my-lyrics', onClick: () => switchCreateTab('my-lyrics') }, 'My Lyrics'),
@@ -306,7 +320,121 @@ function buildLeftColumn() {
   // Wire upload zone drag/drop
   setupUploadDragDrop(uploadZone);
 
-  col.append(createPanel, reworkPanel);
+  // LEGO MODE panel
+  const legoPanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-lego-panel' });
+
+  // Lego upload zone
+  const legoUploadZone = el('div', { className: 'compose-upload-zone', id: 'compose-lego-upload-zone' },
+    el('div', { id: 'compose-lego-upload-prompt' },
+      el('span', {}, '\u266B Drop audio here or '),
+      el('button', { className: 'compose-ghost-btn', onClick: browseLegoAudio }, 'Browse'),
+    ),
+    el('div', { className: 'hidden', id: 'compose-lego-upload-loaded' },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('span', { id: 'compose-lego-upload-filename', style: { fontWeight: '600', fontSize: '13px' } }),
+        el('span', { id: 'compose-lego-upload-duration', style: { fontSize: '12px', color: 'var(--text-dim)' } }),
+      ),
+      el('button', { className: 'compose-ghost-btn', onClick: removeLegoUploadedAudio }, 'Remove'),
+    ),
+  );
+
+  // Lego track selector
+  const legoTrackSelect = el('select', { id: 'compose-lego-track', className: 'compose-select',
+    onChange: () => { _selectedLegoTrack = _id('compose-lego-track').value; } });
+  for (const t of ACE_TRACKS) {
+    legoTrackSelect.appendChild(el('option', { value: t }, t.replace('_', ' ')));
+  }
+
+  // Lego vocal hint
+  const legoVocalHint = el('div', { className: 'banner banner-info', id: 'compose-lego-vocal-hint',
+    style: { fontSize: '12px' } },
+    'Vocal tracks generate AI vocal elements (melodic, not sung lyrics).',
+  );
+
+  // Lego style direction
+  const legoDirection = el('div', { className: 'compose-field-group' },
+    el('label', { className: 'compose-field-label' }, 'Style description'),
+    el('textarea', { id: 'compose-lego-direction', className: 'compose-textarea', rows: '3',
+      placeholder: 'Describe the replacement track\u2026 e.g. funky slap bass with groove' }),
+  );
+
+  legoPanel.append(
+    legoUploadZone,
+    el('div', { className: 'compose-divider' }),
+    el('div', { className: 'compose-field-group' },
+      el('label', { className: 'compose-field-label' }, 'Track to replace'),
+      legoTrackSelect,
+    ),
+    legoVocalHint,
+    el('div', { className: 'compose-divider' }),
+    legoDirection,
+    el('div', { className: 'banner banner-info', style: { fontSize: '12px', marginTop: '8px' } },
+      'Requires base model. Duration locked to source audio.'),
+  );
+
+  setupUploadDragDrop(legoUploadZone, handleLegoAudioUpload);
+
+  // Track select change: show/hide vocal hint
+  legoTrackSelect.addEventListener('change', () => {
+    _selectedLegoTrack = legoTrackSelect.value;
+    legoVocalHint.classList.toggle('hidden', !legoTrackSelect.value.includes('vocal'));
+  });
+
+  // COMPLETE MODE panel
+  const completePanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-complete-panel' });
+
+  // Complete upload zone
+  const completeUploadZone = el('div', { className: 'compose-upload-zone', id: 'compose-complete-upload-zone' },
+    el('div', { id: 'compose-complete-upload-prompt' },
+      el('span', {}, '\u266B Drop audio here or '),
+      el('button', { className: 'compose-ghost-btn', onClick: browseCompleteAudio }, 'Browse'),
+    ),
+    el('div', { className: 'hidden', id: 'compose-complete-upload-loaded' },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('span', { id: 'compose-complete-upload-filename', style: { fontWeight: '600', fontSize: '13px' } }),
+        el('span', { id: 'compose-complete-upload-duration', style: { fontSize: '12px', color: 'var(--text-dim)' } }),
+      ),
+      el('button', { className: 'compose-ghost-btn', onClick: removeCompleteUploadedAudio }, 'Remove'),
+    ),
+  );
+
+  // Complete track class multi-select grid
+  const completeTrackGrid = el('div', { className: 'compose-tag-grid', id: 'compose-complete-tracks' });
+  for (const t of ACE_TRACKS) {
+    completeTrackGrid.appendChild(el('button', {
+      className: 'compose-tag',
+      'data-track': t,
+      onClick: (e) => {
+        e.target.classList.toggle('active');
+        _selectedCompleteTracks = [...document.querySelectorAll('#compose-complete-tracks .compose-tag.active')]
+          .map(b => b.dataset.track);
+      },
+    }, t.replace('_', ' ')));
+  }
+
+  // Complete style direction
+  const completeDirection = el('div', { className: 'compose-field-group' },
+    el('label', { className: 'compose-field-label' }, 'Style description'),
+    el('textarea', { id: 'compose-complete-direction', className: 'compose-textarea', rows: '3',
+      placeholder: 'Describe the sound\u2026 e.g. orchestral with warm strings and brass' }),
+  );
+
+  completePanel.append(
+    completeUploadZone,
+    el('div', { className: 'compose-divider' }),
+    el('div', { className: 'compose-field-group' },
+      el('label', { className: 'compose-field-label' }, 'Tracks to generate'),
+      completeTrackGrid,
+    ),
+    el('div', { className: 'compose-divider' }),
+    completeDirection,
+    el('div', { className: 'banner banner-info', style: { fontSize: '12px', marginTop: '8px' } },
+      'Requires base model. Duration locked to source audio.'),
+  );
+
+  setupUploadDragDrop(completeUploadZone, handleCompleteAudioUpload);
+
+  col.append(createPanel, reworkPanel, legoPanel, completePanel);
   return col;
 }
 
@@ -602,10 +730,18 @@ function switchMode(mode) {
     b.classList.toggle('active', b.dataset.mode === mode));
   const cp = _id('compose-create-panel');
   const rp = _id('compose-rework-panel');
+  const lp = _id('compose-lego-panel');
+  const mp = _id('compose-complete-panel');
   const tabs = _id('compose-create-tabs');
   if (cp) cp.classList.toggle('hidden', mode !== 'create');
   if (rp) rp.classList.toggle('hidden', mode !== 'rework');
+  if (lp) lp.classList.toggle('hidden', mode !== 'lego');
+  if (mp) mp.classList.toggle('hidden', mode !== 'complete');
   if (tabs) tabs.classList.toggle('hidden', mode !== 'create');
+
+  // For lego/complete, hide the center column lyrics (not relevant)
+  const centerCol = document.querySelector('.compose-col-center');
+  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete');
 
   const btn = _id('compose-generate-btn');
   if (btn && !btn.disabled && _aceStepRunning) {
@@ -795,13 +931,14 @@ function browseAudio() {
   input.click();
 }
 
-function setupUploadDragDrop(zone) {
+function setupUploadDragDrop(zone, handler) {
+  const onDrop = handler || handleAudioUpload;
   zone.addEventListener('dragenter', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
   zone.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
   zone.addEventListener('dragleave', (e) => { if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over'); });
   zone.addEventListener('drop', (e) => {
     e.preventDefault(); zone.classList.remove('drag-over');
-    if (e.dataTransfer.files[0]) handleAudioUpload(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files[0]) onDrop(e.dataTransfer.files[0]);
   });
 }
 
@@ -840,6 +977,90 @@ function removeUploadedAudio() {
   _uploadedDuration = null;
   _id('compose-upload-prompt')?.classList.remove('hidden');
   _id('compose-upload-loaded')?.classList.add('hidden');
+}
+
+// ─── Lego Audio Upload ─────────────────────────────────────────────
+
+function browseLegoAudio() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'audio/*';
+  input.addEventListener('change', () => { if (input.files[0]) handleLegoAudioUpload(input.files[0]); });
+  input.click();
+}
+
+async function handleLegoAudioUpload(file) {
+  if (!file || !file.type.startsWith('audio/')) return;
+  const fnEl = _id('compose-lego-upload-filename');
+  const durEl = _id('compose-lego-upload-duration');
+  if (fnEl) fnEl.textContent = file.name;
+  _id('compose-lego-upload-prompt')?.classList.add('hidden');
+  _id('compose-lego-upload-loaded')?.classList.remove('hidden');
+
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    _legoUploadedPath = data.path;
+    const audio = new Audio(URL.createObjectURL(file));
+    audio.addEventListener('loadedmetadata', () => {
+      _legoUploadedDuration = audio.duration;
+      if (durEl) durEl.textContent = _formatDuration(audio.duration);
+    });
+  } catch {
+    removeLegoUploadedAudio();
+  }
+}
+
+function removeLegoUploadedAudio() {
+  _legoUploadedPath = null;
+  _legoUploadedDuration = null;
+  _id('compose-lego-upload-prompt')?.classList.remove('hidden');
+  _id('compose-lego-upload-loaded')?.classList.add('hidden');
+}
+
+// ─── Complete Audio Upload ─────────────────────────────────────────
+
+function browseCompleteAudio() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'audio/*';
+  input.addEventListener('change', () => { if (input.files[0]) handleCompleteAudioUpload(input.files[0]); });
+  input.click();
+}
+
+async function handleCompleteAudioUpload(file) {
+  if (!file || !file.type.startsWith('audio/')) return;
+  const fnEl = _id('compose-complete-upload-filename');
+  const durEl = _id('compose-complete-upload-duration');
+  if (fnEl) fnEl.textContent = file.name;
+  _id('compose-complete-upload-prompt')?.classList.add('hidden');
+  _id('compose-complete-upload-loaded')?.classList.remove('hidden');
+
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    _completeUploadedPath = data.path;
+    const audio = new Audio(URL.createObjectURL(file));
+    audio.addEventListener('loadedmetadata', () => {
+      _completeUploadedDuration = audio.duration;
+      if (durEl) durEl.textContent = _formatDuration(audio.duration);
+    });
+  } catch {
+    removeCompleteUploadedAudio();
+  }
+}
+
+function removeCompleteUploadedAudio() {
+  _completeUploadedPath = null;
+  _completeUploadedDuration = null;
+  _id('compose-complete-upload-prompt')?.classList.remove('hidden');
+  _id('compose-complete-upload-loaded')?.classList.add('hidden');
 }
 
 function loadLyricsFile() {
@@ -903,6 +1124,34 @@ function buildPayload() {
       payload.repainting_end = Number((_id('compose-region-end') || {}).value || 0);
     }
     return payload;
+  }
+
+  if (_mode === 'lego') {
+    return {
+      ...shared,
+      style: (_id('compose-lego-direction') || {}).value?.trim() || '',
+      task_type: 'lego',
+      src_audio_path: _legoUploadedPath,
+      track_name: _selectedLegoTrack,
+      gen_model: 'base',
+      lm_model: 'none',
+      duration: _legoUploadedDuration || shared.duration,
+      batch_size: 1,
+    };
+  }
+
+  if (_mode === 'complete') {
+    return {
+      ...shared,
+      style: (_id('compose-complete-direction') || {}).value?.trim() || '',
+      task_type: 'complete',
+      src_audio_path: _completeUploadedPath,
+      track_classes: _selectedCompleteTracks,
+      gen_model: 'base',
+      lm_model: 'none',
+      duration: _completeUploadedDuration || shared.duration,
+      batch_size: 1,
+    };
   }
 
   // Create mode
@@ -1029,6 +1278,18 @@ async function handleGenerate() {
   // Validation
   if (_mode === 'rework' && !_uploadedPath) {
     if (hint) hint.textContent = 'Upload audio to get started.';
+    return;
+  }
+  if (_mode === 'lego' && !_legoUploadedPath) {
+    if (hint) hint.textContent = 'Upload source audio for Lego mode.';
+    return;
+  }
+  if (_mode === 'complete' && !_completeUploadedPath) {
+    if (hint) hint.textContent = 'Upload source audio for Complete mode.';
+    return;
+  }
+  if (_mode === 'complete' && _selectedCompleteTracks.length === 0) {
+    if (hint) hint.textContent = 'Select at least one track to generate.';
     return;
   }
   if (hint) hint.textContent = '';

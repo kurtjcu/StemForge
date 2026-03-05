@@ -9,6 +9,11 @@ function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
 
+const ACE_TRACKS = [
+  'vocals', 'backing_vocals', 'drums', 'bass', 'guitar', 'keyboard',
+  'strings', 'brass', 'woodwinds', 'synth', 'percussion', 'fx',
+];
+
 let models = { demucs: [], roformer: [] };
 
 export function initSeparate() {
@@ -25,7 +30,13 @@ export function initSeparate() {
     el('select', { id: 'sep-engine' },
       el('option', { value: 'demucs' }, 'Demucs'),
       el('option', { value: 'roformer' }, 'BS-Roformer'),
+      el('option', { value: 'ace' }, 'ACE-Step'),
     ),
+  );
+
+  // ACE info banner (hidden by default)
+  const aceBanner = el('div', { className: 'banner banner-info hidden', id: 'sep-ace-banner' },
+    'AI-generative separation via AceStep (requires base model). Extracts one stem at a time.',
   );
 
   // Model selector
@@ -49,7 +60,7 @@ export function initSeparate() {
     'Separate',
   );
 
-  left.append(engineGroup, modelGroup, helpBtn, helpResult, stemChecks, sepBtn);
+  left.append(engineGroup, aceBanner, modelGroup, helpBtn, helpResult, stemChecks, sepBtn);
 
   // ─── Right column: results ───
   const right = el('div', { className: 'col-right' });
@@ -97,11 +108,25 @@ async function loadModels() {
 function updateModelOptions() {
   const engine = document.getElementById('sep-engine').value;
   const select = document.getElementById('sep-model');
+  const modelGroup = select.closest('.form-group');
+  const helpBtn = document.getElementById('sep-help');
+  const aceBanner = document.getElementById('sep-ace-banner');
   clearChildren(select);
 
-  const list = models[engine] || [];
-  for (const m of list) {
-    select.appendChild(el('option', { value: m.model_id }, m.display_name));
+  if (engine === 'ace') {
+    // ACE mode: hide model selector and help button, show info banner
+    select.appendChild(el('option', { value: 'acestep-extract' }, 'ACE-Step Extract'));
+    if (modelGroup) modelGroup.classList.add('hidden');
+    if (helpBtn) helpBtn.classList.add('hidden');
+    if (aceBanner) aceBanner.classList.remove('hidden');
+  } else {
+    if (modelGroup) modelGroup.classList.remove('hidden');
+    if (helpBtn) helpBtn.classList.remove('hidden');
+    if (aceBanner) aceBanner.classList.add('hidden');
+    const list = models[engine] || [];
+    for (const m of list) {
+      select.appendChild(el('option', { value: m.model_id }, m.display_name));
+    }
   }
 
   updateStemCheckboxes();
@@ -112,6 +137,22 @@ function updateStemCheckboxes() {
   const modelId = document.getElementById('sep-model').value;
   const container = document.getElementById('sep-stems');
   clearChildren(container);
+
+  if (engine === 'ace') {
+    // ACE mode: radio buttons (single-select)
+    for (const stem of ACE_TRACKS) {
+      const id = `sep-stem-${stem}`;
+      const label = el('label', {},
+        el('input', { type: 'radio', name: 'ace-stem', id, value: stem }),
+        stem.replace('_', ' '),
+      );
+      container.appendChild(label);
+    }
+    // Select vocals by default
+    const defaultRadio = document.getElementById('sep-stem-vocals');
+    if (defaultRadio) defaultRadio.checked = true;
+    return;
+  }
 
   const list = models[engine] || [];
   const model = list.find(m => m.model_id === modelId);
@@ -149,6 +190,11 @@ async function runRecommend() {
 
 async function startSeparation() {
   const engine = document.getElementById('sep-engine').value;
+
+  if (engine === 'ace') {
+    return startAceExtraction();
+  }
+
   const modelId = document.getElementById('sep-model').value;
 
   // Get checked stems
@@ -193,6 +239,216 @@ async function startSeparation() {
     resultsContainer.appendChild(
       el('div', { className: 'banner banner-error' }, `Error: ${err.message}`),
     );
+  }
+}
+
+async function startAceExtraction() {
+  const selectedRadio = document.querySelector('#sep-stems input[type="radio"]:checked');
+  if (!selectedRadio) return;
+  const trackName = selectedRadio.value;
+
+  const progressCard = document.getElementById('sep-progress');
+  const resultsContainer = document.getElementById('sep-results');
+  progressCard.classList.remove('hidden');
+  clearChildren(resultsContainer);
+  document.getElementById('sep-start').disabled = true;
+  document.getElementById('sep-progress-fill').style.width = '0%';
+  document.getElementById('sep-pct').textContent = '0%';
+  document.getElementById('sep-stage').textContent = 'Checking AceStep...';
+
+  try {
+    // Check AceStep status
+    const health = await api('/compose/health');
+    if (health.acestep_status === 'disabled') {
+      throw new Error('AceStep is disabled (start without --no-acestep)');
+    }
+    if (health.acestep_status === 'crashed') {
+      throw new Error('AceStep crashed - check terminal');
+    }
+    if (health.acestep_status !== 'running') {
+      // Try to start AceStep
+      document.getElementById('sep-stage').textContent = 'Starting AceStep...';
+      await fetch('/api/compose/start', { method: 'POST' });
+      // Poll until running
+      while (true) {
+        await new Promise(r => setTimeout(r, 3000));
+        const h = await api('/compose/health');
+        if (h.acestep_status === 'running') break;
+        if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
+        if (h.acestep_status === 'disabled') throw new Error('AceStep is disabled');
+      }
+    }
+
+    document.getElementById('sep-stage').textContent = 'Uploading audio to AceStep...';
+
+    // Upload the session audio to AceStep's temp dir
+    let srcAudioPath = appState.audioPath || appState.audioInfo?.path;
+    if (!srcAudioPath) throw new Error('No audio loaded. Upload a file first.');
+
+    // Upload via compose upload endpoint
+    const audioBlob = await fetch(`/api/audio/stream?path=${encodeURIComponent(srcAudioPath)}`).then(r => r.blob());
+    const form = new FormData();
+    const filename = appState.audioInfo?.filename || 'audio.wav';
+    form.append('file', new File([audioBlob], filename, { type: audioBlob.type || 'audio/wav' }));
+    const uploadRes = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
+    if (!uploadRes.ok) throw new Error('Failed to upload audio to AceStep');
+    const uploadData = await uploadRes.json();
+
+    document.getElementById('sep-stage').textContent = `Extracting ${trackName.replace('_', ' ')}...`;
+    document.getElementById('sep-progress-fill').style.width = '10%';
+    document.getElementById('sep-pct').textContent = '10%';
+
+    // Build extract payload - duration from session audio
+    const duration = appState.audioInfo?.duration || 30;
+    const payload = {
+      style: '',
+      lyrics: '',
+      duration,
+      task_type: 'extract',
+      src_audio_path: uploadData.path,
+      track_name: trackName,
+      gen_model: 'base',
+      lm_model: 'none',
+      batch_size: 1,
+    };
+
+    const genRes = await fetch('/api/compose/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!genRes.ok) {
+      const err = await genRes.json().catch(() => ({ detail: genRes.statusText }));
+      throw new Error(err.detail || genRes.statusText);
+    }
+    const { task_id: taskId } = await genRes.json();
+
+    document.getElementById('sep-progress-fill').style.width = '20%';
+    document.getElementById('sep-pct').textContent = '20%';
+
+    // Poll compose status
+    const pollAce = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/compose/status/${taskId}`);
+        if (!res.ok) throw new Error(res.statusText);
+        const data = await res.json();
+
+        if (data.status === 'done') {
+          clearInterval(pollAce);
+          progressCard.classList.add('hidden');
+          document.getElementById('sep-start').disabled = false;
+
+          // Build stem paths from results
+          const results = data.results || [];
+          const stemPaths = {};
+          for (const r of results) {
+            const audioUrl = r.audio_url || '';
+            const streamUrl = `/api/compose/audio?path=${encodeURIComponent(audioUrl)}`;
+            stemPaths[trackName.replace('_', ' ')] = streamUrl;
+          }
+          showAceStemResults(stemPaths, taskId, results);
+        } else if (data.status === 'error') {
+          clearInterval(pollAce);
+          progressCard.classList.add('hidden');
+          document.getElementById('sep-start').disabled = false;
+          resultsContainer.appendChild(
+            el('div', { className: 'banner banner-error' }, 'ACE extraction failed. Check AceStep logs.'),
+          );
+        } else {
+          // Still processing - update progress
+          document.getElementById('sep-progress-fill').style.width = '50%';
+          document.getElementById('sep-pct').textContent = '50%';
+        }
+      } catch (err) {
+        clearInterval(pollAce);
+        progressCard.classList.add('hidden');
+        document.getElementById('sep-start').disabled = false;
+        resultsContainer.appendChild(
+          el('div', { className: 'banner banner-error' }, `Polling error: ${err.message}`),
+        );
+      }
+    }, 2000);
+
+  } catch (err) {
+    progressCard.classList.add('hidden');
+    document.getElementById('sep-start').disabled = false;
+    resultsContainer.appendChild(
+      el('div', { className: 'banner banner-error' }, `ACE Extract error: ${err.message}`),
+    );
+  }
+}
+
+/** Show ACE extraction results as stem cards with streaming from compose audio proxy. */
+function showAceStemResults(stemPaths, taskId, results) {
+  const container = document.getElementById('sep-results');
+  stemPlayers.length = 0;
+
+  // Emit stemsReady with paths that downstream tabs can use
+  appState.stemPaths = { ...appState.stemPaths, ...stemPaths };
+  appState.emit('stemsReady', appState.stemPaths);
+
+  for (const [label, streamUrl] of Object.entries(stemPaths)) {
+    const card = el('div', { className: 'stem-card' });
+
+    // Transport buttons
+    const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+    const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+    const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+    const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+    const saveBtn = el('button', {
+      className: 'btn btn-sm',
+      onClick: () => {
+        const dlUrl = `/api/compose/download/${taskId}/0/audio`;
+        saveFileAs(dlUrl, `ace-extract-${label.replace(' ', '_')}.mp3`);
+      },
+    }, '\u2193 Save');
+
+    const header = el('div', { className: 'stem-card-header' },
+      el('span', { className: 'stem-label' }, label),
+      el('div', { className: 'stem-actions' },
+        playBtn, stopBtn, rewindBtn, timeLabel, saveBtn,
+      ),
+    );
+
+    const waveContainer = el('div', { className: 'stem-waveform' });
+    card.append(header, waveContainer);
+    container.appendChild(card);
+
+    // Wavesurfer
+    const ws = createWaveform(waveContainer, { height: 50 });
+    ws.load(streamUrl);
+
+    stemPlayers.push({ ws, playBtn });
+
+    playBtn.addEventListener('click', () => {
+      if (ws.isPlaying()) {
+        ws.pause();
+        playBtn.textContent = '\u25B6 Play';
+      } else {
+        stopOtherPlayers(ws);
+        ws.play();
+        playBtn.textContent = '\u23F8 Pause';
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      ws.stop();
+      playBtn.textContent = '\u25B6 Play';
+    });
+
+    rewindBtn.addEventListener('click', () => {
+      ws.setTime(0);
+    });
+
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+    });
   }
 }
 

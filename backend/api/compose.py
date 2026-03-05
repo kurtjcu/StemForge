@@ -11,7 +11,7 @@ import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
 from fastapi import APIRouter, HTTPException, UploadFile
@@ -104,6 +104,10 @@ class GenerateRequest(BaseModel):
     audio_cover_strength: Optional[float] = None
     repainting_start: Optional[float] = None
     repainting_end: Optional[float] = None
+
+    # Analyze task types (extract / lego / complete)
+    track_name: Optional[str] = None
+    track_classes: Optional[List[str]] = None
 
 
 class GenerateLyricsRequest(BaseModel):
@@ -229,6 +233,14 @@ def _build_payload(req: GenerateRequest) -> dict:
                 payload["repainting_start"] = req.repainting_start
             if req.repainting_end is not None:
                 payload["repainting_end"] = req.repainting_end
+    elif req.task_type in ("extract", "lego", "complete"):
+        payload["task_type"] = req.task_type
+        if req.src_audio_path:
+            payload["src_audio_path"] = req.src_audio_path
+        if req.track_name:
+            payload["track_name"] = req.track_name
+        if req.track_classes:
+            payload["track_classes"] = req.track_classes
 
     return payload
 
