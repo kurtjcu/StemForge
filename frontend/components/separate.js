@@ -4,6 +4,7 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
+import { transportLoad, transportStop } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -429,11 +430,13 @@ function showAceStemResults(stemPaths, taskId, results) {
         stopOtherPlayers(ws);
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
+        transportLoad(streamUrl, label, false);
       }
     });
 
     stopBtn.addEventListener('click', () => {
       ws.stop();
+      transportStop();
       playBtn.textContent = '\u25B6 Play';
     });
 
@@ -448,6 +451,7 @@ function showAceStemResults(stemPaths, taskId, results) {
 
     ws.on('finish', () => {
       playBtn.textContent = '\u25B6 Play';
+      transportStop();
     });
   }
 }
@@ -516,12 +520,15 @@ function showStemResults(stemPaths) {
         stopOtherPlayers(ws);
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
+        // Feed global transport for cross-tab "Now Playing"
+        transportLoad(url, label, false);
       }
     });
 
     // Stop
     stopBtn.addEventListener('click', () => {
       ws.stop();
+      transportStop();
       playBtn.textContent = '\u25B6 Play';
     });
 
@@ -539,6 +546,7 @@ function showStemResults(stemPaths) {
     // Reset button text when playback finishes
     ws.on('finish', () => {
       playBtn.textContent = '\u25B6 Play';
+      transportStop();
     });
   }
 }

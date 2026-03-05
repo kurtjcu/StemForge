@@ -7,6 +7,7 @@
 
 import { appState, api, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
+import { transportLoad, transportStop, transportIsPlaying, transportPlayPause } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -1691,11 +1692,14 @@ function buildResultCard(taskId, index, total, result, fmt) {
         _stopOtherPlayers(ws);
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
+        // Load into global transport for cross-tab "Now Playing"
+        transportLoad(audioSrc, label, false);
       }
     });
 
     stopBtn.addEventListener('click', () => {
       ws.stop();
+      transportStop();
       playBtn.textContent = '\u25B6 Play';
     });
 
@@ -1710,6 +1714,7 @@ function buildResultCard(taskId, index, total, result, fmt) {
 
     ws.on('finish', () => {
       playBtn.textContent = '\u25B6 Play';
+      transportStop();
     });
   }
 
