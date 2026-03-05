@@ -539,7 +539,7 @@ function buildRightColumn() {
   const laSlider = el('input', { type: 'range', className: 'compose-slider', id: 'compose-lyric-adherence',
     min: '0', max: '2', value: '1', step: '1' });
   laSlider.addEventListener('input', () => {
-    _id('compose-la-value').textContent = ['Loose', 'Med', 'Strict'][Number(laSlider.value)];
+    _id('compose-la-value').textContent = ['Little', 'Some', 'Strong'][Number(laSlider.value)];
     syncAdvancedFromFriendly();
   });
 
@@ -569,7 +569,7 @@ function buildRightColumn() {
   col.append(
     durationGroup,
     el('div', { className: 'compose-divider' }),
-    buildSliderGroup('Strictly follow lyrics', 'compose-la-value', 'Med', laSlider),
+    buildSliderGroup('Lyrical influence', 'compose-la-value', 'Some', laSlider),
     buildSliderGroup('Creativity', 'compose-cr-value', '50%', crSlider),
     buildSliderGroup('Quality', 'compose-q-value', 'Balanced', qSlider),
     genBtn, genHint,
@@ -759,6 +759,19 @@ function switchMode(mode) {
       genModelSel.disabled = false;
     }
     updateBatchLimit();
+  }
+
+  // Disable duration + auto for analyze modes (locked to source audio length)
+  const durSlider = _id('compose-duration');
+  const autoBtn = _id('compose-auto-btn');
+  if (durSlider) durSlider.disabled = isAnalyze || _autoOn;
+  if (autoBtn) {
+    autoBtn.disabled = isAnalyze;
+    if (isAnalyze && _autoOn) {
+      _autoOn = false;
+      autoBtn.classList.remove('active');
+      autoBtn.textContent = 'Auto';
+    }
   }
 
   const btn = _id('compose-generate-btn');
