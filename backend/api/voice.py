@@ -25,25 +25,38 @@ _AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".aiff", ".m4a", ".wma", ".opus"
 VOICE_MODELS_DIR = get_model_cache_dir("voice_models")
 
 # Known voice models available for auto-download from HuggingFace.
-# Each entry: (display_name, hf_repo, hf_filename, hf_index_filename_or_None)
+# Each entry: (display_name, hf_repo, hf_pth_filename, hf_index_filename_or_None)
+# Models from binant/ use flat model.pth/model.index; we download into per-name subdirs.
 KNOWN_MODELS: list[tuple[str, str, str, str | None]] = [
     (
-        "Marcello-v2",
-        "Rejekts/project",
-        "Marcello-v2/Marcello-v2.pth",
-        "Marcello-v2/added_IVF1063_Flat_nprobe_1_Marcello-v2_v2.index",
+        "Donald Trump",
+        "binant/Donald_Trump__RVC_v2_",
+        "model.pth",
+        "model.index",
     ),
     (
-        "Trump",
-        "Rejekts/project",
-        "Trump/Trump.pth",
-        "Trump/added_IVF1875_Flat_nprobe_1_Trump-Trump_v2.index",
+        "SpongeBob",
+        "binant/SpongeBob_SquarePants__RVC_v2_",
+        "model.pth",
+        "model.index",
     ),
     (
-        "Obama",
-        "Rejekts/project",
-        "Obama/Obama.pth",
-        "Obama/added_IVF2124_Flat_nprobe_1_Obama-Obama_v2.index",
+        "Kurt Cobain",
+        "binant/Kurt_Cobain__From_Nirvana___RVC_v2__150_Epochs",
+        "model.pth",
+        "model.index",
+    ),
+    (
+        "Hatsune Miku",
+        "binant/Hatsune_Miku__RVC_v2_",
+        "model.pth",
+        "model.index",
+    ),
+    (
+        "Peter Griffin",
+        "binant/Peter_Griffin__Family_Guy___RVC_V2__300_Epoch",
+        "model.pth",
+        "model.index",
     ),
 ]
 
@@ -104,13 +117,15 @@ def _download_known_model(name: str) -> tuple[pathlib.Path, pathlib.Path | None]
 
     repo, pth_hf, idx_hf = entry
 
+    # Download into a per-model subdirectory so flat filenames don't collide
+    model_dir = VOICE_MODELS_DIR / name
+    model_dir.mkdir(parents=True, exist_ok=True)
+
     # Download .pth
     local_pth = hf_hub_download(
         repo_id=repo,
         filename=pth_hf,
-        cache_dir=str(VOICE_MODELS_DIR / ".hf_cache"),
-        local_dir=str(VOICE_MODELS_DIR),
-        local_dir_use_symlinks=False,
+        local_dir=str(model_dir),
     )
 
     # Download .index if available
@@ -119,9 +134,7 @@ def _download_known_model(name: str) -> tuple[pathlib.Path, pathlib.Path | None]
         local_idx = hf_hub_download(
             repo_id=repo,
             filename=idx_hf,
-            cache_dir=str(VOICE_MODELS_DIR / ".hf_cache"),
-            local_dir=str(VOICE_MODELS_DIR),
-            local_dir_use_symlinks=False,
+            local_dir=str(model_dir),
         )
 
     return pathlib.Path(local_pth), pathlib.Path(local_idx) if local_idx else None
