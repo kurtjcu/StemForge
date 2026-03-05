@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -160,6 +161,18 @@ def _run_voice_convert(req: VoiceConvertRequest, job_id: str) -> dict:
     # Store in session for cross-tab integration
     label = f"Voice ({req.model_name})"
     session.add_voice_path(label, result.output_path)
+
+    # Auto-add as mix track
+    from backend.services.session_store import TrackState
+    track = TrackState(
+        track_id=str(uuid.uuid4()),
+        label=label,
+        source="audio",
+        path=result.output_path,
+        enabled=True,
+        volume=0.8,
+    )
+    session.add_track(track)
 
     return {
         "output_path": str(result.output_path),

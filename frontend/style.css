@@ -1602,6 +1602,30 @@ input[type="range"]::-webkit-slider-thumb {
   height: 100%;
 }
 
+/* ─── Voice Mode — Pitch Slider Center Indicator ────────────────────── */
+
+.voice-pitch-slider {
+  position: relative;
+}
+
+.voice-pitch-slider::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--text-muted);
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Voice model download indicator */
+#compose-voice-model-status {
+  min-height: 16px;
+  transition: opacity 0.2s;
+}
+
 /* ─── Responsive ─────────────────────────────────────────────────────── */
 
 @media (max-width: 1200px) {

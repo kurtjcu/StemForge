@@ -69,6 +69,7 @@ export function initExport() {
   appState.on('composeReady', refreshArtifacts);
   appState.on('mixReady', refreshArtifacts);
   appState.on('sfxReady', refreshArtifacts);
+  appState.on('transformReady', refreshArtifacts);
 }
 
 function refreshArtifacts() {
@@ -118,6 +119,11 @@ function collectArtifacts() {
   // SFX stems
   for (const [label, path] of Object.entries(appState.sfxPaths || {})) {
     items.push({ label, path, type: 'sfx' });
+  }
+
+  // Voice transforms
+  for (const [label, path] of Object.entries(appState.voicePaths || {})) {
+    items.push({ label, path, type: 'voice' });
   }
 
   // Mix
