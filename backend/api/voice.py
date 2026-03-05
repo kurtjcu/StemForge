@@ -278,7 +278,10 @@ def list_voice_models() -> dict:
 
 @router.get("/voice/models/search")
 def search_voice_models(q: str = "") -> dict:
-    """Search HuggingFace for RVC voice models matching a query."""
+    """Search HuggingFace for RVC voice models matching a query.
+
+    Only returns repos that actually contain .pth model files.
+    """
     from huggingface_hub import HfApi
 
     query = q.strip()
@@ -288,28 +291,33 @@ def search_voice_models(q: str = "") -> dict:
     api = HfApi()
     results = []
     try:
-        models = list(api.list_models(search=f"rvc {query}", limit=20))
+        models = list(api.list_models(search=f"rvc {query}", limit=30))
         for m in models:
-            # Quick heuristic: repo should have model files
+            # Verify the repo actually has .pth files before listing
+            try:
+                files = list(api.list_repo_files(m.id))
+            except Exception:
+                continue
+            pth_files = [f for f in files if f.endswith(".pth")]
+            if not pth_files:
+                continue
+
             repo_name = m.id.split("/")[-1] if "/" in m.id else m.id
-            # Clean up display name from repo name
             display = repo_name.replace("_", " ").replace("--", " - ").replace("  ", " ")
-            # Strip common suffixes for cleaner display
             for suffix in ["RVC v2", "RVC V2", "RVC v2 ", "RVC V2 "]:
                 display = display.replace(suffix, "").strip()
-            while display.endswith(" "):
-                display = display.rstrip()
             results.append({
                 "repo_id": m.id,
-                "display": display,
+                "display": display.strip(),
                 "downloads": m.downloads or 0,
             })
-        # Sort by downloads descending
+            if len(results) >= 15:
+                break
         results.sort(key=lambda x: x["downloads"], reverse=True)
     except Exception:
         pass
 
-    return {"results": results[:15]}
+    return {"results": results}
 
 
 class VoiceModelImportRequest(BaseModel):
