@@ -681,6 +681,9 @@ function buildLeftColumn() {
     ),
   );
 
+  // Source player card (wavesurfer)
+  const voiceSourcePlayer = el('div', { className: 'hidden', id: 'compose-voice-source-player' });
+
   voicePanel.append(
     el('div', { className: 'compose-field-group' },
       el('label', { className: 'compose-field-label' }, 'Source audio'),
@@ -688,6 +691,7 @@ function buildLeftColumn() {
       voiceFileBtn,
       voiceSourceInfo,
     ),
+    voiceSourcePlayer,
     voiceSourceWf,
     el('div', { className: 'compose-divider' }),
     el('div', { className: 'compose-field-group' },
@@ -721,6 +725,10 @@ function buildLeftColumn() {
       ),
       voiceProtectSlider,
     ),
+    el('div', { className: 'compose-divider' }),
+    el('button', { className: 'compose-generate-btn', id: 'compose-voice-transform-btn',
+      onClick: handleVoiceGenerate }, '\u25B6 Transform Voice'),
+    el('div', { className: 'compose-hint', id: 'compose-voice-hint' }),
     voiceResultWf,
   );
 
@@ -1607,12 +1615,6 @@ async function handleGenerate() {
   const btn = _id('compose-generate-btn');
   const hint = _id('compose-hint');
 
-  // ── Voice mode — runs local RVC pipeline, not AceStep ──
-  if (_mode === 'voice') {
-    handleVoiceGenerate();
-    return;
-  }
-
   // ── Initialize flow (AceStep not yet running) ──
   if (!_aceStepRunning) {
     if (btn) { btn.disabled = true; btn.textContent = 'Starting\u2026'; }
@@ -1923,12 +1925,55 @@ function selectVoiceStem() {
     })
     .catch(() => {});
 
-  // Render source waveform
+  // Build playable source card
+  const audioUrl = `/api/audio/stream?path=${encodeURIComponent(path)}`;
+  _buildVoiceSourcePlayer(audioUrl, label);
+
+  // Render source waveform (analyze diff canvas)
   _voiceSourcePeaks = null;
   _id('voice-wf-result-section')?.classList.add('hidden');
-  const audioUrl = `/api/audio/stream?path=${encodeURIComponent(path)}`;
   _renderSourceWaveform(audioUrl, 'voice-wf-source', 'voice-wf-source-canvas',
     (peaks) => { _voiceSourcePeaks = peaks; });
+}
+
+let _voiceSourceWs = null;
+
+function _buildVoiceSourcePlayer(audioUrl, label) {
+  const container = _id('compose-voice-source-player');
+  if (!container) return;
+
+  // Destroy previous
+  if (_voiceSourceWs) { try { _voiceSourceWs.destroy(); } catch {} _voiceSourceWs = null; }
+  clearChildren(container);
+  container.classList.remove('hidden');
+
+  const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+  const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+  const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+  const card = el('div', { className: 'stem-card' },
+    el('div', { className: 'stem-card-header' },
+      el('span', { className: 'stem-label' }, label),
+      el('div', { className: 'stem-actions' }, playBtn, stopBtn, timeLabel),
+    ),
+  );
+  const waveContainer = el('div', { className: 'stem-waveform' });
+  card.appendChild(waveContainer);
+  container.appendChild(card);
+
+  const ws = createWaveform(waveContainer, { height: 50 });
+  ws.load(audioUrl);
+  _voiceSourceWs = ws;
+
+  playBtn.addEventListener('click', () => {
+    if (ws.isPlaying()) { ws.pause(); playBtn.textContent = '\u25B6 Play'; }
+    else { ws.play(); playBtn.textContent = '\u23F8 Pause'; }
+  });
+  stopBtn.addEventListener('click', () => { ws.stop(); playBtn.textContent = '\u25B6 Play'; });
+  ws.on('timeupdate', (t) => {
+    timeLabel.textContent = `${formatTime(t)} / ${formatTime(ws.getDuration())}`;
+  });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
 }
 
 function browseVoiceAudio() {
@@ -1968,7 +2013,11 @@ async function handleVoiceFileUpload(file) {
       if (durEl) durEl.textContent = _formatDuration(audio.duration);
     });
 
-    // Render source waveform
+    // Build playable source card (use server URL so wavesurfer can stream)
+    const serverUrl = `/api/audio/stream?path=${encodeURIComponent(data.path)}`;
+    _buildVoiceSourcePlayer(serverUrl, file.name);
+
+    // Render source waveform (analyze diff canvas)
     _voiceSourcePeaks = null;
     _id('voice-wf-result-section')?.classList.add('hidden');
     _renderSourceWaveform(blobUrl, 'voice-wf-source', 'voice-wf-source-canvas',
@@ -1982,16 +2031,19 @@ function removeVoiceSource() {
   _voiceSourcePath = null;
   _voiceSourceDuration = null;
   _voiceSourcePeaks = null;
+  if (_voiceSourceWs) { try { _voiceSourceWs.destroy(); } catch {} _voiceSourceWs = null; }
   const sel = _id('compose-voice-stem');
   if (sel) sel.value = '';
   _id('compose-voice-source-info')?.classList.add('hidden');
+  const playerEl = _id('compose-voice-source-player');
+  if (playerEl) { clearChildren(playerEl); playerEl.classList.add('hidden'); }
   _id('voice-wf-source-section')?.classList.add('hidden');
   _id('voice-wf-result-section')?.classList.add('hidden');
 }
 
 async function handleVoiceGenerate() {
-  const btn = _id('compose-generate-btn');
-  const hint = _id('compose-hint');
+  const btn = _id('compose-voice-transform-btn');
+  const hint = _id('compose-voice-hint');
 
   if (!_voiceSourcePath) {
     if (hint) hint.textContent = 'Select source audio first.';
@@ -2013,7 +2065,7 @@ async function handleVoiceGenerate() {
     protect: Number((_id('compose-voice-protect') || {}).value || 0.33),
   };
 
-  setGenerating(true);
+  if (btn) { btn.disabled = true; btn.textContent = 'Transforming\u2026'; }
 
   try {
     const res = await fetch('/api/voice/convert', {
@@ -2031,23 +2083,22 @@ async function handleVoiceGenerate() {
     // Poll via standard StemForge job polling
     pollJob(job_id, {
       onProgress(progress, stage) {
-        // Reuse the compose elapsed display
-        const elapsed = _id('compose-elapsed');
-        if (elapsed) elapsed.textContent = stage || '';
+        if (hint) hint.textContent = stage || '';
       },
       onDone(result) {
         _voiceJobId = null;
-        setGenerating(false);
+        if (btn) { btn.disabled = false; btn.textContent = '\u25B6 Transform Voice'; }
+        if (hint) hint.textContent = '';
         showVoiceResult(result);
       },
       onError(msg) {
         _voiceJobId = null;
-        setGenerating(false);
+        if (btn) { btn.disabled = false; btn.textContent = '\u25B6 Transform Voice'; }
         if (hint) hint.textContent = `Voice conversion failed: ${msg}`;
       },
     });
   } catch (err) {
-    setGenerating(false);
+    if (btn) { btn.disabled = false; btn.textContent = '\u25B6 Transform Voice'; }
     if (hint) hint.textContent = `Error: ${err.message}`;
   }
 }
