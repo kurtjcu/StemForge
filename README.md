@@ -13,13 +13,14 @@
 ![BS--Roformer](https://img.shields.io/badge/BS--Roformer-enabled-success)
 ![Stable Audio Open](https://img.shields.io/badge/Stable%20Audio%20Open-enabled-success)
 ![AceStep](https://img.shields.io/badge/AceStep-enabled-success)
+![RVC Voice](https://img.shields.io/badge/RVC%20Voice-enabled-success)
 ![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
 
-StemForge is a local, GPU-accelerated web application that chains multiple AI music pipelines into a single creative workflow. Upload a song, separate it into stems, extract MIDI, generate new audio or compose entirely new songs, generate or load special effect sound tracks, mix everything together, and export — all from one interface, all running on your own hardware. No cloud uploads, no subscriptions, no per-track fees.
+StemForge is a local, GPU-accelerated web application that chains multiple AI music pipelines into a single creative workflow. Upload a song, separate it into stems, extract MIDI, generate new audio or compose entirely new songs, transform vocals with AI voice conversion, generate or load special effect sound tracks, mix everything together, and export — all from one interface, all running on your own hardware. No cloud uploads, no subscriptions, no per-track fees.
 
 ## Why StemForge?
 
-Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, or generate literally any sound effect with Stable Audio, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, and remix — not just separate.
+Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, transform any vocal with AI voice conversion, or generate literally any sound effect with Stable Audio, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, transform, and remix — not just separate.
 
 StemForge runs entirely on your local machine with no internet connection required after initial model downloads. Your audio never leaves your computer.
 
@@ -30,6 +31,7 @@ StemForge runs entirely on your local machine with no internet connection requir
 - **MIDI extraction** — polyphonic BasicPitch for instruments, faster-whisper + pitch tracking for vocals; per-stem MIDI preview via FluidSynth
 - **Stable Audio Open** — text-conditioned audio generation up to 600 s, with optional audio and MIDI conditioning (Synth tab)
 - **AceStep** — full AI song generation from style descriptions + lyrics, with Create and Rework modes (Compose tab)
+- **RVC Voice Conversion** — AI voice transformation via vendored Applio inference; 14 built-in voices, searchable HuggingFace model browser, pitch shift, F0 method selection (Compose tab → Voice mode)
 - **Mix** — multi-track mixer combining audio stems, MIDI-rendered tracks, synth outputs, and composed songs; per-track instrument, volume, and FLAC render
 - **Export** — transcode any pipeline output (stems, MIDI, mix, generated audio, composed songs) to wav / flac / mp3 / ogg
 
@@ -37,7 +39,7 @@ Everything runs locally with deterministic environments via uv.
 
 **Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
 
-See [Future Plans](docs/FUTURE_PLANS.md) for the roadmap, including voice transformation and native packaging.
+See [Future Plans](docs/FUTURE_PLANS.md) for the roadmap, including native packaging and further voice transformation improvements.
 
 ---
 
@@ -242,6 +244,7 @@ All AI models are downloaded lazily on first use — StemForge does not download
 | Stable Audio Open (Synth) | ~2 GB | First generation (requires HuggingFace auth — see below) |
 | AceStep (Compose) | ~20 GB | Click "Initialize" on Compose tab |
 | Whisper (Vocal MIDI) | ~40–500 MB depending on model size | First vocal MIDI extraction |
+| RVC Voice (Compose → Voice) | ~50–140 MB per voice model | First voice conversion with that model |
 
 The Compose tab shows an **"Initialize"** button instead of "Generate" until AceStep is ready.
 Clicking it starts the backend and downloads models if needed (can take 10–30 min on the first run).
@@ -292,13 +295,14 @@ Includes Vocal Preservation Mode.
 See [INSTRUCTIONS.md](INSTRUCTIONS.md#3-synth--audio-generation--sfx-stem-builder) for usage details.
 
 ### Compose
-Full song generation via AceStep 1.5, running as a managed subprocess.
+Full song generation via AceStep 1.5 and voice transformation via RVC, running as managed pipelines.
 See [INSTRUCTIONS.md](INSTRUCTIONS.md#4-compose--full-song-generation-acestep) for usage details.
 
 - **Initialize** — on first visit, the button says "Initialize". Click it to start the AceStep backend and download models (~20 GB on first run). Once ready, the button becomes "Generate".
 - **Create mode** — build a song from genre/mood tags, song parameters, and lyrics (manual, AI-generated, or instrumental)
 - **Rework mode** — transform an existing audio file via Reimagine (full regeneration) or Fix & Blend (region-targeted)
-- **Cross-tab integration** — send composed audio to Separate for stem extraction, or to Mix for multi-track blending
+- **Voice mode** — AI voice conversion via RVC (Retrieval-based Voice Conversion). Select a separated vocal stem or load any audio file, choose from 14 built-in voices (Freddie Mercury, Adele, Drake, etc.) or search HuggingFace for thousands more. Controls for pitch shift, F0 extraction method, voice character, and consonant protection. Voice models auto-download on first use (~50–140 MB each).
+- **Cross-tab integration** — send composed or voice-transformed audio to Separate for stem extraction, or to Mix for multi-track blending
 
 AceStep model weights are cached under `MODEL_LOCATION` (default `~/.cache/stemforge/`) or `checkpoints/` in the submodule if unset.
 
@@ -364,6 +368,7 @@ All pipelines and the full web UI are implemented and working:
 - MIDI preview — per-stem FluidSynth render, streamed to browser via wavesurfer.js
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
 - AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
+- RVC voice conversion (Compose tab → Voice mode) — 14 built-in voices, HuggingFace search/import, local .pth upload, pitch/F0/index controls
 - Mix tab — per-track instrument/volume controls, audio/MIDI/synth/compose source types, FLAC render
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
 - Waveform visualization via wavesurfer.js with global transport bar
@@ -387,6 +392,12 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │   ├── frontend/                   # Wrangler's standalone frontend (reference)
     │   └── run.py                      # Wrangler's standalone launcher (unused in StemForge)
     │
+    ├── vendor/rvc/                     # Vendored Applio RVC inference code (MIT)
+    │   ├── infer/                      # VoiceConverter + Pipeline
+    │   ├── lib/                        # Algorithms, pitch extractors, utilities
+    │   ├── models/                     # Synthesizer architectures
+    │   └── configs/                    # Sample rate configs
+    │
     ├── INSTRUCTIONS.md                    # User guide — how to use each tab
     ├── docs/
     │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
@@ -401,6 +412,7 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │   │   ├── midi.py                 # /api/midi/extract, /api/midi/status, /api/midi/preview
     │   │   ├── generate.py             # /api/generate (Stable Audio Open)
     │   │   ├── compose.py              # /api/compose/* (AceStep proxy)
+    │   │   ├── voice.py               # /api/voice/* (RVC voice conversion)
     │   │   ├── mix.py                  # /api/mix/render, /api/mix/tracks
     │   │   └── export.py               # /api/export
     │   └── services/
@@ -421,7 +433,8 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │   ├── midi_pipeline.py
     │   ├── basicpitch_pipeline.py
     │   ├── vocal_midi_pipeline.py
-    │   └── musicgen_pipeline.py
+    │   ├── musicgen_pipeline.py
+    │   └── rvc_pipeline.py
     │
     ├── models/                         # Model registry + loaders
     │   ├── registry.py
@@ -472,7 +485,7 @@ You need HuggingFace authentication — see the HuggingFace Authentication secti
 ## Acknowledgments
 
 StemForge is built on many outstanding open-source projects — Demucs, BS-Roformer,
-Basic Pitch, Whisper, Stable Audio Open, ACE-Step, wavesurfer.js, and more.
+Basic Pitch, Whisper, Stable Audio Open, ACE-Step, Applio/RVC, wavesurfer.js, and more.
 See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for the full list with links and references.
 
 ---
