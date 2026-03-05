@@ -6,91 +6,131 @@ is a living document for tracking ideas.
 
 ---
 
-## Voice transformation (Synth tab)
+## Voice transformation — IMPLEMENTED
 
-The Synth tab currently uses Stable Audio Open for text-conditioned audio
-generation. A major gap is the ability to take an isolated vocal stem and
-transform it — change the voice, adjust emotional delivery, or apply a
-style/LoRA to it — while preserving lyrics, timing, and musical phrasing.
+Voice conversion is now live in the **Compose tab** as a 5th mode
+(**Create | Rework | Lego | Complete | Voice**), powered by RVC
+(Retrieval-based Voice Conversion) via vendored Applio inference code.
 
-### Goal
+### What shipped
 
-Given a separated vocal stem, produce a new vocal stem where the voice
-identity, timbre, or emotional character has been changed, with lyrics and
-timing intact. The output should be mixable back into the original song
-via the Mix tab.
+- **RVC pipeline** (`pipelines/rvc_pipeline.py`) wrapping Applio's
+  VoiceConverter — audio-in → audio-out, preserves lyrics, timing,
+  and pitch contour of the source.
+- **Vendored Applio** (`vendor/rvc/`) — inference-only subtree (no
+  Gradio, no training code). MIT-licensed.
+- **14 built-in voice models** auto-downloaded from HuggingFace on
+  first use: Freddie Mercury, Adele, Frank Sinatra, Kurt Cobain,
+  Ariana Grande, Taylor Swift, The Weeknd, Drake, Hatsune Miku,
+  Donald Trump, SpongeBob, Peter Griffin, plus generic Male and Female.
+- **Voice model browser** — search HuggingFace for RVC models by name,
+  download with one click. Also supports uploading local .pth/.index files.
+- **Controls**: pitch shift (-24 to +24 semitones), F0 method
+  (RMVPE/CREPE/FCPE), voice character (index rate), consonant protection.
+- **Source audio**: select from separated stems or load any audio file.
+- **Cross-tab integration**: results auto-appear in Mix and Export tabs
+  via the `transformReady` event. Transport bar picks up playback.
+- **Backend**: `POST /api/voice/convert`, `GET /api/voice/models`,
+  `POST /api/voice/models/import`, `POST /api/voice/models/upload`,
+  `DELETE /api/voice/models/{name}`, `GET /api/voice/models/search`.
+- Voice models cached at `~/.cache/stemforge/voice_models/`.
 
-### Candidate approaches
+### Future improvements
 
-**1. RVC (Retrieval-based Voice Conversion)**
-- Best fit for StemForge's "take a stem, transform it" workflow.
-- Speech-to-speech: takes audio in, produces audio out. Preserves
-  intonation, timing, and pitch contour of the source.
-- Supports custom voice models (.pth) trained from short samples.
-- Real-time capable, low latency, battle-tested in music production.
-- Active community: Applio (MIT, actively maintained) is the leading fork.
-- Integration path: run inference on a separated vocal stem, write the
-  result as a new stem, make it available in the Mix tab.
-- Limitation: voice model must be trained or sourced separately. No
-  text-based emotion control.
+- **Chatterbox / emotion control** — evaluate Resemble AI's voice
+  conversion mode for emotion exaggeration (monotone → dramatic).
+  Would complement RVC's identity-focused conversion.
+- **GPT-SoVITS** — evaluate for cross-lingual singing voice conversion
+  and cases where richer prosody control is needed.
+- **Voice model training** — see dedicated section below.
+- **Batch processing** — convert multiple stems through the same
+  voice model in one operation.
+- **Ethical safeguards** — watermarking, consent notices, or usage
+  warnings when converting to a cloned voice.
 
-**2. Chatterbox / Chatterbox Turbo (Resemble AI)**
-- MIT-licensed, Python 3.11, zero-shot voice cloning from ~5 s of audio.
-- Unique emotion exaggeration control (monotone → dramatic) via a single
-  parameter — directly addresses the "change emotional character" goal.
-- Includes voice conversion scripts (not just TTS).
-- Built-in PerTh watermarking for responsible use.
-- 23-language multilingual support.
-- Limitation: primarily a TTS engine. Voice conversion mode exists but
-  is secondary to text-to-speech. May not preserve singing phrasing as
-  well as a dedicated SVC model. Needs evaluation on sung vocals
-  specifically.
+---
 
-**3. GPT-SoVITS**
-- Few-shot voice cloning + TTS with ~1 minute of reference audio.
-- Two-stage architecture: GPT for semantic/prosody, SoVITS for acoustic
-  synthesis. Produces emotionally rich output.
-- Cross-lingual synthesis (EN, ZH, JA, KO, and more).
-- Limitation: heavier dependency footprint, complex training pipeline,
-  primarily TTS-oriented. Singing voice conversion is possible but
-  requires more setup than RVC.
+## RVC voice model training
 
-**4. so-vits-svc / so-vits-svc-fork**
-- Singing voice conversion specifically. Historically the go-to for
-  music-focused voice transformation.
-- Limitation: original project archived. Forks exist but are less
-  actively maintained than RVC/Applio. Higher latency than RVC.
+Train custom voice models from audio samples directly within StemForge.
+The vendored Applio code already includes the model architectures
+(Synthesizer, MultiPeriodDiscriminator) needed for training — only the
+training loop, preprocessing, and feature extraction code needs to be
+added. Evaluated as ~15–22 hours of implementation effort.
 
-### Recommended evaluation order
+### Dependency impact
 
-1. **RVC via Applio** — closest to StemForge's existing workflow. Test
-   with a Demucs-separated vocal stem, evaluate output quality and
-   whether timing/lyrics are preserved.
-2. **Chatterbox voice conversion mode** — evaluate on sung vocals
-   specifically. If it handles singing well, the emotion control is a
-   unique differentiator no other option offers.
-3. **GPT-SoVITS** — evaluate if the above two don't meet quality bar
-   for emotional re-delivery or cross-lingual use cases.
+Three new packages, no conflicts with the existing venv:
 
-### Integration design (sketch)
+- `tensorboard` — training loss and spectrogram logging
+- `matplotlib` — spectrogram rendering for TensorBoard
+- `scikit-learn` — MiniBatchKMeans for FAISS index size reduction
 
-- New section or mode in the Synth tab: "Voice Transform"
-- Input: a vocal stem (from Separate tab or manually loaded)
-- Controls: voice model selector, optional emotion/style parameters
-- Output: a new WAV stem at 44.1 kHz, written to the musicgen output
-  directory, and automatically available in the Mix tab
-- The existing Stable Audio Open generation and Voice Transform would
-  be sibling modes within the Synth tab, not separate tabs
+All other training deps (torch.distributed, noisereduce, torchcrepe,
+faiss-cpu, transformers, librosa, scipy, soxr) are already present.
 
-### Open questions
+### Training workflow (4 steps)
 
-- Should voice models be managed through the model registry, or kept as
-  a separate user-managed collection (like soundfonts)?
-- What's the minimum viable UX for selecting/loading a voice model?
-- How to handle the ethical dimension — watermarking, consent notices,
-  or usage warnings when converting to a cloned voice?
-- Can LoRA-style fine-tuning be supported for any of these models to
-  allow lightweight voice customization without full retraining?
+1. **Preprocess** — load user's audio files (~2–10 min of voice),
+   high-pass filter + optional denoise, slice into segments on silence
+   boundaries, write full-SR WAVs + 16 kHz WAVs.
+2. **Extract** — run F0 pitch extraction (RMVPE/CREPE/FCPE) on each
+   segment, run HuBERT/ContentVec speaker embedding extraction,
+   generate training config JSON + filelist.
+3. **Train** — GAN training loop: Synthesizer (generator) vs
+   MultiPeriodDiscriminator with mel-spectrogram, KL divergence,
+   adversarial, and feature-matching losses. Saves periodic checkpoints
+   + inference-ready `.pth`. Optional overtraining detection via
+   smoothed EMA loss. Supports bf16 on Ampere+ GPUs.
+4. **Index** — concatenate all extracted embeddings, optionally
+   KMeans-reduce (for large datasets >200 k frames), build FAISS
+   IVFFlat index, save as `.index` file.
+
+**Output**: `{name}.pth` + `{name}.index` — the same format our
+inference pipeline already consumes, ready to use in Voice mode.
+
+### Code to vendor
+
+~3,500 lines across 13 Python files + 4 JSON configs from Applio's
+`rvc/train/` subtree. Key files:
+
+| File | Purpose |
+|------|---------|
+| `train/train.py` | GAN training loop (~1,160 lines) |
+| `train/data_utils.py` | Dataset, collate, bucket sampler |
+| `train/losses.py` | Adversarial, feature-matching, KL losses |
+| `train/mel_processing.py` | Spectrogram / mel computation |
+| `train/preprocess/preprocess.py` | Audio slicing + normalization |
+| `train/extract/extract.py` | F0 + embedding extraction |
+| `train/process/extract_model.py` | Strip checkpoint to inference `.pth` |
+| `train/process/extract_index.py` | Build FAISS `.index` |
+
+All training code imports from `lib/algorithm/` (Synthesizer,
+Discriminator) which is already vendored. Main refactoring work is
+replacing Applio's `os.getcwd()` + sys.path hacks with StemForge
+import conventions.
+
+### GPU / VRAM requirements
+
+| Config | VRAM | Notes |
+|--------|------|-------|
+| Minimum viable | 4 GB | batch_size=2, very slow |
+| Practical | 6–8 GB | batch_size=4–8 |
+| RTX 5080 (16 GB) | 16 GB | batch_size=8–16 + bf16 + GPU caching |
+
+Training locks the GPU for minutes-to-hours. Should run as a managed
+subprocess (like AceStep) with the pipeline_manager GPU lock ensuring
+mutual exclusion with inference pipelines.
+
+### Integration sketch
+
+- **Backend**: ~6 new API endpoints (preprocess, extract, train, stop,
+  status, build-index) under `/api/voice/train/*`
+- **Frontend**: training panel in Voice mode — dataset upload/selection,
+  model name, sample rate, epoch count, batch size, progress bars with
+  loss curves
+- **Pretrained models**: auto-download base G/D weights from HuggingFace
+  (~200–400 MB per sample rate variant)
 
 ---
 

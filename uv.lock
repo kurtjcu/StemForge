@@ -608,6 +608,21 @@ wheels = [
 ]
 
 [[package]]
+name = "faiss-cpu"
+version = "1.13.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "packaging", marker = "sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/d0/0940575f059591ca31b63a881058adb16a387020af1709dcb7669460115c/faiss_cpu-1.13.2-cp310-abi3-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0ee330a284042c2480f2e90450a10378fd95655d62220159b1408f59ee83ebf1", size = 11485825, upload-time = "2025-12-24T10:27:05.681Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/e1/a5acac02aa593809f0123539afe7b4aff61d1db149e7093239888c9053e1/faiss_cpu-1.13.2-cp310-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ab88ee287c25a119213153d033f7dd64c3ccec466ace267395872f554b648cd7", size = 23845772, upload-time = "2025-12-24T10:27:08.194Z" },
+    { url = "https://files.pythonhosted.org/packages/9c/7b/49dcaf354834ec457e85ca769d50bc9b5f3003fab7c94a9dcf08cf742793/faiss_cpu-1.13.2-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:85511129b34f890d19c98b82a0cd5ffb27d89d1cec2ee41d2621ee9f9ef8cf3f", size = 13477567, upload-time = "2025-12-24T10:27:10.822Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/6b/12bb4037921c38bb2c0b4cfc213ca7e04bbbebbfea89b0b5746248ce446e/faiss_cpu-1.13.2-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:8b32eb4065bac352b52a9f5ae07223567fab0a976c7d05017c01c45a1c24264f", size = 25102239, upload-time = "2025-12-24T10:27:13.476Z" },
+]
+
+[[package]]
 name = "fastapi"
 version = "0.134.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1117,6 +1132,20 @@ wheels = [
 ]
 
 [[package]]
+name = "local-attention"
+version = "1.11.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops", marker = "sys_platform == 'linux'" },
+    { name = "hyper-connections", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/b4/7cc5b3122ff63d58c7dd58cb122edfc8f5c74c88b14fcd22b444f0527952/local_attention-1.11.2.tar.gz", hash = "sha256:94e48fec748e96fa81ac6c3e27a357950eaab22cd8f69a10c50b23d6eec8f09c", size = 10918, upload-time = "2025-07-16T14:30:37.094Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/f6/074ef5c98f2d062177af24a9e20db20b009d141e4ca827c1e419461595b0/local_attention-1.11.2-py3-none-any.whl", hash = "sha256:8bbb03cef6a6f0b694de64f9ecd81886fd1e73ef367b57f02995b469ac52fd16", size = 9504, upload-time = "2025-07-16T14:30:35.9Z" },
+]
+
+[[package]]
 name = "loguru"
 version = "0.7.3"
 source = { registry = "https://pypi.org/simple" }
@@ -1356,6 +1385,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/24/bf/d1bda4f6168e0b2e9e5958945e01910052158313224ada5ce1fb2e1113b8/nodeenv-1.10.0.tar.gz", hash = "sha256:996c191ad80897d076bdfba80a41994c2b47c68e224c542b48feba42ba00f8bb", size = 55611, upload-time = "2025-12-20T14:08:54.006Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/b2/d0896bdcdc8d28a7fc5717c305f1a861c26e18c05047949fb371034d98bd/nodeenv-1.10.0-py2.py3-none-any.whl", hash = "sha256:5bb13e3eed2923615535339b3c620e76779af4cb4c6a90deccc9e36b274d3827", size = 23438, upload-time = "2025-12-20T14:08:52.782Z" },
+]
+
+[[package]]
+name = "noisereduce"
+version = "3.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "joblib", marker = "sys_platform == 'linux'" },
+    { name = "matplotlib", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "scipy", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/11/08/539e3cff148b7f9bde5b4b060451a7445d708fa3fe5d8a2bc0c552976e52/noisereduce-3.0.3.tar.gz", hash = "sha256:ff64a28fb92e3c81f153cf29550e5c2db56b2523afa8f56f5e03c177cc5e918f", size = 20968, upload-time = "2024-10-06T13:43:45.431Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ce/c5/fc00b3e8f86437039fb300ba41d5d683fdf0878d8782e827c2bad074eb59/noisereduce-3.0.3-py3-none-any.whl", hash = "sha256:95cb64cfe29b5fa0311ac764755d2f503ae71571040693577796412be1a54b9d", size = 22142, upload-time = "2024-10-06T13:43:43.886Z" },
 ]
 
 [[package]]
@@ -1638,6 +1683,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fa/36/e27608899f9b8d4dff0617b2d9ab17ca5608956ca44461ac14ac48b44015/pathspec-1.0.4.tar.gz", hash = "sha256:0210e2ae8a21a9137c0d470578cb0e595af87edaa6ebf12ff176f14a02e0e645", size = 131200, upload-time = "2026-01-27T03:59:46.938Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ef/3c/2c197d226f9ea224a9ab8d197933f9da0ae0aac5b6e0f884e2b8d9c8e9f7/pathspec-1.0.4-py3-none-any.whl", hash = "sha256:fb6ae2fd4e7c921a165808a552060e722767cfa526f99ca5156ed2ce45a5c723", size = 55206, upload-time = "2026-01-27T03:59:45.137Z" },
+]
+
+[[package]]
+name = "pedalboard"
+version = "0.9.22"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/83/e07bcdb221f2b4c9c7cd98d035aaa5a0cdc088cab498763147f59284325a/pedalboard-0.9.22-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:02d6c566088a0bea2dfce438e768c2cdac34a739511d8ede2267f38552b86e9f", size = 4841908, upload-time = "2026-02-02T18:30:49.354Z" },
+    { url = "https://files.pythonhosted.org/packages/64/a7/a779f606a698e1da5083ac3ad010b839bc329aea0a4d1c6d97620905de3c/pedalboard-0.9.22-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7f6065672ebe8423b4c4bd7becd69514ced2eb2ed65023e719c928162812e69d", size = 5040914, upload-time = "2026-02-02T18:30:50.789Z" },
 ]
 
 [[package]]
@@ -2245,8 +2302,10 @@ dependencies = [
     { name = "diffusers", marker = "sys_platform == 'linux'" },
     { name = "dora-search", marker = "sys_platform == 'linux'" },
     { name = "einops", marker = "sys_platform == 'linux'" },
+    { name = "faiss-cpu", marker = "sys_platform == 'linux'" },
     { name = "fastapi", marker = "sys_platform == 'linux'" },
     { name = "faster-whisper", marker = "sys_platform == 'linux'" },
+    { name = "hf-xet", marker = "sys_platform == 'linux'" },
     { name = "httpx", marker = "sys_platform == 'linux'" },
     { name = "huggingface-hub", marker = "sys_platform == 'linux'" },
     { name = "julius", marker = "sys_platform == 'linux'" },
@@ -2255,9 +2314,11 @@ dependencies = [
     { name = "mido", marker = "sys_platform == 'linux'" },
     { name = "mir-eval", marker = "sys_platform == 'linux'" },
     { name = "nano-vllm", marker = "sys_platform == 'linux'" },
+    { name = "noisereduce", marker = "sys_platform == 'linux'" },
     { name = "numpy", marker = "sys_platform == 'linux'" },
     { name = "nvidia-cuda-runtime-cu12", marker = "sys_platform == 'linux'" },
     { name = "openunmix", marker = "sys_platform == 'linux'" },
+    { name = "pedalboard", marker = "sys_platform == 'linux'" },
     { name = "pretty-midi", marker = "sys_platform == 'linux'" },
     { name = "pydub", marker = "sys_platform == 'linux'" },
     { name = "pyfluidsynth", marker = "sys_platform == 'linux'" },
@@ -2270,9 +2331,12 @@ dependencies = [
     { name = "setuptools", marker = "sys_platform == 'linux'" },
     { name = "soundfile", marker = "sys_platform == 'linux'" },
     { name = "soxr", marker = "sys_platform == 'linux'" },
+    { name = "stftpitchshift", marker = "sys_platform == 'linux'" },
     { name = "submitit", marker = "sys_platform == 'linux'" },
     { name = "torch", marker = "sys_platform == 'linux'" },
     { name = "torchaudio", marker = "sys_platform == 'linux'" },
+    { name = "torchcrepe", marker = "sys_platform == 'linux'" },
+    { name = "torchfcpe", marker = "sys_platform == 'linux'" },
     { name = "torchsde", marker = "sys_platform == 'linux'" },
     { name = "torchvision", marker = "sys_platform == 'linux'" },
     { name = "transformers", marker = "sys_platform == 'linux'" },
@@ -2304,8 +2368,10 @@ requires-dist = [
     { name = "diffusers", specifier = ">=0.30.0" },
     { name = "dora-search", specifier = "==0.1.12" },
     { name = "einops", specifier = ">=0.7.0" },
+    { name = "faiss-cpu", specifier = ">=1.9.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "faster-whisper", specifier = ">=1.0.0" },
+    { name = "hf-xet", specifier = ">=1.0.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "huggingface-hub", specifier = ">=0.23.0" },
     { name = "julius", specifier = "==0.2.7" },
@@ -2315,9 +2381,11 @@ requires-dist = [
     { name = "mir-eval", specifier = "==0.8.2" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.9.0" },
     { name = "nano-vllm", directory = "Ace-Step-Wrangler/vendor/ACE-Step-1.5/acestep/third_parts/nano-vllm" },
+    { name = "noisereduce", specifier = ">=3.0.0" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "nvidia-cuda-runtime-cu12" },
     { name = "openunmix", specifier = "==1.3.0" },
+    { name = "pedalboard", specifier = ">=0.9.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7.0" },
     { name = "pretty-midi", specifier = "==0.2.11" },
     { name = "pydub", specifier = "==0.25.1" },
@@ -2334,10 +2402,13 @@ requires-dist = [
     { name = "setuptools", specifier = "==68.0.0" },
     { name = "soundfile", specifier = "==0.13.1" },
     { name = "soxr", specifier = "==1.0.0" },
+    { name = "stftpitchshift", specifier = ">=1.5.0" },
     { name = "submitit", specifier = "==1.5.4" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },
     { name = "torch", specifier = "==2.10.0", index = "https://download.pytorch.org/whl/cu130" },
     { name = "torchaudio", specifier = "==2.10.0", index = "https://download.pytorch.org/whl/cu130" },
+    { name = "torchcrepe", specifier = ">=0.0.22" },
+    { name = "torchfcpe", specifier = ">=0.0.4" },
     { name = "torchsde", specifier = ">=0.2.6" },
     { name = "torchvision", index = "https://download.pytorch.org/whl/cu130" },
     { name = "transformers", specifier = ">=4.40.0" },
@@ -2347,6 +2418,20 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pip" }]
+
+[[package]]
+name = "stftpitchshift"
+version = "2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click", marker = "sys_platform == 'linux'" },
+    { name = "matplotlib", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0a/f9/f544b1accf7ae415656ad70c512afb24cae71546195153e8c13fa105eb3f/stftpitchshift-2.0.tar.gz", hash = "sha256:c0ca22434bd05e9c1c3ec11273b52c0761c68e4d03a1e642a4a2dd9cdb8ac96d", size = 17678, upload-time = "2023-12-12T21:57:14.651Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/ac/7f41db473a747d74595155603f7b222545a4347d60765e62b7672201ffc4/stftpitchshift-2.0-py3-none-any.whl", hash = "sha256:4629694a19669012e8176ce6f16d79cecec05181406230bba08d6f4bf732ac22", size = 15468, upload-time = "2023-12-12T21:57:12.827Z" },
+]
 
 [[package]]
 name = "submitit"
@@ -2537,6 +2622,38 @@ version = "0.10.0"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b9/c8/618bde55c1908583290883537326174e633a383a8337226ce0c7c6d70090/torchcodec-0.10.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:2e2be11c4468a58940572fcf5f8ed5e41187c1de214267f692e2fd5ac8731198", size = 2070483, upload-time = "2026-01-22T15:41:36.743Z" },
+]
+
+[[package]]
+name = "torchcrepe"
+version = "0.0.24"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "librosa", marker = "sys_platform == 'linux'" },
+    { name = "resampy", marker = "sys_platform == 'linux'" },
+    { name = "scipy", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "torchaudio", marker = "sys_platform == 'linux'" },
+    { name = "tqdm", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c8/98/0da59205962218ed1be90034aa11db3e2e10a54293508ef0aa07a1e5ceb9/torchcrepe-0.0.24.tar.gz", hash = "sha256:7eebdd59bdfed822ac19820cb73823335e4eba88f1c76c411a7ab05f7ca6db0a", size = 72329307, upload-time = "2025-05-16T18:41:41.393Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9b/a9/799d00b9dc7a18bb0ff53fccc187b1d83c690e337d078345c17ec0a1a224/torchcrepe-0.0.24-py3-none-any.whl", hash = "sha256:ec054c23c9d45328f213f93a0131570a3f0e5903e9382792bed95f17a8c36d5a", size = 72326298, upload-time = "2025-05-16T18:41:13.419Z" },
+]
+
+[[package]]
+name = "torchfcpe"
+version = "0.0.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "einops", marker = "sys_platform == 'linux'" },
+    { name = "local-attention", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "torchaudio", marker = "sys_platform == 'linux'" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/98/66da447498a2835b01cb3ae851e1333035a9fbf228e5c6f3e3c4351c06b6/torchfcpe-0.0.4-py3-none-any.whl", hash = "sha256:f042c463d850d76c6f4899a0b84f0b694bb560adf05f4de951097a756d17472d", size = 40222012, upload-time = "2024-03-06T20:03:43.685Z" },
 ]
 
 [[package]]

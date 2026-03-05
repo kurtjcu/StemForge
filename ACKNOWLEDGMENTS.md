@@ -91,6 +91,37 @@ Full song generation from lyrics and style descriptions, powering the Compose ta
 
 ---
 
+## Applio / RVC — IAHispano & RVC-Project
+
+Retrieval-based Voice Conversion inference code (vendored) powering the Voice mode in the Compose tab. StemForge vendors Applio's inference-only subtree for audio-in → audio-out voice transformation.
+
+- **Applio repository:** https://github.com/IAHispano/Applio
+- **RVC project:** https://github.com/RVC-Project/Retrieval-based-Voice-Conversion-WebUI
+- **License:** MIT
+
+### RMVPE — lj1995
+
+Robust pitch estimation model used as the default F0 extraction method for voice conversion.
+
+- **Repository:** https://github.com/Dream-High/RMVPE
+- **Paper:** Wei et al. — *RMVPE: A Robust Model for Vocal Pitch Estimation in Polyphonic Music* (2023)
+
+### FAISS — Meta (Facebook AI Research)
+
+Similarity search library used for speaker embedding retrieval in the RVC pipeline.
+
+- **Repository:** https://github.com/facebookresearch/faiss
+- **License:** MIT
+
+### ContentVec — auspicious3000
+
+Self-supervised speech representation model used as the speaker embedding extractor in RVC.
+
+- **Repository:** https://github.com/auspicious3000/contentvec
+- **Paper:** Qian et al. — *ContentVec: An Improved Self-Supervised Speech Representation by Disentangling Speakers* (ICML 2022)
+
+---
+
 ## PyTorch — Meta (Facebook AI Research)
 
 Deep learning framework underlying all inference pipelines.
@@ -177,7 +208,8 @@ Blazing-fast Python package manager and resolver used for deterministic environm
 
 StemForge also relies on many other excellent open-source libraries including
 NumPy, SciPy, soundfile, mido, pretty_midi, einops, safetensors, accelerate,
-pydub, soxr, and ai-edge-litert (TFLite runtime). Thank you to all their
+pydub, soxr, ai-edge-litert (TFLite runtime), torchcrepe, torchfcpe,
+noisereduce, pedalboard, and stftpitchshift. Thank you to all their
 maintainers and contributors.
 
 ---

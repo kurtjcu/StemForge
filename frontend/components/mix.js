@@ -199,6 +199,7 @@ export function initMix() {
   appState.on('generateReady', () => refreshTracks());
   appState.on('composeReady', () => refreshTracks());
   appState.on('sfxReady', () => refreshTracks());
+  appState.on('transformReady', () => refreshTracks());
 }
 
 async function refreshTracks() {

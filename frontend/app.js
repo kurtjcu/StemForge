@@ -28,6 +28,7 @@ export const appState = {
   mixPath: null,
   composePaths: [],
   sfxPaths: {},
+  voicePaths: {},
 };
 
 // ─── API Helpers ────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ export async function apiUpload(path, file) {
  * @param {string} jobId
  * @param {object} opts - { onProgress(progress, stage), onDone(result), onError(msg), interval }
  */
-export function pollJob(jobId, { onProgress, onDone, onError, interval = 2000 } = {}) {
+export function pollJob(jobId, { onProgress, onDone, onError, interval = 5000 } = {}) {
   const timer = setInterval(async () => {
     try {
       const job = await api(`/jobs/${jobId}`);
