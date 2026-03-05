@@ -33,6 +33,10 @@ const ACE_TRACKS = [
   'vocals', 'backing_vocals', 'drums', 'bass', 'guitar', 'keyboard',
   'strings', 'brass', 'woodwinds', 'synth', 'percussion', 'fx',
 ];
+
+// Per-bar peaks cached from source uploads (for diff visualization)
+let _legoSourcePeaks = null;
+let _completeSourcePeaks = null;
 let _autoOn = false;
 let _aceStepRunning = false;
 let _pollTimer = null;
@@ -58,6 +62,139 @@ function _updateSlider(slider) {
   const min = Number(slider.min);
   const max = Number(slider.max);
   slider.style.setProperty('--fill', ((val - min) / (max - min)) * 100 + '%');
+}
+
+// ─── Analyze waveform utilities ─────────────────────────────────────
+
+function _getComputedColor(varName) {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+}
+
+function _hexToRgb(hex) {
+  if (hex.startsWith('#')) {
+    const n = parseInt(hex.slice(1), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const m = hex.match(/(\d+)/g);
+  return m ? [+m[0], +m[1], +m[2]] : [107, 107, 132];
+}
+
+async function _decodeAudioPeaks(audioUrl, barCount) {
+  const resp = await fetch(audioUrl);
+  if (!resp.ok) throw new Error(resp.statusText);
+  const arrayBuf = await resp.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
+  audioCtx.close();
+
+  const channels = audioBuf.numberOfChannels;
+  const length = audioBuf.length;
+  const mono = new Float32Array(length);
+  for (let ch = 0; ch < channels; ch++) {
+    const data = audioBuf.getChannelData(ch);
+    for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
+  }
+
+  if (barCount < 1) barCount = 1;
+  const samplesPerBar = Math.floor(length / barCount);
+  const peaks = new Float32Array(barCount);
+  for (let i = 0; i < barCount; i++) {
+    let peak = 0;
+    const offset = i * samplesPerBar;
+    for (let j = 0; j < samplesPerBar; j++) {
+      const abs = Math.abs(mono[offset + j] || 0);
+      if (abs > peak) peak = abs;
+    }
+    peaks[i] = peak;
+  }
+  return peaks;
+}
+
+function _drawAnalyzeWaveform(canvasEl, containerEl, peaks, colorFn) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = containerEl.getBoundingClientRect();
+  canvasEl.width = rect.width * dpr;
+  canvasEl.height = rect.height * dpr;
+  canvasEl.style.width = rect.width + 'px';
+  canvasEl.style.height = rect.height + 'px';
+  const ctx = canvasEl.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const w = rect.width;
+  const h = rect.height;
+  const barCount = peaks.length;
+  if (barCount === 0) return;
+
+  const barWidth = w / barCount;
+  const midY = h / 2;
+  const maxBarH = h * 0.85;
+
+  ctx.clearRect(0, 0, w, h);
+  for (let i = 0; i < barCount; i++) {
+    const x = i * barWidth;
+    const barH = Math.max(1, peaks[i] * maxBarH);
+    ctx.fillStyle = colorFn(i);
+    ctx.fillRect(x, midY - barH / 2, Math.max(1, barWidth - 0.5), barH);
+  }
+}
+
+async function _renderSourceWaveform(audioUrl, containerId, canvasId, peaksSetter) {
+  const container = _id(containerId);
+  const canvas = _id(canvasId);
+  if (!container || !canvas) return;
+  container.closest('.analyze-wf-section')?.classList.remove('hidden');
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = container.getBoundingClientRect();
+  const barCount = Math.max(1, Math.floor((rect.width * dpr) / (2 * dpr)));
+
+  try {
+    const peaks = await _decodeAudioPeaks(audioUrl, barCount);
+    peaksSetter(peaks);
+    const mutedColor = _getComputedColor('--text-muted');
+    _drawAnalyzeWaveform(canvas, container, peaks, () => mutedColor);
+  } catch (err) {
+    console.error('Source waveform error:', err);
+  }
+}
+
+async function _renderResultWaveform(resultAudioUrl, containerId, canvasId, sourcePeaks) {
+  const container = _id(containerId);
+  const canvas = _id(canvasId);
+  if (!container || !canvas) return;
+  container.closest('.analyze-wf-section')?.classList.remove('hidden');
+
+  const barCount = sourcePeaks ? sourcePeaks.length : 200;
+
+  try {
+    const resultPeaks = await _decodeAudioPeaks(resultAudioUrl, barCount);
+
+    // Per-bar magnitude difference, normalized
+    const diffs = new Float32Array(barCount);
+    let maxDiff = 0;
+    for (let i = 0; i < barCount; i++) {
+      const srcPeak = sourcePeaks ? (sourcePeaks[i] || 0) : 0;
+      diffs[i] = Math.abs(resultPeaks[i] - srcPeak);
+      if (diffs[i] > maxDiff) maxDiff = diffs[i];
+    }
+
+    const mutedHex = _getComputedColor('--text-muted');
+    const accentHex = _getComputedColor('--accent');
+    const mRgb = _hexToRgb(mutedHex);
+    const aRgb = _hexToRgb(accentHex);
+
+    _drawAnalyzeWaveform(canvas, container, resultPeaks, (i) => {
+      if (maxDiff === 0) return mutedHex;
+      const t = diffs[i] / maxDiff;
+      const e = t * t; // quadratic easing — only strong diffs pop
+      const r = Math.round(mRgb[0] + (aRgb[0] - mRgb[0]) * e);
+      const g = Math.round(mRgb[1] + (aRgb[1] - mRgb[1]) * e);
+      const b = Math.round(mRgb[2] + (aRgb[2] - mRgb[2]) * e);
+      return `rgb(${r},${g},${b})`;
+    });
+  } catch (err) {
+    console.error('Result waveform error:', err);
+  }
 }
 
 function _modeLabel() {
@@ -358,6 +495,20 @@ function buildLeftColumn() {
       placeholder: 'Describe the replacement track\u2026 e.g. funky slap bass with groove' }),
   );
 
+  // Lego waveform sections (source + result diff)
+  const legoSourceWf = el('div', { className: 'analyze-wf-section hidden', id: 'lego-wf-source-section' },
+    el('span', { className: 'analyze-wf-label' }, 'Source'),
+    el('div', { className: 'analyze-wf-container', id: 'lego-wf-source' },
+      el('canvas', { className: 'analyze-wf-canvas', id: 'lego-wf-source-canvas' }),
+    ),
+  );
+  const legoResultWf = el('div', { className: 'analyze-wf-section hidden', id: 'lego-wf-result-section' },
+    el('span', { className: 'analyze-wf-label' }, 'Result'),
+    el('div', { className: 'analyze-wf-container', id: 'lego-wf-result' },
+      el('canvas', { className: 'analyze-wf-canvas', id: 'lego-wf-result-canvas' }),
+    ),
+  );
+
   legoPanel.append(
     legoUploadZone,
     el('div', { className: 'compose-divider' }),
@@ -370,6 +521,8 @@ function buildLeftColumn() {
     legoDirection,
     el('div', { className: 'banner banner-info', style: { fontSize: '12px', marginTop: '8px' } },
       'Requires base model. Duration locked to source audio.'),
+    legoSourceWf,
+    legoResultWf,
   );
 
   setupUploadDragDrop(legoUploadZone, handleLegoAudioUpload);
@@ -419,6 +572,20 @@ function buildLeftColumn() {
       placeholder: 'Describe the sound\u2026 e.g. orchestral with warm strings and brass' }),
   );
 
+  // Complete waveform sections (source + result diff)
+  const completeSourceWf = el('div', { className: 'analyze-wf-section hidden', id: 'complete-wf-source-section' },
+    el('span', { className: 'analyze-wf-label' }, 'Source'),
+    el('div', { className: 'analyze-wf-container', id: 'complete-wf-source' },
+      el('canvas', { className: 'analyze-wf-canvas', id: 'complete-wf-source-canvas' }),
+    ),
+  );
+  const completeResultWf = el('div', { className: 'analyze-wf-section hidden', id: 'complete-wf-result-section' },
+    el('span', { className: 'analyze-wf-label' }, 'Result'),
+    el('div', { className: 'analyze-wf-container', id: 'complete-wf-result' },
+      el('canvas', { className: 'analyze-wf-canvas', id: 'complete-wf-result-canvas' }),
+    ),
+  );
+
   completePanel.append(
     completeUploadZone,
     el('div', { className: 'compose-divider' }),
@@ -430,6 +597,8 @@ function buildLeftColumn() {
     completeDirection,
     el('div', { className: 'banner banner-info', style: { fontSize: '12px', marginTop: '8px' } },
       'Requires base model. Duration locked to source audio.'),
+    completeSourceWf,
+    completeResultWf,
   );
 
   setupUploadDragDrop(completeUploadZone, handleCompleteAudioUpload);
@@ -1035,11 +1204,17 @@ async function handleLegoAudioUpload(file) {
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     _legoUploadedPath = data.path;
-    const audio = new Audio(URL.createObjectURL(file));
+    const blobUrl = URL.createObjectURL(file);
+    const audio = new Audio(blobUrl);
     audio.addEventListener('loadedmetadata', () => {
       _legoUploadedDuration = audio.duration;
       if (durEl) durEl.textContent = _formatDuration(audio.duration);
     });
+    // Render source waveform
+    _legoSourcePeaks = null;
+    _id('lego-wf-result-section')?.classList.add('hidden');
+    _renderSourceWaveform(blobUrl, 'lego-wf-source', 'lego-wf-source-canvas',
+      (peaks) => { _legoSourcePeaks = peaks; });
   } catch {
     removeLegoUploadedAudio();
   }
@@ -1048,8 +1223,11 @@ async function handleLegoAudioUpload(file) {
 function removeLegoUploadedAudio() {
   _legoUploadedPath = null;
   _legoUploadedDuration = null;
+  _legoSourcePeaks = null;
   _id('compose-lego-upload-prompt')?.classList.remove('hidden');
   _id('compose-lego-upload-loaded')?.classList.add('hidden');
+  _id('lego-wf-source-section')?.classList.add('hidden');
+  _id('lego-wf-result-section')?.classList.add('hidden');
 }
 
 // ─── Complete Audio Upload ─────────────────────────────────────────
@@ -1077,11 +1255,17 @@ async function handleCompleteAudioUpload(file) {
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     _completeUploadedPath = data.path;
-    const audio = new Audio(URL.createObjectURL(file));
+    const blobUrl = URL.createObjectURL(file);
+    const audio = new Audio(blobUrl);
     audio.addEventListener('loadedmetadata', () => {
       _completeUploadedDuration = audio.duration;
       if (durEl) durEl.textContent = _formatDuration(audio.duration);
     });
+    // Render source waveform
+    _completeSourcePeaks = null;
+    _id('complete-wf-result-section')?.classList.add('hidden');
+    _renderSourceWaveform(blobUrl, 'complete-wf-source', 'complete-wf-source-canvas',
+      (peaks) => { _completeSourcePeaks = peaks; });
   } catch {
     removeCompleteUploadedAudio();
   }
@@ -1090,8 +1274,11 @@ async function handleCompleteAudioUpload(file) {
 function removeCompleteUploadedAudio() {
   _completeUploadedPath = null;
   _completeUploadedDuration = null;
+  _completeSourcePeaks = null;
   _id('compose-complete-upload-prompt')?.classList.remove('hidden');
   _id('compose-complete-upload-loaded')?.classList.add('hidden');
+  _id('complete-wf-source-section')?.classList.add('hidden');
+  _id('complete-wf-result-section')?.classList.add('hidden');
 }
 
 function loadLyricsFile() {
@@ -1429,6 +1616,16 @@ function showResults(taskId, results, payload) {
     appState.composePaths.push({ path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
     appState.emit('composeReady', { path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
   });
+
+  // Render diff waveform for analyze modes (first result)
+  if ((_mode === 'lego' || _mode === 'complete') && results.length > 0 && results[0].audio_url) {
+    const resultUrl = `/api/compose/audio?path=${encodeURIComponent(results[0].audio_url)}`;
+    if (_mode === 'lego') {
+      _renderResultWaveform(resultUrl, 'lego-wf-result', 'lego-wf-result-canvas', _legoSourcePeaks);
+    } else {
+      _renderResultWaveform(resultUrl, 'complete-wf-result', 'complete-wf-result-canvas', _completeSourcePeaks);
+    }
+  }
 }
 
 function buildResultCard(taskId, index, total, result, fmt) {
