@@ -1057,6 +1057,21 @@ input[type="range"]::-webkit-slider-thumb {
 .compose-number::placeholder { color: var(--text-muted); }
 .compose-number:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.compose-input {
+  width: 100%;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono-compose);
+  font-size: 13px;
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.compose-input:focus { border-color: var(--accent); }
+.compose-input::placeholder { color: var(--text-muted); }
+
 .compose-textarea {
   width: 100%;
   background: var(--surface-raised);

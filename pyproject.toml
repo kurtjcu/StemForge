@@ -88,6 +88,7 @@ dependencies = [
     "safetensors>=0.4.2",
     "einops>=0.7.0",
     "huggingface_hub>=0.23.0",
+    "hf-xet>=1.0.0",
 
     # Web backend
     "fastapi>=0.115.0",

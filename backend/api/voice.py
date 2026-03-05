@@ -274,3 +274,121 @@ def list_voice_models() -> dict:
             })
 
     return {"models": models}
+
+
+class VoiceModelImportRequest(BaseModel):
+    repo_id: str
+    name: str = ""
+
+
+@router.post("/voice/models/import")
+def import_voice_model(req: VoiceModelImportRequest) -> dict:
+    """Import an RVC voice model from a HuggingFace repo.
+
+    Scans the repo for .pth and .index files and downloads them.
+    """
+    from huggingface_hub import HfApi, hf_hub_download
+
+    repo_id = req.repo_id.strip()
+    if not repo_id or "/" not in repo_id:
+        raise HTTPException(422, "Invalid repo ID — expected format: owner/repo")
+
+    api = HfApi()
+    try:
+        files = list(api.list_repo_files(repo_id))
+    except Exception as exc:
+        raise HTTPException(404, f"Repository not found: {repo_id} ({exc})")
+
+    pth_files = [f for f in files if f.endswith(".pth")]
+    idx_files = [f for f in files if f.endswith(".index")]
+
+    # Filter out common pretrain weights (D/G/f0 prefixed)
+    voice_pths = [f for f in pth_files if not any(
+        pathlib.PurePosixPath(f).name.startswith(p) for p in ("D", "G", "f0")
+    )]
+    if not voice_pths:
+        # Fall back to all .pth files
+        voice_pths = pth_files
+
+    if not voice_pths:
+        raise HTTPException(
+            422, f"No .pth model files found in {repo_id}. "
+            "This repo may not contain an RVC voice model.",
+        )
+
+    # Use first .pth found
+    pth_hf = voice_pths[0]
+
+    # Derive display name: user-provided, or from repo name
+    name = req.name.strip() or repo_id.split("/")[-1].replace("_", " ").replace("--", " ")
+
+    model_dir = VOICE_MODELS_DIR / name
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    local_pth = hf_hub_download(repo_id=repo_id, filename=pth_hf, local_dir=str(model_dir))
+
+    local_idx = None
+    if idx_files:
+        try:
+            local_idx = hf_hub_download(
+                repo_id=repo_id, filename=idx_files[0], local_dir=str(model_dir),
+            )
+        except Exception:
+            pass  # Index is optional
+
+    size_mb = pathlib.Path(local_pth).stat().st_size / (1024 * 1024)
+    return {
+        "name": name,
+        "has_index": local_idx is not None,
+        "size_mb": round(size_mb, 1),
+        "downloaded": True,
+    }
+
+
+@router.post("/voice/models/upload")
+async def upload_voice_model(file: UploadFile, name: str = "") -> dict:
+    """Upload an RVC .pth model file (and optionally .index) from disk."""
+    if not file.filename:
+        raise HTTPException(422, "No file provided")
+
+    ext = pathlib.Path(file.filename).suffix.lower()
+    if ext not in (".pth", ".index"):
+        raise HTTPException(422, "Only .pth and .index files are accepted")
+
+    # Derive model name from filename if not provided
+    model_name = name.strip() or pathlib.Path(file.filename).stem
+    model_dir = VOICE_MODELS_DIR / model_name
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    dest = model_dir / file.filename
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    pth, idx = _find_model_files(model_name)
+    size_mb = pth.stat().st_size / (1024 * 1024) if pth else 0
+    return {
+        "name": model_name,
+        "has_pth": pth is not None,
+        "has_index": idx is not None,
+        "size_mb": round(size_mb, 1),
+    }
+
+
+@router.delete("/voice/models/{name}")
+def delete_voice_model(name: str) -> dict:
+    """Delete a downloaded voice model from the cache."""
+    model_dir = VOICE_MODELS_DIR / name
+    if model_dir.is_dir():
+        shutil.rmtree(model_dir)
+        return {"deleted": name}
+
+    # Check flat layout
+    flat_pth = VOICE_MODELS_DIR / f"{name}.pth"
+    if flat_pth.exists():
+        flat_pth.unlink()
+        flat_idx = VOICE_MODELS_DIR / f"{name}.index"
+        if flat_idx.exists():
+            flat_idx.unlink()
+        return {"deleted": name}
+
+    raise HTTPException(404, f"Voice model not found: {name}")

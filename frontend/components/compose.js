@@ -698,6 +698,23 @@ function buildLeftColumn() {
       el('label', { className: 'compose-field-label' }, 'Voice model'),
       voiceModelSelect,
       voiceModelStatus,
+      el('div', { className: 'voice-model-actions', style: { display: 'flex', gap: '6px', marginTop: '6px' } },
+        el('button', { className: 'compose-ghost-btn', onClick: showVoiceModelImport }, 'Import from HF'),
+        el('button', { className: 'compose-ghost-btn', onClick: browseVoiceModel }, 'Upload .pth'),
+      ),
+      el('div', { className: 'hidden', id: 'voice-model-import-row', style: { marginTop: '6px' } },
+        el('input', { type: 'text', id: 'voice-model-import-repo', className: 'compose-input',
+          placeholder: 'owner/repo (e.g. binant/Ariana_Grande__RVC_V2_)',
+          style: { fontSize: '12px', width: '100%', marginBottom: '4px' } }),
+        el('input', { type: 'text', id: 'voice-model-import-name', className: 'compose-input',
+          placeholder: 'Display name (optional)',
+          style: { fontSize: '12px', width: '100%', marginBottom: '4px' } }),
+        el('div', { style: { display: 'flex', gap: '6px' } },
+          el('button', { className: 'btn btn-sm', onClick: doVoiceModelImport }, 'Download'),
+          el('button', { className: 'compose-ghost-btn', onClick: () => _id('voice-model-import-row')?.classList.add('hidden') }, 'Cancel'),
+        ),
+        el('span', { id: 'voice-model-import-status', className: 'compose-hint', style: { fontSize: '11px' } }),
+      ),
     ),
     el('div', { className: 'compose-divider' }),
     el('div', { className: 'compose-control-group' },
@@ -1888,6 +1905,82 @@ async function loadVoiceModels() {
     clearChildren(sel);
     sel.appendChild(el('option', { value: '' }, 'Failed to load models'));
   }
+}
+
+function _reloadVoiceModels() {
+  _voiceModels = [];  // force reload
+  loadVoiceModels();
+}
+
+function showVoiceModelImport() {
+  _id('voice-model-import-row')?.classList.remove('hidden');
+}
+
+async function doVoiceModelImport() {
+  const repo = (_id('voice-model-import-repo') || {}).value?.trim();
+  const name = (_id('voice-model-import-name') || {}).value?.trim();
+  const status = _id('voice-model-import-status');
+  if (!repo) { if (status) status.textContent = 'Enter a HuggingFace repo ID.'; return; }
+
+  if (status) status.textContent = 'Downloading...';
+  try {
+    const data = await api('/voice/models/import', {
+      method: 'POST',
+      body: JSON.stringify({ repo_id: repo, name: name || '' }),
+    });
+    if (status) status.textContent = `Imported "${data.name}" (${data.size_mb} MB)`;
+    _id('voice-model-import-row')?.classList.add('hidden');
+    _reloadVoiceModels();
+    // Auto-select the imported model
+    setTimeout(() => {
+      const sel = _id('compose-voice-model');
+      if (sel) sel.value = data.name;
+    }, 500);
+  } catch (err) {
+    if (status) status.textContent = `Import failed: ${err.message || err}`;
+  }
+}
+
+function browseVoiceModel() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.pth,.index';
+  input.multiple = true;
+  input.addEventListener('change', async () => {
+    const files = Array.from(input.files || []);
+    const pthFile = files.find(f => f.name.endsWith('.pth'));
+    if (!pthFile) { alert('Select a .pth model file.'); return; }
+
+    const status = _id('compose-voice-model-status');
+    if (status) status.textContent = 'Uploading model...';
+
+    try {
+      // Upload .pth
+      const form = new FormData();
+      form.append('file', pthFile);
+      const res = await fetch('/api/voice/models/upload', { method: 'POST', body: form });
+      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+      const data = await res.json();
+
+      // Upload .index if selected
+      const idxFile = files.find(f => f.name.endsWith('.index'));
+      if (idxFile) {
+        const form2 = new FormData();
+        form2.append('file', idxFile);
+        await fetch(`/api/voice/models/upload?name=${encodeURIComponent(data.name)}`, { method: 'POST', body: form2 });
+      }
+
+      if (status) status.textContent = `Uploaded "${data.name}"`;
+      _reloadVoiceModels();
+      setTimeout(() => {
+        const sel = _id('compose-voice-model');
+        if (sel) sel.value = data.name;
+      }, 500);
+    } catch (err) {
+      if (status) status.textContent = `Upload failed: ${err.message || err}`;
+    }
+  });
+  input.click();
 }
 
 function _populateVoiceStemSelect() {
