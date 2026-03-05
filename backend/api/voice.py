@@ -4,17 +4,22 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
 from backend.services.session_store import session
 from backend.services import pipeline_manager
 from utils.cache import get_model_cache_dir
+from utils.paths import VOICE_DIR
 
 router = APIRouter(prefix="/api", tags=["voice"])
+
+_VOICE_UPLOAD_DIR = VOICE_DIR / "uploads"
+_AUDIO_EXTS = {".wav", ".flac", ".mp3", ".ogg", ".aiff", ".m4a", ".wma", ".opus"}
 
 # Voice models live in ~/.cache/stemforge/voice_models/
 VOICE_MODELS_DIR = get_model_cache_dir("voice_models")
@@ -179,6 +184,25 @@ def _run_voice_convert(req: VoiceConvertRequest, job_id: str) -> dict:
         "duration": result.duration_seconds,
         "model_name": req.model_name,
     }
+
+
+@router.post("/voice/upload")
+async def upload_voice_audio(file: UploadFile) -> dict:
+    """Upload audio for voice conversion (independent of AceStep)."""
+    if not file.filename:
+        raise HTTPException(422, "No file provided")
+
+    ext = pathlib.Path(file.filename).suffix.lower()
+    if ext not in _AUDIO_EXTS:
+        raise HTTPException(422, f"Unsupported audio format: {ext}")
+
+    _VOICE_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _VOICE_UPLOAD_DIR / f"{uuid.uuid4().hex}{ext}"
+
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+
+    return {"path": str(dest)}
 
 
 @router.post("/voice/convert")

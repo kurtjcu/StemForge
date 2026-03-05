@@ -1979,19 +1979,23 @@ function _buildVoiceSourcePlayer(audioUrl, label) {
 function browseVoiceAudio() {
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'audio/*';
+  input.accept = 'audio/*,.wav,.flac,.mp3,.ogg,.aiff,.m4a,.wma,.opus';
   input.addEventListener('change', () => { if (input.files[0]) handleVoiceFileUpload(input.files[0]); });
   input.click();
 }
 
 async function handleVoiceFileUpload(file) {
-  if (!file || !file.type.startsWith('audio/')) return;
+  if (!file) return;
+  // Accept by extension — browser MIME can be empty for some audio formats
+  const ext = (file.name || '').split('.').pop().toLowerCase();
+  const validExts = ['wav','flac','mp3','ogg','aiff','m4a','wma','opus'];
+  if (!validExts.includes(ext)) return;
 
-  // Upload to compose endpoint (reuse existing upload)
+  // Upload to voice-specific endpoint (no AceStep dependency)
   const form = new FormData();
   form.append('file', file);
   try {
-    const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
+    const res = await fetch('/api/voice/upload', { method: 'POST', body: form });
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
     _voiceSourcePath = data.path;
