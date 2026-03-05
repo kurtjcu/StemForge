@@ -27,7 +27,9 @@ def singleton(cls):
 class Config:
     def __init__(self):
         from utils.device import get_device
-        self.device = str(get_device())
+        dev = get_device()
+        # Normalize "cuda" to "cuda:0" so index parsing works
+        self.device = str(dev) if ":" in str(dev) else f"{dev}:0" if str(dev).startswith("cuda") else str(dev)
         self.gpu_name = (
             torch.cuda.get_device_name(int(self.device.split(":")[-1]))
             if self.device.startswith("cuda")
