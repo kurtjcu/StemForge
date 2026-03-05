@@ -26,38 +26,25 @@ VOICE_MODELS_DIR = get_model_cache_dir("voice_models")
 
 # Known voice models available for auto-download from HuggingFace.
 # Each entry: (display_name, hf_repo, hf_pth_filename, hf_index_filename_or_None)
-# Models from binant/ use flat model.pth/model.index; we download into per-name subdirs.
+# Downloads into per-name subdirs under VOICE_MODELS_DIR.
 KNOWN_MODELS: list[tuple[str, str, str, str | None]] = [
-    (
-        "Donald Trump",
-        "binant/Donald_Trump__RVC_v2_",
-        "model.pth",
-        "model.index",
-    ),
-    (
-        "SpongeBob",
-        "binant/SpongeBob_SquarePants__RVC_v2_",
-        "model.pth",
-        "model.index",
-    ),
-    (
-        "Kurt Cobain",
-        "binant/Kurt_Cobain__From_Nirvana___RVC_v2__150_Epochs",
-        "model.pth",
-        "model.index",
-    ),
-    (
-        "Hatsune Miku",
-        "binant/Hatsune_Miku__RVC_v2_",
-        "model.pth",
-        "model.index",
-    ),
-    (
-        "Peter Griffin",
-        "binant/Peter_Griffin__Family_Guy___RVC_V2__300_Epoch",
-        "model.pth",
-        "model.index",
-    ),
+    # ── Singing voices ──
+    ("Freddie Mercury", "binant/Freddie_Mercury__RVC_-_700_Epochs_", "model.pth", "model.index"),
+    ("Adele", "binant/Adele__RVC_-_400_Epochs_", "model.pth", "model.index"),
+    ("Frank Sinatra", "binant/Frank_Sinatra__51600_Steps___250_Epochs__RVC", "model.pth", "model.index"),
+    ("Kurt Cobain", "binant/Kurt_Cobain__From_Nirvana___RVC_v2__150_Epochs", "model.pth", "model.index"),
+    ("Ariana Grande", "binant/Ariana_Grande__RVC_v1_", "model.pth", "model.index"),
+    ("Taylor Swift", "binant/Taylor_Swift__RVC_v1_", "model.pth", "model.index"),
+    ("The Weeknd", "binant/The_Weeknd__RVC__1000_Epochs", "model.pth", "model.index"),
+    ("Drake", "binant/Drake_RVC", "model.pth", "model.index"),
+    ("Hatsune Miku", "binant/Hatsune_Miku__RVC_v2_", "model.pth", "model.index"),
+    # ── Character / novelty ──
+    ("Donald Trump", "binant/Donald_Trump__RVC_v2_", "model.pth", "model.index"),
+    ("SpongeBob", "binant/SpongeBob_SquarePants__RVC_v2_", "model.pth", "model.index"),
+    ("Peter Griffin", "binant/Peter_Griffin__Family_Guy___RVC_V2__300_Epoch", "model.pth", "model.index"),
+    # ── Generic clean voices ──
+    ("Male (generic)", "Wismut/RVC_US_Male_1", "Male_1.pth", "Male_1.index"),
+    ("Female (generic)", "Wismut/RVC_US_Female_1", "Female_1.pth", "Female_1.index"),
 ]
 
 
