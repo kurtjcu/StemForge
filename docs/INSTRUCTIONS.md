@@ -14,14 +14,22 @@ The waveform appears in the transport bar at the bottom of the page. Use the pla
 
 ## 2. Separate — Stem Separation
 
-Split a track into individual stems using one of two AI engines:
+Split a track into individual stems using one of three AI engines:
 
 - **Demucs** — 4 models (htdemucs, htdemucs_ft, mdx_extra, mdx_extra_q). Good general-purpose choice. `htdemucs_ft` is fine-tuned for higher vocal quality.
 - **BS-Roformer** — 6 models including ViperX vocals (best vocal SDR), KJ vocals, ZFTurbo 4-stem, and jarredou 6-stem (adds guitar and piano stems).
+- **ACE-Step** — AI-generative extraction powered by the AceStep base model. Extracts one stem at a time from a wider set of track types: vocals, backing vocals, drums, bass, guitar, keyboard, strings, brass, woodwinds, synth, percussion, and FX. Requires the AceStep backend to be running (it will start automatically if needed).
 
-**Recommendation** — Click "Recommend" to let StemForge analyse your file's spectral content and suggest the best engine and model automatically.
+**Demucs / BS-Roformer workflow:**
+1. Choose an engine and model.
+2. Optionally click **Help me choose** — StemForge analyses your audio and recommends the best engine and model automatically.
+3. Check the stems you want to extract (all selected by default).
+4. Click **Separate**. A progress bar tracks the job. When done, each stem appears as a playable waveform and is passed automatically to the MIDI and Mix tabs.
 
-After choosing an engine and model, click **Separate**. A progress bar tracks the job. When done, each stem appears as a playable waveform. Stems are passed automatically to the MIDI and Mix tabs.
+**ACE-Step workflow:**
+1. Select **ACE-Step** as the engine. The model selector is replaced by an info banner.
+2. Use the radio buttons to select the single stem type to extract.
+3. Click **Separate**. StemForge starts the AceStep backend if it isn't already running, uploads your audio, and runs generative extraction. The extracted stem appears as a playable waveform when complete.
 
 ---
 
