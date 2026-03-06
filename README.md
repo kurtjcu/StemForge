@@ -39,7 +39,7 @@ Everything runs locally with deterministic environments via uv.
 
 **Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
 
-See [Future Plans](docs/FUTURE_PLANS.md) for the roadmap, including native packaging and further voice transformation improvements.
+See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for a guide to every tab, or [Future Plans](docs/FUTURE_PLANS.md) for the roadmap.
 
 ---
 
@@ -189,7 +189,7 @@ Expect significantly faster inference than CPU-only, but slower than CUDA on a d
 
 The Synth tab uses [Stable Audio Open 1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0),
 a gated model. You must accept its license and authenticate before StemForge can download it.
-See the [Synth section in INSTRUCTIONS.md](INSTRUCTIONS.md#3-synth--audio-generation--sfx-stem-builder)
+See the [Synth section in INSTRUCTIONS.md](docs/INSTRUCTIONS.md#4-synth--audio-generation--sfx-stem-builder)
 for usage details.
 
 **Step 1 — Accept the license**
@@ -292,11 +292,11 @@ Text-conditioned audio generation via Stable Audio Open 1.0 (44,100 Hz stereo).
 Optional conditioning from audio stems, MIDI, or the current mix.
 Duration up to 600 s (chunked generation, 47 s per chunk).
 Includes Vocal Preservation Mode.
-See [INSTRUCTIONS.md](INSTRUCTIONS.md#3-synth--audio-generation--sfx-stem-builder) for usage details.
+See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md#4-synth--audio-generation--sfx-stem-builder) for usage details.
 
 ### Compose
 Full song generation via AceStep 1.5 and voice transformation via RVC, running as managed pipelines.
-See [INSTRUCTIONS.md](INSTRUCTIONS.md#4-compose--full-song-generation-acestep) for usage details.
+See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md#5-compose--full-song-generation-acestep) for usage details.
 
 - **Initialize** — on first visit, the button says "Initialize". Click it to start the AceStep backend and download models (~20 GB on first run). Once ready, the button becomes "Generate".
 - **Create mode** — build a song from genre/mood tags, song parameters, and lyrics (manual, AI-generated, or instrumental)
@@ -398,8 +398,8 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │   ├── models/                     # Synthesizer architectures
     │   └── configs/                    # Sample rate configs
     │
-    ├── INSTRUCTIONS.md                    # User guide — how to use each tab
     ├── docs/
+    │   ├── INSTRUCTIONS.md             # User guide — how to use each tab
     │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
     │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
     │
