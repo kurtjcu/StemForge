@@ -790,6 +790,16 @@ function buildRightColumn() {
   // Advanced panel
   const advanced = buildAdvancedPanel();
 
+  // Project save/load
+  const projStatus = el('span', { id: 'compose-project-status', className: 'compose-project-status' });
+  const projFileInput = el('input', { type: 'file', id: 'compose-project-file', accept: '.json', className: 'hidden' });
+  const projSaveBtn = el('button', { className: 'compose-ghost-btn', type: 'button' }, 'Save Project');
+  const projLoadBtn = el('button', { className: 'compose-ghost-btn', type: 'button' }, 'Load Project');
+  projSaveBtn.addEventListener('click', _saveProject);
+  projLoadBtn.addEventListener('click', () => projFileInput.click());
+  projFileInput.addEventListener('change', _loadProject);
+  const projectRow = el('div', { className: 'compose-project-row' }, projSaveBtn, projLoadBtn, projFileInput, projStatus);
+
   col.append(
     durationGroup,
     el('div', { className: 'compose-divider' }),
@@ -798,6 +808,8 @@ function buildRightColumn() {
     buildSliderGroup('Quality', 'compose-q-value', 'Balanced', qSlider),
     genBtn, genHint,
     advanced,
+    el('div', { className: 'compose-divider' }),
+    projectRow,
   );
   return col;
 }
@@ -1080,6 +1092,150 @@ async function _refreshLoraStatus() {
       active.classList.add('hidden');
     }
   } catch {}
+}
+
+// ─── Project Save/Load ──────────────────────────────────────────────
+
+function _gatherProject() {
+  const activeTags = [...document.querySelectorAll('#panel-compose .compose-tag.active')].map(t => t.textContent.trim());
+  return {
+    _version: 1,
+    _saved: new Date().toISOString(),
+    mode: _mode,
+    createTab: _createTab,
+    approach: _approach,
+    lyrics: (_id('compose-lyrics-text') || {}).value || '',
+    style: (_id('compose-style-text') || {}).value || '',
+    tags: activeTags,
+    bpm: (_id('compose-bpm') || {}).value || '',
+    keyRoot: (_id('compose-key-root') || {}).value || '',
+    keyMode: (_id('compose-key-mode') || {}).value || 'major',
+    timeSig: (_id('compose-time-sig') || {}).value || '4/4',
+    duration: (_id('compose-duration') || {}).value || '30',
+    lyricAdherence: (_id('compose-lyric-adherence') || {}).value || '1',
+    creativity: (_id('compose-creativity') || {}).value || '50',
+    quality: (_id('compose-quality') || {}).value || '1',
+    genModel: (_id('compose-gen-model') || {}).value || 'turbo',
+    lmModel: (_id('compose-lm-model') || {}).value || '1.7b',
+    batchSize: (_id('compose-batch-size') || {}).value || '1',
+    vramTier: (_id('compose-vram-tier') || {}).value || '16',
+    scheduler: (_id('compose-scheduler') || {}).value || 'euler',
+    audioFormat: (_id('compose-audio-format') || {}).value || 'mp3',
+    guidanceLyric: (_id('compose-guidance-lyric') || {}).value || '7',
+    guidanceAudio: (_id('compose-guidance-audio') || {}).value || '4',
+    inferenceSteps: (_id('compose-inf-steps') || {}).value || '60',
+    seed: (_id('compose-seed') || {}).value || '',
+    loraPath: (_id('compose-lora-browser') || {}).value || '',
+    loraScale: (_id('compose-lora-scale') || {}).value || '100',
+    aiDescription: (_id('compose-ai-description') || {}).value || '',
+    aiLanguage: (_id('compose-ai-lang') || {}).value || 'en',
+    reworkDirection: (_id('compose-rework-direction') || {}).value || '',
+    lastSeed: _lastSeed,
+  };
+}
+
+function _setSliderValue(id, value) {
+  const el = _id(id);
+  if (el && value != null) {
+    el.value = value;
+    el.dispatchEvent(new Event('input'));
+  }
+}
+
+function _applyProject(proj) {
+  // Lyrics & style
+  const lyrics = _id('compose-lyrics-text');
+  if (lyrics) lyrics.value = proj.lyrics || '';
+  const style = _id('compose-style-text');
+  if (style) style.value = proj.style || '';
+
+  // Tags
+  document.querySelectorAll('#panel-compose .compose-tag').forEach(t => {
+    t.classList.toggle('active', (proj.tags || []).includes(t.textContent.trim()));
+  });
+
+  // Song params
+  const bpm = _id('compose-bpm'); if (bpm) bpm.value = proj.bpm || '';
+  const keyRoot = _id('compose-key-root'); if (keyRoot) keyRoot.value = proj.keyRoot || '';
+  const keyMode = _id('compose-key-mode'); if (keyMode) keyMode.value = proj.keyMode || 'major';
+  const timeSig = _id('compose-time-sig'); if (timeSig) timeSig.value = proj.timeSig || '4/4';
+
+  // Main sliders
+  _setSliderValue('compose-duration', proj.duration);
+  _setSliderValue('compose-lyric-adherence', proj.lyricAdherence);
+  _setSliderValue('compose-creativity', proj.creativity);
+  _setSliderValue('compose-quality', proj.quality);
+
+  // Advanced — model selects
+  const genModel = _id('compose-gen-model'); if (genModel && proj.genModel) genModel.value = proj.genModel;
+  const lmModel = _id('compose-lm-model'); if (lmModel && proj.lmModel) lmModel.value = proj.lmModel;
+  const batchSize = _id('compose-batch-size'); if (batchSize && proj.batchSize) batchSize.value = proj.batchSize;
+  const vramTier = _id('compose-vram-tier'); if (vramTier && proj.vramTier) vramTier.value = proj.vramTier;
+  const scheduler = _id('compose-scheduler'); if (scheduler && proj.scheduler) scheduler.value = proj.scheduler;
+  const audioFmt = _id('compose-audio-format'); if (audioFmt && proj.audioFormat) audioFmt.value = proj.audioFormat;
+
+  // Advanced — raw sliders
+  _setSliderValue('compose-guidance-lyric', proj.guidanceLyric);
+  _setSliderValue('compose-guidance-audio', proj.guidanceAudio);
+  _setSliderValue('compose-inf-steps', proj.inferenceSteps);
+
+  // Seed
+  const seedEl = _id('compose-seed'); if (seedEl) seedEl.value = proj.seed || '';
+
+  // LoRA
+  if (proj.loraPath) {
+    const browser = _id('compose-lora-browser');
+    if (browser) {
+      for (const opt of browser.options) {
+        if (opt.value === proj.loraPath) { browser.value = proj.loraPath; break; }
+      }
+    }
+  }
+  _setSliderValue('compose-lora-scale', proj.loraScale);
+
+  // AI lyrics
+  const aiDesc = _id('compose-ai-description'); if (aiDesc && proj.aiDescription != null) aiDesc.value = proj.aiDescription;
+  const aiLang = _id('compose-ai-lang'); if (aiLang && proj.aiLanguage) aiLang.value = proj.aiLanguage;
+
+  // Rework
+  const reworkDir = _id('compose-rework-direction'); if (reworkDir && proj.reworkDirection != null) reworkDir.value = proj.reworkDirection;
+
+  // Last seed recall
+  if (proj.lastSeed != null) {
+    _lastSeed = proj.lastSeed;
+    const btn = _id('compose-seed-last');
+    if (btn) { btn.disabled = false; btn.title = 'Use last seed: ' + proj.lastSeed; }
+  }
+}
+
+function _saveProject() {
+  const proj = _gatherProject();
+  const name = (proj.style || proj.tags?.[0] || 'song-project').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 40);
+  const blob = new Blob([JSON.stringify(proj, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${name}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  const status = _id('compose-project-status');
+  if (status) { status.textContent = 'Saved'; setTimeout(() => { status.textContent = ''; }, 2000); }
+}
+
+async function _loadProject() {
+  const input = _id('compose-project-file');
+  const file = input?.files?.[0];
+  if (input) input.value = '';
+  if (!file) return;
+  const status = _id('compose-project-status');
+  try {
+    const text = await file.text();
+    const proj = JSON.parse(text);
+    if (!proj._version) throw new Error('Not a valid project file');
+    _applyProject(proj);
+    if (status) { status.textContent = 'Loaded: ' + file.name; setTimeout(() => { status.textContent = ''; }, 3000); }
+  } catch {
+    if (status) { status.textContent = 'Invalid project file'; setTimeout(() => { status.textContent = ''; }, 3000); }
+  }
 }
 
 // ─── Output Panel ───────────────────────────────────────────────────

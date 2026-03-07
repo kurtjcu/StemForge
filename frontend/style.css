@@ -1252,6 +1252,19 @@ input[type="range"]::-moz-range-track {
   padding: 0 2px;
 }
 
+/* ─── Project Save/Load ──────────────────────────────────────────────── */
+
+.compose-project-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.compose-project-status {
+  font-size: 0.8rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 /* ─── Style Preview ──────────────────────────────────────────────────── */
 
 .compose-style-preview {
