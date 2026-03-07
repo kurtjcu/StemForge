@@ -1224,6 +1224,34 @@ input[type="range"]::-moz-range-track {
 .compose-seed-row .compose-number { flex: 1; min-width: 0; }
 .compose-seed-btn { font-size: 11px; padding: 4px 8px; white-space: nowrap; }
 
+/* ─── LoRA Controls ──────────────────────────────────────────────────── */
+
+.compose-lora-status {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  padding: 4px 0;
+  min-height: 1.4em;
+}
+.compose-lora-status.loaded { color: var(--accent); }
+.compose-lora-status.error { color: #e8a33d; }
+
+.compose-lora-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.compose-lora-controls .compose-select { flex: 1; min-width: 0; }
+
+.compose-lora-active { margin-top: 8px; }
+
+.compose-slider-bounds {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+
 /* ─── Style Preview ──────────────────────────────────────────────────── */
 
 .compose-style-preview {

@@ -942,8 +942,144 @@ function buildAdvancedPanel() {
     gaSlider,
   ));
 
+  content.appendChild(el('div', { className: 'compose-divider' }));
+
+  // ─── Style Adapter (LoRA) ───
+  const loraStatus = el('div', { id: 'compose-lora-status', className: 'compose-lora-status' }, 'No adapter loaded');
+  const loraBrowser = el('select', { id: 'compose-lora-browser', className: 'compose-select' },
+    el('option', { value: '' }, 'Select adapter\u2026'),
+  );
+  const loraLoadBtn = el('button', { className: 'compose-ghost-btn', id: 'compose-lora-load', type: 'button' }, 'Load');
+  const loraUnloadBtn = el('button', { className: 'compose-ghost-btn hidden', id: 'compose-lora-unload', type: 'button' }, 'Unload');
+
+  const loraScaleSlider = el('input', { type: 'range', className: 'compose-slider', id: 'compose-lora-scale',
+    min: '0', max: '100', value: '100', step: '5' });
+  const loraScaleValue = el('span', { id: 'compose-lora-scale-value', className: 'compose-value' }, '100%');
+  loraScaleSlider.addEventListener('input', () => {
+    loraScaleValue.textContent = loraScaleSlider.value + '%';
+  });
+  let _loraScaleTimer = null;
+  loraScaleSlider.addEventListener('change', () => {
+    clearTimeout(_loraScaleTimer);
+    _loraScaleTimer = setTimeout(async () => {
+      try {
+        await api('/compose/lora/scale', { method: 'POST', body: JSON.stringify({ scale: Number(loraScaleSlider.value) / 100 }) });
+      } catch (e) { console.error('LoRA scale error:', e); }
+    }, 300);
+  });
+
+  const loraActiveControls = el('div', { id: 'compose-lora-active', className: 'compose-lora-active hidden' },
+    el('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+      el('label', { className: 'compose-field-label' }, 'Style influence'),
+      loraScaleValue,
+    ),
+    loraScaleSlider,
+    el('div', { className: 'compose-slider-bounds' }, el('span', {}, 'Subtle'), el('span', {}, 'Full')),
+  );
+
+  loraLoadBtn.addEventListener('click', async () => {
+    const path = loraBrowser.value;
+    if (!path) return;
+    loraLoadBtn.disabled = true;
+    loraStatus.textContent = 'Loading\u2026';
+    loraStatus.className = 'compose-lora-status';
+    try {
+      const result = await api('/compose/lora/load', { method: 'POST', body: JSON.stringify({ lora_path: path }) });
+      const name = result.adapter_name || path.split('/').pop();
+      loraStatus.textContent = name + ' loaded';
+      loraStatus.className = 'compose-lora-status loaded';
+      loraLoadBtn.classList.add('hidden');
+      loraUnloadBtn.classList.remove('hidden');
+      loraActiveControls.classList.remove('hidden');
+    } catch (e) {
+      loraStatus.textContent = 'Load failed: ' + e.message;
+      loraStatus.className = 'compose-lora-status error';
+    }
+    loraLoadBtn.disabled = false;
+  });
+
+  loraUnloadBtn.addEventListener('click', async () => {
+    try {
+      await api('/compose/lora/unload', { method: 'POST' });
+    } catch {}
+    loraStatus.textContent = 'No adapter loaded';
+    loraStatus.className = 'compose-lora-status';
+    loraLoadBtn.classList.remove('hidden');
+    loraUnloadBtn.classList.add('hidden');
+    loraActiveControls.classList.add('hidden');
+    loraScaleSlider.value = 100;
+    loraScaleValue.textContent = '100%';
+  });
+
+  content.appendChild(el('div', { className: 'compose-control-group' },
+    el('span', { className: 'compose-field-label' }, 'Style Adapter'),
+    loraStatus,
+    el('div', { className: 'compose-lora-controls' }, loraBrowser, loraLoadBtn, loraUnloadBtn),
+    loraActiveControls,
+  ));
+
   details.append(summary, content);
+
+  // Refresh adapter list and status on open
+  details.addEventListener('toggle', () => {
+    if (details.open) { _refreshLoraBrowser(); _refreshLoraStatus(); }
+  });
+
   return details;
+}
+
+// ─── LoRA helpers ────────────────────────────────────────────────────
+
+async function _refreshLoraBrowser() {
+  try {
+    const data = await api('/compose/lora/browse');
+    const select = _id('compose-lora-browser');
+    if (!select) return;
+    const prev = select.value;
+    while (select.options.length > 1) select.remove(1);
+    for (const a of data.adapters || []) {
+      const label = `${a.name} (${a.type}, ${a.size_mb}MB)`;
+      select.appendChild(el('option', { value: a.path }, label));
+    }
+    if (prev) {
+      for (const opt of select.options) {
+        if (opt.value === prev) { select.value = prev; break; }
+      }
+    }
+  } catch {}
+}
+
+async function _refreshLoraStatus() {
+  try {
+    const data = await api('/compose/lora/status');
+    const status = _id('compose-lora-status');
+    const loadBtn = _id('compose-lora-load');
+    const unloadBtn = _id('compose-lora-unload');
+    const active = _id('compose-lora-active');
+    const scaleSlider = _id('compose-lora-scale');
+    const scaleVal = _id('compose-lora-scale-value');
+    if (!status) return;
+
+    if (data.lora_loaded) {
+      const name = data.adapter_name || 'Adapter';
+      status.textContent = name + ' loaded';
+      status.className = 'compose-lora-status loaded';
+      loadBtn.classList.add('hidden');
+      unloadBtn.classList.remove('hidden');
+      active.classList.remove('hidden');
+      if (data.lora_scale != null) {
+        const pct = Math.round(data.lora_scale * 100);
+        scaleSlider.value = pct;
+        scaleVal.textContent = pct + '%';
+      }
+    } else {
+      status.textContent = 'No adapter loaded';
+      status.className = 'compose-lora-status';
+      loadBtn.classList.remove('hidden');
+      unloadBtn.classList.add('hidden');
+      active.classList.add('hidden');
+    }
+  } catch {}
 }
 
 // ─── Output Panel ───────────────────────────────────────────────────
@@ -1593,6 +1729,7 @@ async function handleGenerate() {
   if (hint) hint.textContent = '';
 
   const payload = buildPayload();
+  const loraWasLoaded = _id('compose-lora-status')?.classList.contains('loaded');
   setGenerating(true);
 
   let taskId;
@@ -1625,6 +1762,16 @@ async function handleGenerate() {
         _pollTimer = null;
         setGenerating(false);
         showResults(taskId, data.results || [], payload);
+        // Check if LoRA adapter was dropped during generation
+        if (loraWasLoaded) {
+          _refreshLoraStatus().then(() => {
+            const still = _id('compose-lora-status')?.classList.contains('loaded');
+            if (!still) {
+              const hint = _id('compose-hint');
+              if (hint) hint.textContent = 'Warning: LoRA adapter was unloaded during generation. Reload it before next run.';
+            }
+          });
+        }
       } else if (data.status === 'error') {
         clearInterval(_pollTimer);
         _pollTimer = null;

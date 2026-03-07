@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from fastapi import APIRouter, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -24,6 +25,11 @@ from backend.api.acestep_wrapper import (
     format_input,
     get_audio_bytes,
     health_check,
+    lora_load as _lora_load,
+    lora_scale as _lora_scale,
+    lora_status as _lora_status,
+    lora_toggle as _lora_toggle,
+    lora_unload as _lora_unload,
     query_result,
     release_task,
 )
@@ -31,7 +37,18 @@ from backend.services import acestep_state
 from backend.services.session_store import session
 from utils.paths import COMPOSE_DIR
 
+import os
+
 router = APIRouter(prefix="/api/compose", tags=["compose"])
+
+# ---------------------------------------------------------------------------
+# LoRA adapter directory
+# ---------------------------------------------------------------------------
+
+_LORA_DIR = Path(os.environ.get(
+    "LORA_DIR",
+    str(Path(__file__).parent.parent.parent / "Ace-Step-Wrangler" / "loras"),
+))
 
 # ---------------------------------------------------------------------------
 # In-process job store
@@ -613,3 +630,95 @@ async def send_to_session(body: SendToSessionRequest):
         "sample_rate": info.sample_rate,
         "channels": info.channels,
     }
+
+
+# ---------------------------------------------------------------------------
+# LoRA adapter management
+# ---------------------------------------------------------------------------
+
+
+class LoRALoadRequest(BaseModel):
+    lora_path: str
+    adapter_name: Optional[str] = None
+
+
+class LoRAToggleRequest(BaseModel):
+    use_lora: bool
+
+
+class LoRAScaleRequest(BaseModel):
+    scale: float
+    adapter_name: Optional[str] = None
+
+
+@router.post("/lora/load")
+async def lora_load_route(req: LoRALoadRequest):
+    try:
+        return await _lora_load(req.lora_path, req.adapter_name)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/lora/unload")
+async def lora_unload_route():
+    try:
+        return await _lora_unload()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/lora/toggle")
+async def lora_toggle_route(req: LoRAToggleRequest):
+    try:
+        return await _lora_toggle(req.use_lora)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/lora/scale")
+async def lora_scale_route(req: LoRAScaleRequest):
+    try:
+        return await _lora_scale(req.scale, req.adapter_name)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/lora/status")
+async def lora_status_route():
+    try:
+        return await _lora_status()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/lora/browse")
+async def lora_browse():
+    """List available LoRA/LoKR adapters in the configured loras directory."""
+    adapters = []
+    if not _LORA_DIR.is_dir():
+        return {"adapters": adapters, "lora_dir": str(_LORA_DIR)}
+
+    for entry in sorted(_LORA_DIR.iterdir()):
+        if entry.name.startswith("."):
+            continue
+        # PEFT LoRA: directory with adapter_config.json
+        if entry.is_dir() and (entry / "adapter_config.json").exists():
+            size_bytes = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+            adapters.append({
+                "name": entry.name,
+                "path": str(entry),
+                "type": "lora",
+                "size_mb": round(size_bytes / 1_048_576, 1),
+            })
+        # LoKR: single .safetensors file
+        elif entry.is_file() and entry.suffix == ".safetensors":
+            adapters.append({
+                "name": entry.name,
+                "path": str(entry),
+                "type": "lokr",
+                "size_mb": round(entry.stat().st_size / 1_048_576, 1),
+            })
+
+    return {"adapters": adapters, "lora_dir": str(_LORA_DIR)}
