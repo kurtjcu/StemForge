@@ -22,6 +22,15 @@ from pydantic import BaseModel
 from backend.api.acestep_wrapper import (
     _LANG_LABELS,
     create_sample,
+    dataset_auto_label_async,
+    dataset_auto_label_status,
+    dataset_load,
+    dataset_preprocess_async,
+    dataset_preprocess_status,
+    dataset_sample_update,
+    dataset_samples,
+    dataset_save,
+    dataset_scan,
     format_input,
     get_audio_bytes,
     health_check,
@@ -31,7 +40,13 @@ from backend.api.acestep_wrapper import (
     lora_toggle as _lora_toggle,
     lora_unload as _lora_unload,
     query_result,
+    reinitialize_service,
     release_task,
+    training_export,
+    training_start,
+    training_start_lokr,
+    training_status,
+    training_stop,
 )
 from backend.services import acestep_state
 from backend.services.session_store import session
@@ -722,3 +737,368 @@ async def lora_browse():
             })
 
     return {"adapters": adapters, "lora_dir": str(_LORA_DIR)}
+
+
+# ---------------------------------------------------------------------------
+# Training pipeline
+# ---------------------------------------------------------------------------
+
+_TRAIN_DIR = Path(os.environ.get(
+    "TRAIN_DIR",
+    str(Path(__file__).parent.parent.parent / "Ace-Step-Wrangler" / "training"),
+))
+_TRAIN_AUDIO_DIR = _TRAIN_DIR / "audio"
+_TRAIN_TENSOR_DIR = _TRAIN_DIR / "tensors"
+_TRAIN_OUTPUT_DIR = _TRAIN_DIR / "output"
+_TRAIN_SNAPSHOTS_DIR = _TRAIN_DIR / "snapshots"
+_TRAIN_DATASET_FILE = _TRAIN_DIR / "dataset.json"
+
+for _d in (_TRAIN_DIR, _TRAIN_AUDIO_DIR, _TRAIN_TENSOR_DIR, _TRAIN_OUTPUT_DIR, _TRAIN_SNAPSHOTS_DIR):
+    _d.mkdir(parents=True, exist_ok=True)
+
+
+class TrainScanRequest(BaseModel):
+    stems_mode: bool = False
+
+
+class TrainLabelRequest(BaseModel):
+    lm_model_path: str = ""
+    stems_mode: bool = False
+
+
+class SampleUpdateRequest(BaseModel):
+    caption: str = ""
+    genre: str = ""
+    mood: str = ""
+    lyrics: str = ""
+    timesignature: str = ""
+    language: str = "unknown"
+    is_instrumental: bool = True
+
+
+class TrainStartRequest(BaseModel):
+    adapter_type: str = "lora"
+    lora_rank: int = 64
+    lora_alpha: int = 128
+    lora_dropout: float = 0.1
+    learning_rate: float = 0.0001
+    train_epochs: int = 10
+    train_batch_size: int = 1
+    gradient_accumulation: int = 4
+    save_every_n_epochs: int = 5
+    training_seed: int = 42
+    gradient_checkpointing: bool = True
+    tensor_dir: str = ""
+    output_dir: str = ""
+
+
+class TrainExportRequest(BaseModel):
+    name: str
+    output_dir: str = ""
+
+
+class SnapshotRequest(BaseModel):
+    name: str
+
+
+def _safe_filename(name: str) -> str:
+    return re.sub(r'[^a-zA-Z0-9._-]', '_', name)[:128]
+
+
+@router.post("/train/upload")
+async def train_upload(files: List[UploadFile]):
+    """Upload audio files for training."""
+    uploaded, skipped = [], []
+    for f in files:
+        safe_name = _safe_filename(f.filename or "audio.wav")
+        dest = _TRAIN_AUDIO_DIR / safe_name
+        if dest.exists():
+            skipped.append(safe_name)
+            continue
+        content = await f.read()
+        dest.write_bytes(content)
+        uploaded.append(safe_name)
+
+    audio_files = sorted(p.name for p in _TRAIN_AUDIO_DIR.iterdir() if p.is_file())
+    return {"uploaded": uploaded, "skipped": skipped, "files": audio_files, "audio_dir": str(_TRAIN_AUDIO_DIR)}
+
+
+@router.post("/train/clear")
+async def train_clear():
+    """Delete all audio and tensor files."""
+    audio_removed = sum(1 for f in _TRAIN_AUDIO_DIR.iterdir() if f.is_file() and f.unlink() is None)
+    tensor_removed = sum(1 for f in _TRAIN_TENSOR_DIR.rglob("*.pt") if f.unlink() is None)
+    if _TRAIN_DATASET_FILE.exists():
+        _TRAIN_DATASET_FILE.unlink()
+    return {"removed": {"audio": audio_removed, "tensors": tensor_removed}}
+
+
+@router.get("/train/pipeline-state")
+async def train_pipeline_state():
+    """Report disk state for pipeline recovery."""
+    audio_files = sorted(p.name for p in _TRAIN_AUDIO_DIR.iterdir() if p.is_file()) if _TRAIN_AUDIO_DIR.is_dir() else []
+    tensor_count = sum(1 for _ in _TRAIN_TENSOR_DIR.rglob("*.pt")) if _TRAIN_TENSOR_DIR.is_dir() else 0
+    return {
+        "audio_files": audio_files,
+        "audio_count": len(audio_files),
+        "has_audio": len(audio_files) > 0,
+        "has_tensors": tensor_count > 0,
+        "tensor_count": tensor_count,
+        "has_saved_dataset": _TRAIN_DATASET_FILE.exists(),
+    }
+
+
+@router.post("/train/scan")
+async def train_scan(req: TrainScanRequest):
+    """Load uploaded audio into AceStep dataset."""
+    try:
+        payload = {"audio_dir": str(_TRAIN_AUDIO_DIR)}
+        if req.stems_mode:
+            payload["stems_mode"] = True
+        return await dataset_scan(payload)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/label")
+async def train_label(req: TrainLabelRequest):
+    """Start async auto-labeling."""
+    try:
+        payload: dict = {}
+        if req.lm_model_path:
+            payload["lm_model_path"] = req.lm_model_path
+        if req.stems_mode:
+            payload["stems_mode"] = True
+        return await dataset_auto_label_async(payload)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/train/label/status")
+async def train_label_status():
+    """Poll auto-label progress."""
+    try:
+        return await dataset_auto_label_status()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/train/samples")
+async def train_samples():
+    """List loaded dataset samples."""
+    try:
+        return await dataset_samples()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.put("/train/sample/{sample_idx}")
+async def train_sample_update(sample_idx: int, req: SampleUpdateRequest):
+    """Update sample metadata and auto-save."""
+    try:
+        result = await dataset_sample_update(sample_idx, req.model_dump())
+        await dataset_save(str(_TRAIN_DATASET_FILE))
+        return result
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/save")
+async def train_save():
+    """Save dataset to disk."""
+    try:
+        return await dataset_save(str(_TRAIN_DATASET_FILE))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/load")
+async def train_load():
+    """Load saved dataset from disk."""
+    try:
+        return await dataset_load(str(_TRAIN_DATASET_FILE))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/preprocess")
+async def train_preprocess():
+    """Start async preprocessing into tensors."""
+    try:
+        return await dataset_preprocess_async(str(_TRAIN_TENSOR_DIR))
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/train/preprocess/status")
+async def train_preprocess_status(task_id: Optional[str] = None):
+    """Poll preprocessing progress."""
+    try:
+        return await dataset_preprocess_status(task_id)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/start")
+async def train_start(req: TrainStartRequest):
+    """Start LoRA/LoKR training."""
+    payload = {
+        "lora_rank": req.lora_rank,
+        "lora_alpha": req.lora_alpha,
+        "lora_dropout": req.lora_dropout,
+        "learning_rate": req.learning_rate,
+        "train_epochs": req.train_epochs,
+        "train_batch_size": req.train_batch_size,
+        "gradient_accumulation": req.gradient_accumulation,
+        "save_every_n_epochs": req.save_every_n_epochs,
+        "training_seed": req.training_seed,
+        "gradient_checkpointing": req.gradient_checkpointing,
+        "tensor_dir": req.tensor_dir or str(_TRAIN_TENSOR_DIR),
+        "output_dir": req.output_dir or str(_TRAIN_OUTPUT_DIR),
+    }
+    try:
+        if req.adapter_type == "lokr":
+            return await training_start_lokr(payload)
+        return await training_start(payload)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/train/status")
+async def train_status():
+    """Poll training status."""
+    try:
+        return await training_status()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/stop")
+async def train_stop():
+    """Stop current training run."""
+    try:
+        return await training_stop()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/export")
+async def train_export(req: TrainExportRequest):
+    """Export trained adapter to loras/ directory."""
+    try:
+        export_path = str(_LORA_DIR / _safe_filename(req.name))
+        lora_output_dir = req.output_dir or str(_TRAIN_OUTPUT_DIR)
+        return await training_export(export_path, lora_output_dir)
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.post("/train/reinitialize")
+async def train_reinitialize():
+    """Reload the generation model after training."""
+    try:
+        return await reinitialize_service()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+
+
+@router.get("/train/snapshots")
+async def train_snapshots():
+    """List saved snapshots."""
+    snapshots = []
+    if not _TRAIN_SNAPSHOTS_DIR.is_dir():
+        return {"snapshots": snapshots}
+
+    for entry in sorted(_TRAIN_SNAPSHOTS_DIR.iterdir()):
+        if not entry.is_dir():
+            continue
+        meta = {}
+        meta_file = entry / "meta.json"
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text())
+            except Exception:
+                pass
+        size_bytes = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+        snapshots.append({"name": entry.name, "meta": meta, "size_mb": round(size_bytes / 1_048_576, 1)})
+
+    return {"snapshots": snapshots}
+
+
+@router.post("/train/snapshots/save")
+async def train_snapshot_save(req: SnapshotRequest):
+    """Save current dataset + tensors as a named snapshot."""
+    safe_name = _safe_filename(req.name)
+    snap_dir = _TRAIN_SNAPSHOTS_DIR / safe_name
+    snap_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        await dataset_save(str(_TRAIN_DATASET_FILE))
+    except Exception:
+        pass
+
+    if _TRAIN_DATASET_FILE.exists():
+        shutil.copy2(_TRAIN_DATASET_FILE, snap_dir / "dataset.json")
+
+    snap_tensor_dir = snap_dir / "tensors"
+    if _TRAIN_TENSOR_DIR.is_dir():
+        if snap_tensor_dir.exists():
+            shutil.rmtree(snap_tensor_dir)
+        shutil.copytree(_TRAIN_TENSOR_DIR, snap_tensor_dir)
+
+    meta = {
+        "saved": datetime.now(timezone.utc).isoformat(),
+        "has_dataset": _TRAIN_DATASET_FILE.exists(),
+        "tensor_count": sum(1 for _ in _TRAIN_TENSOR_DIR.rglob("*.pt")) if _TRAIN_TENSOR_DIR.is_dir() else 0,
+    }
+    (snap_dir / "meta.json").write_text(json.dumps(meta, indent=2))
+    return {"name": safe_name, "meta": meta}
+
+
+@router.post("/train/snapshots/load")
+async def train_snapshot_load(req: SnapshotRequest):
+    """Load a named snapshot back into the working directory."""
+    safe_name = _safe_filename(req.name)
+    snap_dir = _TRAIN_SNAPSHOTS_DIR / safe_name
+    if not snap_dir.is_dir():
+        raise HTTPException(404, f"Snapshot not found: {safe_name}")
+
+    snap_dataset = snap_dir / "dataset.json"
+    if snap_dataset.exists():
+        shutil.copy2(snap_dataset, _TRAIN_DATASET_FILE)
+
+    snap_tensors = snap_dir / "tensors"
+    if snap_tensors.is_dir():
+        if _TRAIN_TENSOR_DIR.exists():
+            shutil.rmtree(_TRAIN_TENSOR_DIR)
+        shutil.copytree(snap_tensors, _TRAIN_TENSOR_DIR)
+
+    try:
+        if _TRAIN_DATASET_FILE.exists():
+            await dataset_load(str(_TRAIN_DATASET_FILE))
+    except Exception:
+        pass
+
+    return {"name": safe_name, "restored": True}
+
+
+@router.delete("/train/snapshots/{name}")
+async def train_snapshot_delete(name: str):
+    """Delete a named snapshot."""
+    safe_name = _safe_filename(name)
+    snap_dir = _TRAIN_SNAPSHOTS_DIR / safe_name
+    if snap_dir.is_dir():
+        shutil.rmtree(snap_dir)
+    return {"deleted": safe_name}

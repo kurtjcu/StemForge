@@ -178,3 +178,133 @@ async def lora_status() -> dict:
         r = await client.get(f"{_base_url()}/v1/lora/status")
         r.raise_for_status()
         return r.json()
+
+
+# ─── Training pipeline ────────────────────────────────────────────────────
+
+_TIMEOUT_TRAIN = httpx.Timeout(300.0)
+
+
+async def dataset_scan(payload: dict) -> dict:
+    """Load audio files into AceStep dataset."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/dataset/scan", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_preprocess_async(output_dir: str) -> dict:
+    """Start async preprocessing of dataset into tensors."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/dataset/preprocess_async", json={"output_dir": output_dir})
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_preprocess_status(task_id: str | None = None) -> dict:
+    """Poll preprocessing progress."""
+    url = f"{_base_url()}/v1/dataset/preprocess_status"
+    if task_id:
+        url += f"/{task_id}"
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_auto_label_async(payload: dict) -> dict:
+    """Start async auto-labeling of dataset samples."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/dataset/auto_label_async", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_auto_label_status() -> dict:
+    """Poll auto-label progress."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.get(f"{_base_url()}/v1/dataset/auto_label_status")
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_sample_update(sample_idx: int, payload: dict) -> dict:
+    """Update a single sample's metadata."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.put(f"{_base_url()}/v1/dataset/sample/{sample_idx}", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_samples() -> dict:
+    """List all loaded dataset samples."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.get(f"{_base_url()}/v1/dataset/samples")
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_save(file_path: str) -> dict:
+    """Save dataset to disk."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.post(f"{_base_url()}/v1/dataset/save", json={"file_path": file_path})
+        r.raise_for_status()
+        return r.json()
+
+
+async def dataset_load(file_path: str) -> dict:
+    """Load dataset from disk."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.get(f"{_base_url()}/v1/dataset/load", params={"file_path": file_path})
+        r.raise_for_status()
+        return r.json()
+
+
+async def training_start(payload: dict) -> dict:
+    """Start LoRA training."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/training/start", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+async def training_start_lokr(payload: dict) -> dict:
+    """Start LoKR training."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/training/start_lokr", json=payload)
+        r.raise_for_status()
+        return r.json()
+
+
+async def training_status() -> dict:
+    """Get current training status."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.get(f"{_base_url()}/v1/training/status")
+        r.raise_for_status()
+        return r.json()
+
+
+async def training_stop() -> dict:
+    """Stop the current training run."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
+        r = await client.post(f"{_base_url()}/v1/training/stop")
+        r.raise_for_status()
+        return r.json()
+
+
+async def training_export(export_path: str, lora_output_dir: str) -> dict:
+    """Export trained adapter to loras/ directory."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/training/export", json={
+            "export_path": export_path, "lora_output_dir": lora_output_dir,
+        })
+        r.raise_for_status()
+        return r.json()
+
+
+async def reinitialize_service() -> dict:
+    """Reload the generation model after training."""
+    async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
+        r = await client.post(f"{_base_url()}/v1/reinitialize")
+        r.raise_for_status()
+        return r.json()
