@@ -664,7 +664,7 @@ function showBatchResults(results, stem) {
   if (successful.length > 1) {
     const saveAllBtn = el('button', {
       className: 'btn btn-primary batch-save-all',
-      onClick: () => saveBatchAll(successful),
+      onClick: (e) => saveBatchAll(successful, e.currentTarget),
     }, `\u2193 Save All (${successful.length} files)`);
     container.appendChild(saveAllBtn);
   }
@@ -740,8 +740,11 @@ function showBatchResults(results, stem) {
   }
 }
 
-async function saveBatchAll(results) {
+async function saveBatchAll(results, btn) {
   const payload = results.map(r => ({ filename: r.output_name, path: r.path }));
+  const origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Preparing zip...';
 
   try {
     const res = await fetch('/api/separate/batch/save-all', {
@@ -752,15 +755,49 @@ async function saveBatchAll(results) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const blob = await res.blob();
+    if (blob.size === 0) throw new Error('Zip file is empty — files may have been cleaned up');
+
+    // Use Save-As dialog when available (Chromium), else fallback to download link
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'batch-stems.zip',
+          types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        btn.textContent = 'Saved!';
+        setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
+        return;
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          btn.textContent = origText;
+          btn.disabled = false;
+          return;
+        }
+        // Fall through to download link
+      }
+    }
+
+    // Fallback: programmatic download
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = 'batch-stems.zip';
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    // Delay cleanup so the browser can initiate the download
+    setTimeout(() => {
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, 1000);
+    btn.textContent = 'Saved!';
+    setTimeout(() => { btn.textContent = origText; btn.disabled = false; }, 2000);
   } catch (err) {
+    btn.textContent = origText;
+    btn.disabled = false;
     alert(`Save All failed: ${err.message}`);
   }
 }
