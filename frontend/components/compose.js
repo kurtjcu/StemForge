@@ -22,7 +22,7 @@ function clearChildren(elem) {
 
 // ─── Module state ────────────────────────────────────────────────────
 
-let _mode = 'create';          // 'create' | 'rework' | 'lego' | 'complete' | 'voice'
+let _mode = 'create';          // 'create' | 'rework' | 'lego' | 'complete' | 'voice' | 'train'
 let _createTab = 'my-lyrics';  // 'my-lyrics' | 'ai-lyrics' | 'instrumental'
 let _approach = 'cover';       // 'cover' | 'repaint'
 let _uploadedPath = null;
@@ -182,6 +182,7 @@ function buildUI(panel) {
       el('button', { className: 'compose-mode-btn', 'data-mode': 'lego', onClick: () => switchMode('lego') }, 'Lego'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'complete', onClick: () => switchMode('complete') }, 'Complete'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'voice', onClick: () => switchMode('voice') }, 'Voice'),
+      el('button', { className: 'compose-mode-btn', 'data-mode': 'train', onClick: () => switchMode('train') }, 'Train'),
     ),
     el('div', { className: 'compose-create-tabs', id: 'compose-create-tabs' },
       el('button', { className: 'compose-create-tab active', 'data-tab': 'my-lyrics', onClick: () => switchCreateTab('my-lyrics') }, 'My Lyrics'),
@@ -200,7 +201,12 @@ function buildUI(panel) {
   // Right column (controls)
   const rightCol = buildRightColumn();
 
-  mainGrid.append(leftCol, centerCol, rightCol);
+  // Train panels (hidden by default)
+  const trainLeft = buildTrainLeftPanel();
+  const trainCenter = buildTrainCenterPanel();
+  const trainRight = buildTrainRightPanel();
+
+  mainGrid.append(leftCol, centerCol, rightCol, trainLeft, trainCenter, trainRight);
 
   // Output panel
   const output = buildOutputPanel();
@@ -1238,6 +1244,684 @@ async function _loadProject() {
   }
 }
 
+// ─── Training UI ────────────────────────────────────────────────────
+
+// Training state
+let _trainFiles = [];
+let _trainScanned = false;
+let _trainLabeled = false;
+let _trainPreprocessed = false;
+let _trainPollTimer = null;
+
+function buildTrainLeftPanel() {
+  const col = el('div', { className: 'compose-col compose-col-left hidden', id: 'compose-train-left' });
+
+  col.appendChild(el('h3', { className: 'compose-section-title' }, 'Training Dataset'));
+
+  // Upload zone
+  const fileInput = el('input', { type: 'file', id: 'compose-train-file-input', accept: 'audio/*', multiple: 'true', className: 'hidden' });
+  const browseBtn = el('button', { className: 'compose-ghost-btn', type: 'button' }, 'Browse audio files');
+  browseBtn.addEventListener('click', () => fileInput.click());
+
+  const uploadZone = el('div', { className: 'compose-train-upload', id: 'compose-train-upload' },
+    el('p', { className: 'text-dim' }, 'Drop audio files here or'),
+    browseBtn, fileInput,
+  );
+
+  // Drag and drop
+  uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+  uploadZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    const files = [...e.dataTransfer.files].filter(f => f.type.startsWith('audio/'));
+    if (files.length) await _uploadTrainFiles(files);
+  });
+
+  fileInput.addEventListener('change', async () => {
+    if (fileInput.files.length) await _uploadTrainFiles([...fileInput.files]);
+    fileInput.value = '';
+  });
+
+  // File list
+  const fileList = el('div', { className: 'compose-train-file-list hidden', id: 'compose-train-file-list' });
+  const clearBtn = el('button', { className: 'compose-ghost-btn', type: 'button' }, 'Clear');
+  clearBtn.addEventListener('click', _clearTrainFiles);
+
+  // Stems mode
+  const stemsMode = el('label', { className: 'compose-train-stems-label' },
+    el('input', { type: 'checkbox', id: 'compose-train-stems-mode' }),
+    ' Training data is stems (vocal only)',
+  );
+
+  // Pipeline buttons
+  const scanBtn = el('button', { className: 'compose-ghost-btn', id: 'compose-train-scan', disabled: 'true' }, '1. Scan');
+  const labelBtn = el('button', { className: 'compose-ghost-btn', id: 'compose-train-label', disabled: 'true' }, '2. Auto-label');
+  const preprocessBtn = el('button', { className: 'compose-ghost-btn', id: 'compose-train-preprocess', disabled: 'true' }, '3. Preprocess');
+  scanBtn.addEventListener('click', _trainScan);
+  labelBtn.addEventListener('click', _trainLabel);
+  preprocessBtn.addEventListener('click', _trainPreprocess);
+
+  const pipelineBtns = el('div', { className: 'compose-train-pipeline' }, scanBtn, labelBtn, preprocessBtn);
+  const pipelineStatus = el('div', { className: 'compose-train-pipeline-status', id: 'compose-train-pipeline-status' });
+
+  // Label progress
+  const labelProgress = el('div', { className: 'compose-train-label-progress hidden', id: 'compose-train-label-progress' },
+    el('div', { className: 'progress-bar' }, el('div', { className: 'progress-fill', id: 'compose-train-label-fill' })),
+    el('span', { id: 'compose-train-label-pct' }, '0%'),
+  );
+
+  // Label model selector
+  const labelModelSel = el('select', { id: 'compose-train-label-model', className: 'compose-select', style: { marginTop: '8px' } },
+    el('option', { value: '' }, 'Default (startup model)'),
+    el('option', { value: 'acestep-5Hz-lm-0.6B' }, 'Small (0.6B)'),
+    el('option', { value: 'acestep-5Hz-lm-1.7B' }, 'Medium (1.7B)'),
+    el('option', { value: 'acestep-5Hz-lm-4B' }, 'Large (4B) \u2014 32GB+ VRAM'),
+  );
+
+  col.append(uploadZone, fileList, el('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, clearBtn),
+    stemsMode,
+    el('div', { className: 'compose-control-group', style: { marginTop: '8px' } },
+      el('label', { className: 'compose-field-label' }, 'Labeling model'), labelModelSel),
+    pipelineBtns, pipelineStatus, labelProgress);
+
+  return col;
+}
+
+function buildTrainCenterPanel() {
+  const col = el('div', { className: 'compose-col compose-col-center hidden', id: 'compose-train-center' });
+
+  // Sample table
+  const datasetView = el('div', { className: 'compose-train-dataset hidden', id: 'compose-train-dataset' });
+  const sampleTable = el('div', { id: 'compose-train-samples' },
+    el('div', { className: 'compose-train-sample-header' },
+      el('span', {}, 'File'), el('span', {}, 'Dur'), el('span', {}, 'Caption'),
+    ),
+  );
+  const sampleCounts = el('div', { className: 'compose-train-counts' },
+    el('span', { id: 'compose-train-sample-count' }, '0 samples'),
+    el('span', {}, ' \u00B7 '),
+    el('span', { id: 'compose-train-labeled-count' }, '0 labeled'),
+  );
+  datasetView.append(sampleCounts, sampleTable);
+
+  // Snapshots
+  const snapshotSection = el('div', { className: 'compose-train-snapshots', style: { marginTop: '16px' } },
+    el('div', { className: 'compose-train-snapshot-save-row' },
+      el('input', { type: 'text', id: 'compose-train-snapshot-name', className: 'compose-input', placeholder: 'Snapshot name', maxlength: '64' }),
+      el('button', { className: 'compose-ghost-btn', id: 'compose-train-snapshot-save', disabled: 'true', onClick: _saveSnapshot }, 'Save snapshot'),
+    ),
+    el('div', { id: 'compose-train-snapshot-list', className: 'hidden' }),
+  );
+
+  // Training monitor
+  const monitor = el('div', { className: 'compose-train-monitor', id: 'compose-train-monitor' },
+    el('div', { className: 'compose-train-status-header' },
+      el('span', { id: 'compose-train-status-label' }, 'Idle'),
+      el('span', { id: 'compose-train-epoch-info' }),
+    ),
+    el('div', { className: 'compose-train-loss hidden', id: 'compose-train-loss' },
+      el('div', { className: 'compose-train-loss-current' },
+        el('span', {}, 'Loss'), el('span', { id: 'compose-train-loss-value' }, '--'),
+      ),
+      el('div', { className: 'compose-train-loss-bar' },
+        el('div', { id: 'compose-train-loss-fill', className: 'compose-train-loss-fill' }),
+      ),
+    ),
+    el('div', { className: 'compose-train-chart-wrap hidden', id: 'compose-train-chart-wrap' },
+      el('canvas', { id: 'compose-train-loss-chart', width: '600', height: '180' }),
+    ),
+    el('div', { className: 'compose-train-progress hidden', id: 'compose-train-progress' },
+      el('div', { className: 'progress-bar' }, el('div', { className: 'progress-fill', id: 'compose-train-progress-fill' })),
+      el('span', { id: 'compose-train-progress-pct' }, '0%'),
+    ),
+    el('div', { id: 'compose-train-log' },
+      el('p', { className: 'text-dim' }, 'Configure training in the right panel, then start.'),
+    ),
+    el('div', { className: 'compose-train-complete hidden', id: 'compose-train-complete' },
+      el('button', { className: 'compose-ghost-btn', id: 'compose-train-export', onClick: _trainExport }, 'Export to loras/'),
+      el('button', { className: 'compose-ghost-btn', id: 'compose-train-reinit', onClick: _trainReinit }, 'Restore generation model'),
+    ),
+  );
+
+  col.append(datasetView, snapshotSection, monitor);
+  return col;
+}
+
+function buildTrainRightPanel() {
+  const col = el('div', { className: 'compose-col compose-col-right hidden', id: 'compose-train-right' });
+
+  col.appendChild(el('h3', { className: 'compose-section-title' }, 'Training Config'));
+
+  // Adapter type
+  col.appendChild(el('div', { className: 'compose-control-group' },
+    el('label', { className: 'compose-field-label' }, 'Adapter type'),
+    el('select', { id: 'compose-train-adapter', className: 'compose-select' },
+      el('option', { value: 'lora', selected: 'true' }, 'LoRA'),
+      el('option', { value: 'lokr' }, 'LoKR'),
+    ),
+  ));
+
+  // Rank
+  col.appendChild(el('div', { className: 'compose-control-group' },
+    el('label', { className: 'compose-field-label' }, 'Rank'),
+    el('input', { type: 'number', id: 'compose-train-rank', className: 'compose-number', value: '64', min: '1', max: '256' }),
+  ));
+
+  // Epochs
+  col.appendChild(el('div', { className: 'compose-control-group' },
+    el('label', { className: 'compose-field-label' }, 'Epochs'),
+    el('input', { type: 'number', id: 'compose-train-epochs', className: 'compose-number', value: '10', min: '1', max: '1000' }),
+  ));
+
+  // Learning rate
+  col.appendChild(el('div', { className: 'compose-control-group' },
+    el('label', { className: 'compose-field-label' }, 'Learning rate'),
+    el('input', { type: 'number', id: 'compose-train-lr', className: 'compose-number', value: '0.0001', min: '0', max: '1', step: '0.00001' }),
+  ));
+
+  // Advanced
+  const advDetails = el('details', { className: 'compose-advanced' });
+  const advContent = el('div', { className: 'compose-advanced-content' });
+
+  advContent.append(
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'Alpha'),
+      el('input', { type: 'number', id: 'compose-train-alpha', className: 'compose-number', value: '128', min: '1', max: '512' }),
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'Dropout'),
+      el('input', { type: 'number', id: 'compose-train-dropout', className: 'compose-number', value: '0.1', min: '0', max: '1', step: '0.05' }),
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'Batch size'),
+      el('input', { type: 'number', id: 'compose-train-batch', className: 'compose-number', value: '1', min: '1', max: '8' }),
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'Gradient accumulation'),
+      el('input', { type: 'number', id: 'compose-train-grad-accum', className: 'compose-number', value: '4', min: '1', max: '64' }),
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'Save every N epochs'),
+      el('input', { type: 'number', id: 'compose-train-save-every', className: 'compose-number', value: '5', min: '1' }),
+    ),
+    el('div', { className: 'compose-control-group' },
+      el('label', { className: 'compose-field-label' }, 'Seed'),
+      el('input', { type: 'number', id: 'compose-train-seed', className: 'compose-number', value: '42', min: '0' }),
+    ),
+    el('label', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '8px' } },
+      el('input', { type: 'checkbox', id: 'compose-train-grad-ckpt', checked: 'true' }),
+      'Gradient checkpointing',
+    ),
+  );
+
+  advDetails.append(el('summary', { className: 'compose-advanced-toggle' }, 'Advanced'), advContent);
+  col.appendChild(advDetails);
+
+  // Start/Stop
+  const startBtn = el('button', { className: 'compose-generate-btn', id: 'compose-train-start', disabled: 'true', onClick: _trainStart }, 'Start Training');
+  const stopBtn = el('button', { className: 'compose-ghost-btn compose-train-stop hidden', id: 'compose-train-stop', onClick: _trainStop }, 'Stop Training');
+  col.append(startBtn, stopBtn);
+
+  return col;
+}
+
+// ─── Training pipeline logic ────────────────────────────────────────
+
+async function _uploadTrainFiles(files) {
+  const status = _id('compose-train-pipeline-status');
+  if (status) status.textContent = 'Uploading...';
+  const form = new FormData();
+  for (const f of files) form.append('files', f);
+  try {
+    const res = await fetch('/api/compose/train/upload', { method: 'POST', body: form });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || res.statusText);
+    const data = await res.json();
+    _trainFiles = data.files || [];
+    _updateTrainFileList();
+    if (status) status.textContent = `${data.uploaded.length} uploaded, ${data.skipped.length} skipped`;
+    _id('compose-train-scan').disabled = _trainFiles.length === 0;
+  } catch (e) {
+    if (status) status.textContent = 'Upload failed: ' + e.message;
+  }
+}
+
+function _updateTrainFileList() {
+  const list = _id('compose-train-file-list');
+  if (!list) return;
+  clearChildren(list);
+  if (_trainFiles.length === 0) { list.classList.add('hidden'); return; }
+  list.classList.remove('hidden');
+  list.appendChild(el('div', { className: 'text-dim', style: { marginBottom: '4px' } }, `${_trainFiles.length} file(s)`));
+  for (const f of _trainFiles) {
+    list.appendChild(el('div', { className: 'compose-train-file-entry' }, f));
+  }
+}
+
+async function _clearTrainFiles() {
+  try {
+    await api('/compose/train/clear', { method: 'POST' });
+  } catch {}
+  _trainFiles = [];
+  _trainScanned = false;
+  _trainLabeled = false;
+  _trainPreprocessed = false;
+  _updateTrainFileList();
+  _id('compose-train-scan').disabled = true;
+  _id('compose-train-label').disabled = true;
+  _id('compose-train-preprocess').disabled = true;
+  _id('compose-train-start').disabled = true;
+  const ds = _id('compose-train-dataset');
+  if (ds) ds.classList.add('hidden');
+  const status = _id('compose-train-pipeline-status');
+  if (status) status.textContent = '';
+}
+
+async function _trainScan() {
+  const status = _id('compose-train-pipeline-status');
+  const stemsMode = _id('compose-train-stems-mode')?.checked || false;
+  if (status) status.textContent = 'Scanning...';
+  try {
+    await api('/compose/train/scan', { method: 'POST', body: JSON.stringify({ stems_mode: stemsMode }) });
+    _trainScanned = true;
+    await _fetchSamples();
+    _id('compose-train-label').disabled = false;
+    if (status) status.textContent = 'Scan complete';
+  } catch (e) {
+    if (status) status.textContent = 'Scan failed: ' + e.message;
+  }
+}
+
+async function _trainLabel() {
+  const status = _id('compose-train-pipeline-status');
+  const lmModel = _id('compose-train-label-model')?.value || '';
+  const stemsMode = _id('compose-train-stems-mode')?.checked || false;
+  const progress = _id('compose-train-label-progress');
+  if (status) status.textContent = 'Auto-labeling...';
+  if (progress) progress.classList.remove('hidden');
+  try {
+    await api('/compose/train/label', { method: 'POST', body: JSON.stringify({ lm_model_path: lmModel, stems_mode: stemsMode }) });
+    // Poll label status
+    const timer = setInterval(async () => {
+      try {
+        const data = await api('/compose/train/label/status');
+        const pct = data.progress ?? 0;
+        const fill = _id('compose-train-label-fill');
+        const pctEl = _id('compose-train-label-pct');
+        if (fill) fill.style.width = `${Math.round(pct * 100)}%`;
+        if (pctEl) pctEl.textContent = `${Math.round(pct * 100)}%`;
+        // Update samples live
+        await _fetchSamples();
+        if (data.status === 'done' || data.status === 'idle') {
+          clearInterval(timer);
+          _trainLabeled = true;
+          if (progress) progress.classList.add('hidden');
+          _id('compose-train-preprocess').disabled = false;
+          _id('compose-train-snapshot-save').disabled = false;
+          if (status) status.textContent = 'Labeling complete';
+          await api('/compose/train/save', { method: 'POST' });
+        }
+      } catch {
+        clearInterval(timer);
+        if (progress) progress.classList.add('hidden');
+      }
+    }, 10000);
+  } catch (e) {
+    if (progress) progress.classList.add('hidden');
+    if (status) status.textContent = 'Label failed: ' + e.message;
+  }
+}
+
+async function _trainPreprocess() {
+  const status = _id('compose-train-pipeline-status');
+  const progress = _id('compose-train-progress');
+  if (status) status.textContent = 'Preprocessing...';
+  if (progress) progress.classList.remove('hidden');
+  try {
+    const result = await api('/compose/train/preprocess', { method: 'POST' });
+    const taskId = result.task_id;
+    const timer = setInterval(async () => {
+      try {
+        const data = await api(`/compose/train/preprocess/status${taskId ? '?task_id=' + taskId : ''}`);
+        const pct = data.progress ?? 0;
+        const fill = _id('compose-train-progress-fill');
+        const pctEl = _id('compose-train-progress-pct');
+        if (fill) fill.style.width = `${Math.round(pct * 100)}%`;
+        if (pctEl) pctEl.textContent = `${Math.round(pct * 100)}%`;
+        if (data.status === 'done' || data.status === 'idle') {
+          clearInterval(timer);
+          _trainPreprocessed = true;
+          if (progress) progress.classList.add('hidden');
+          _id('compose-train-start').disabled = false;
+          _id('compose-train-snapshot-save').disabled = false;
+          if (status) status.textContent = 'Preprocessing complete';
+          await api('/compose/train/save', { method: 'POST' });
+        }
+      } catch {
+        clearInterval(timer);
+        if (progress) progress.classList.add('hidden');
+      }
+    }, 10000);
+  } catch (e) {
+    if (progress) progress.classList.add('hidden');
+    if (status) status.textContent = 'Preprocess failed: ' + e.message;
+  }
+}
+
+async function _fetchSamples() {
+  try {
+    const data = await api('/compose/train/samples');
+    const samples = data.samples || [];
+    _renderSampleTable(samples);
+    const ds = _id('compose-train-dataset');
+    if (ds && samples.length > 0) ds.classList.remove('hidden');
+  } catch {}
+}
+
+function _renderSampleTable(samples) {
+  const container = _id('compose-train-samples');
+  if (!container) return;
+  // Keep header, remove rows
+  while (container.children.length > 1) container.removeChild(container.lastChild);
+
+  let labeledCount = 0;
+  samples.forEach((s, i) => {
+    const hasCaption = !!(s.caption || s.genre);
+    if (hasCaption) labeledCount++;
+    const captionArea = el('textarea', {
+      className: 'compose-train-caption',
+      value: s.caption || '',
+    });
+    captionArea.value = s.caption || '';
+    captionArea.addEventListener('blur', async () => {
+      try {
+        await api(`/compose/train/sample/${i}`, {
+          method: 'PUT',
+          body: JSON.stringify({ caption: captionArea.value }),
+        });
+      } catch {}
+    });
+    const filename = (s.file || s.path || '').split('/').pop() || `Sample ${i}`;
+    const dur = s.duration ? `${Math.floor(s.duration / 60)}:${String(Math.floor(s.duration % 60)).padStart(2, '0')}` : '--';
+    const row = el('div', { className: 'compose-train-sample-row' + (hasCaption ? ' labeled' : '') },
+      el('span', { className: 'compose-train-sample-file' }, filename),
+      el('span', { className: 'compose-train-sample-dur' }, dur),
+      captionArea,
+    );
+    container.appendChild(row);
+  });
+
+  const countEl = _id('compose-train-sample-count');
+  if (countEl) countEl.textContent = `${samples.length} samples`;
+  const labelEl = _id('compose-train-labeled-count');
+  if (labelEl) labelEl.textContent = `${labeledCount} labeled`;
+}
+
+// ─── Training control ───────────────────────────────────────────────
+
+async function _trainStart() {
+  const status = _id('compose-train-status-label');
+  const loss = _id('compose-train-loss');
+  const progress = _id('compose-train-progress');
+  const chart = _id('compose-train-chart-wrap');
+  const startBtn = _id('compose-train-start');
+  const stopBtn = _id('compose-train-stop');
+
+  const payload = {
+    adapter_type: (_id('compose-train-adapter') || {}).value || 'lora',
+    lora_rank: Number((_id('compose-train-rank') || {}).value || 64),
+    lora_alpha: Number((_id('compose-train-alpha') || {}).value || 128),
+    lora_dropout: Number((_id('compose-train-dropout') || {}).value || 0.1),
+    learning_rate: Number((_id('compose-train-lr') || {}).value || 0.0001),
+    train_epochs: Number((_id('compose-train-epochs') || {}).value || 10),
+    train_batch_size: Number((_id('compose-train-batch') || {}).value || 1),
+    gradient_accumulation: Number((_id('compose-train-grad-accum') || {}).value || 4),
+    save_every_n_epochs: Number((_id('compose-train-save-every') || {}).value || 5),
+    training_seed: Number((_id('compose-train-seed') || {}).value || 42),
+    gradient_checkpointing: !!_id('compose-train-grad-ckpt')?.checked,
+  };
+
+  if (status) status.textContent = 'Training...';
+  if (loss) loss.classList.remove('hidden');
+  if (progress) progress.classList.remove('hidden');
+  if (chart) chart.classList.remove('hidden');
+  if (startBtn) startBtn.disabled = true;
+  if (stopBtn) stopBtn.classList.remove('hidden');
+
+  try {
+    await api('/compose/train/start', { method: 'POST', body: JSON.stringify(payload) });
+    _startTrainStatusPoll();
+  } catch (e) {
+    if (status) status.textContent = 'Start failed: ' + e.message;
+    if (startBtn) startBtn.disabled = false;
+    if (stopBtn) stopBtn.classList.add('hidden');
+  }
+}
+
+async function _trainStop() {
+  try { await api('/compose/train/stop', { method: 'POST' }); } catch {}
+  const status = _id('compose-train-status-label');
+  if (status) status.textContent = 'Stopped';
+  _id('compose-train-stop')?.classList.add('hidden');
+  _id('compose-train-start') && (_id('compose-train-start').disabled = false);
+}
+
+async function _trainExport() {
+  const name = prompt('Adapter name:', 'my-lora');
+  if (!name) return;
+  const status = _id('compose-train-status-label');
+  try {
+    await api('/compose/train/export', { method: 'POST', body: JSON.stringify({ name }) });
+    if (status) status.textContent = 'Exported: ' + name;
+    _refreshLoraBrowser();
+  } catch (e) {
+    if (status) status.textContent = 'Export failed: ' + e.message;
+  }
+}
+
+async function _trainReinit() {
+  const status = _id('compose-train-status-label');
+  try {
+    await api('/compose/train/reinitialize', { method: 'POST' });
+    if (status) status.textContent = 'Generation model restored';
+  } catch (e) {
+    if (status) status.textContent = 'Reinit failed: ' + e.message;
+  }
+}
+
+// ─── Training status polling + loss chart ────────────────────────────
+
+function _startTrainStatusPoll() {
+  _stopTrainStatusPoll();
+  _trainPollTimer = setInterval(_pollTrainStatus, 10000);
+}
+
+function _stopTrainStatusPoll() {
+  if (_trainPollTimer) { clearInterval(_trainPollTimer); _trainPollTimer = null; }
+}
+
+async function _pollTrainStatus() {
+  try {
+    const data = await api('/compose/train/status');
+    const status = _id('compose-train-status-label');
+    const epochInfo = _id('compose-train-epoch-info');
+    const lossValue = _id('compose-train-loss-value');
+    const lossFill = _id('compose-train-loss-fill');
+    const progressFill = _id('compose-train-progress-fill');
+    const progressPct = _id('compose-train-progress-pct');
+
+    if (data.is_training) {
+      if (status) status.textContent = 'Training...';
+      if (epochInfo && data.current_epoch != null) epochInfo.textContent = `Epoch ${data.current_epoch}`;
+      if (data.current_loss != null) {
+        const loss = Number(data.current_loss).toFixed(4);
+        if (lossValue) lossValue.textContent = loss;
+        const bar = Math.max(0, Math.min(1, data.current_loss / 2));
+        if (lossFill) lossFill.style.width = `${(1 - bar) * 100}%`;
+      }
+      if (data.loss_history) _drawLossChart(data.loss_history);
+      if (data.progress != null) {
+        const pct = Math.round(data.progress * 100);
+        if (progressFill) progressFill.style.width = `${pct}%`;
+        if (progressPct) progressPct.textContent = `${pct}%`;
+      }
+    } else if (data.status === 'done' || data.status === 'completed' || (!data.is_training && data.current_epoch > 0)) {
+      _stopTrainStatusPoll();
+      if (status) status.textContent = 'Training complete';
+      _id('compose-train-stop')?.classList.add('hidden');
+      _id('compose-train-complete')?.classList.remove('hidden');
+    } else if (data.error) {
+      _stopTrainStatusPoll();
+      if (status) status.textContent = 'Error: ' + data.error;
+    }
+  } catch {}
+}
+
+function _drawLossChart(history) {
+  const canvas = _id('compose-train-loss-chart');
+  if (!canvas || !history?.length) return;
+  const wrap = _id('compose-train-chart-wrap');
+  if (wrap) wrap.classList.remove('hidden');
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 5; i++) {
+    const y = (h / 5) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // Loss line
+  const maxLoss = Math.max(...history.map(h => h.loss || h));
+  const minLoss = Math.min(...history.map(h => h.loss || h));
+  const range = maxLoss - minLoss || 1;
+
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  history.forEach((point, i) => {
+    const loss = point.loss ?? point;
+    const x = (i / Math.max(history.length - 1, 1)) * w;
+    const y = h - ((loss - minLoss) / range) * (h - 10) - 5;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Latest dot
+  if (history.length > 0) {
+    const last = history[history.length - 1];
+    const loss = last.loss ?? last;
+    const x = w;
+    const y = h - ((loss - minLoss) / range) * (h - 10) - 5;
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+// ─── Snapshots ──────────────────────────────────────────────────────
+
+async function _saveSnapshot() {
+  const nameInput = _id('compose-train-snapshot-name');
+  let name = nameInput?.value?.trim() || '';
+  if (!name) name = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  try {
+    await api('/compose/train/snapshots/save', { method: 'POST', body: JSON.stringify({ name }) });
+    if (nameInput) nameInput.value = '';
+    _loadSnapshotList();
+  } catch {}
+}
+
+async function _loadSnapshotList() {
+  try {
+    const data = await api('/compose/train/snapshots');
+    const list = _id('compose-train-snapshot-list');
+    if (!list) return;
+    clearChildren(list);
+    const snaps = data.snapshots || [];
+    if (snaps.length === 0) { list.classList.add('hidden'); return; }
+    list.classList.remove('hidden');
+    for (const snap of snaps) {
+      const loadBtn = el('button', { className: 'compose-ghost-btn' }, 'Load');
+      const delBtn = el('button', { className: 'compose-ghost-btn' }, 'Del');
+      loadBtn.addEventListener('click', async () => {
+        try {
+          await api('/compose/train/snapshots/load', { method: 'POST', body: JSON.stringify({ name: snap.name }) });
+          await _fetchSamples();
+          _trainScanned = true;
+          _trainLabeled = true;
+          const state = await api('/compose/train/pipeline-state');
+          _trainPreprocessed = state.has_tensors;
+          _id('compose-train-start').disabled = !_trainPreprocessed;
+          _id('compose-train-label').disabled = false;
+          _id('compose-train-preprocess').disabled = false;
+        } catch {}
+      });
+      delBtn.addEventListener('click', async () => {
+        try {
+          await api(`/compose/train/snapshots/${encodeURIComponent(snap.name)}`, { method: 'DELETE' });
+          _loadSnapshotList();
+        } catch {}
+      });
+      const meta = snap.meta || {};
+      const metaText = `${meta.tensor_count || 0} tensors \u00B7 ${snap.size_mb || 0}MB`;
+      list.appendChild(el('div', { className: 'compose-train-snapshot-entry' },
+        el('span', { className: 'compose-train-snapshot-name' }, snap.name),
+        el('span', { className: 'text-dim', style: { fontSize: '11px' } }, metaText),
+        loadBtn, delBtn,
+      ));
+    }
+  } catch {}
+}
+
+// ─── Pipeline state recovery ────────────────────────────────────────
+
+async function _recoverPipelineState() {
+  try {
+    const state = await api('/compose/train/pipeline-state');
+    _trainFiles = state.audio_files || [];
+    _updateTrainFileList();
+    _id('compose-train-scan').disabled = _trainFiles.length === 0;
+
+    if (state.has_saved_dataset) {
+      try { await api('/compose/train/load', { method: 'POST' }); } catch {}
+      await _fetchSamples();
+      _trainScanned = true;
+      _trainLabeled = true;
+      _id('compose-train-label').disabled = false;
+      _id('compose-train-preprocess').disabled = false;
+    }
+    if (state.has_tensors) {
+      _trainPreprocessed = true;
+      _id('compose-train-start').disabled = false;
+      _id('compose-train-snapshot-save').disabled = false;
+    }
+
+    _loadSnapshotList();
+
+    // Check for in-progress training
+    const trainStatus = await api('/compose/train/status');
+    if (trainStatus.is_training) {
+      _id('compose-train-start').disabled = true;
+      _id('compose-train-stop')?.classList.remove('hidden');
+      _id('compose-train-loss')?.classList.remove('hidden');
+      _id('compose-train-progress')?.classList.remove('hidden');
+      _id('compose-train-chart-wrap')?.classList.remove('hidden');
+      _startTrainStatusPoll();
+    }
+  } catch {}
+}
+
 // ─── Output Panel ───────────────────────────────────────────────────
 
 function buildOutputPanel() {
@@ -1259,6 +1943,7 @@ function switchMode(mode) {
   _mode = mode;
   document.querySelectorAll('#panel-compose .compose-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === mode));
+  const isTrain = mode === 'train';
   const cp = _id('compose-create-panel');
   const rp = _id('compose-rework-panel');
   const lp = _id('compose-lego-panel');
@@ -1272,11 +1957,25 @@ function switchMode(mode) {
   if (vp) vp.classList.toggle('hidden', mode !== 'voice');
   if (tabs) tabs.classList.toggle('hidden', mode !== 'create');
 
-  // For lego/complete/voice, hide the center column lyrics and right column controls
+  // Toggle train panels
+  const tl = _id('compose-train-left');
+  const tc = _id('compose-train-center');
+  const tr = _id('compose-train-right');
+  if (tl) tl.classList.toggle('hidden', !isTrain);
+  if (tc) tc.classList.toggle('hidden', !isTrain);
+  if (tr) tr.classList.toggle('hidden', !isTrain);
+
+  // For lego/complete/voice/train, hide the center column lyrics and right column controls
   const centerCol = document.querySelector('.compose-col-center');
   const rightCol = document.querySelector('.compose-col-right');
-  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice');
-  if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice');
+  const leftCol = document.querySelector('.compose-col-left');
+  if (leftCol) leftCol.classList.toggle('hidden', isTrain);
+  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice' || isTrain);
+  if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice' || isTrain);
+
+  // Start/stop train polling
+  if (isTrain) { _startTrainStatusPoll(); _recoverPipelineState(); }
+  else { _stopTrainStatusPoll(); }
 
   // Load voice models when entering voice mode for the first time
   if (mode === 'voice') loadVoiceModels();

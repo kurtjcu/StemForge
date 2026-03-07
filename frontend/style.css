@@ -1265,6 +1265,168 @@ input[type="range"]::-moz-range-track {
   white-space: nowrap;
 }
 
+/* ─── Training UI ────────────────────────────────────────────────────── */
+
+.compose-train-upload {
+  border: 2px dashed var(--border-subtle);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+.compose-train-upload.dragover { border-color: var(--accent); }
+
+.compose-train-file-list { margin-top: 8px; }
+.compose-train-file-entry {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compose-train-stems-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-top: 8px;
+}
+
+.compose-train-pipeline {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+.compose-train-pipeline-status {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-top: 6px;
+  min-height: 1.2em;
+}
+
+.compose-train-label-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Sample table */
+.compose-train-dataset { margin-top: 8px; }
+.compose-train-counts {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.compose-train-sample-header,
+.compose-train-sample-row {
+  display: grid;
+  grid-template-columns: 2fr 50px 3fr;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+.compose-train-sample-header {
+  font-weight: 600;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.compose-train-sample-row { border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.05)); }
+.compose-train-sample-row.labeled { border-left: 2px solid var(--accent); padding-left: 6px; }
+
+.compose-train-sample-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compose-train-sample-dur {
+  text-align: center;
+  color: var(--text-dim);
+}
+.compose-train-caption {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 4px 6px;
+  resize: vertical;
+  min-height: 28px;
+}
+
+/* Snapshots */
+.compose-train-snapshot-save-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.compose-train-snapshot-entry {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.82rem;
+}
+.compose-train-snapshot-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Training monitor */
+.compose-train-monitor { margin-top: 16px; }
+.compose-train-status-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.compose-train-loss-current {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  margin-bottom: 4px;
+}
+.compose-train-loss-bar {
+  height: 6px;
+  background: var(--surface-raised);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.compose-train-loss-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.3s;
+  width: 0;
+}
+
+.compose-train-chart-wrap { margin-top: 12px; }
+.compose-train-chart-wrap canvas { width: 100%; height: 180px; }
+
+.compose-train-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.compose-train-complete {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.compose-train-stop {
+  margin-top: 8px;
+  color: #e8a33d;
+  border-color: #e8a33d;
+}
+.compose-train-stop:hover { color: #fff; background: #e8a33d; }
+
 /* ─── Style Preview ──────────────────────────────────────────────────── */
 
 .compose-style-preview {
