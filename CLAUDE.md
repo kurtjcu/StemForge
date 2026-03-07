@@ -40,7 +40,8 @@ All pipelines and the full web UI are implemented:
 - Mix tab — per-track volume controls, audio/MIDI source types, FLAC render, multi-track preview
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
 - SFX Stem Builder (Synth tab) — DAW timeline, clip placement with fades, align-to reference waveform, render canvas to Mix
-- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
+- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration, LoRA adapter management, project save/load, seed recall
+- AceStep LoRA training (Compose tab Train mode) — upload audio, scan/label/preprocess pipeline, LoRA/LoKR fine-tuning with loss chart, snapshot management, adapter export
 - Batch separation — multi-file upload, single-stem extraction across all files, Save All zip download
 - Upload supports audio (WAV, FLAC, MP3, OGG, AIFF) and video (MP4, MKV, WEBM, AVI, MOV) — video audio extracted via FFmpeg
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
@@ -197,6 +198,33 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | POST | /api/compose/estimate-sections | sync | Section structure estimation |
 | POST | /api/compose/upload-audio | sync | Upload audio for Rework mode |
 | POST | /api/compose/send-to-session | sync | Save compose audio to session |
+| POST | /api/compose/lora/load | async | Load LoRA/LoKR adapter |
+| POST | /api/compose/lora/unload | async | Unload adapter, restore base model |
+| POST | /api/compose/lora/toggle | async | Enable/disable loaded adapter |
+| POST | /api/compose/lora/scale | async | Set adapter influence (0.0–1.0) |
+| GET | /api/compose/lora/status | async | Current adapter state |
+| GET | /api/compose/lora/browse | sync | List adapters in loras/ directory |
+| POST | /api/compose/train/upload | async | Upload audio files for training |
+| POST | /api/compose/train/clear | async | Delete audio + tensor files |
+| GET | /api/compose/train/pipeline-state | async | Disk state for recovery |
+| POST | /api/compose/train/scan | async | Load audio into AceStep dataset |
+| POST | /api/compose/train/label | async | Start async auto-labeling |
+| GET | /api/compose/train/label/status | async | Poll auto-label progress |
+| GET | /api/compose/train/samples | async | List dataset samples |
+| PUT | /api/compose/train/sample/{idx} | async | Update sample metadata |
+| POST | /api/compose/train/save | async | Save dataset to disk |
+| POST | /api/compose/train/load | async | Load saved dataset |
+| POST | /api/compose/train/preprocess | async | Start tensor preprocessing |
+| GET | /api/compose/train/preprocess/status | async | Poll preprocessing progress |
+| POST | /api/compose/train/start | async | Start LoRA/LoKR training |
+| GET | /api/compose/train/status | async | Poll training status + loss |
+| POST | /api/compose/train/stop | async | Stop training |
+| POST | /api/compose/train/export | async | Export adapter to loras/ |
+| POST | /api/compose/train/reinitialize | async | Reload generation model |
+| GET | /api/compose/train/snapshots | async | List saved snapshots |
+| POST | /api/compose/train/snapshots/save | async | Save dataset + tensors snapshot |
+| POST | /api/compose/train/snapshots/load | async | Load snapshot |
+| DELETE | /api/compose/train/snapshots/{name} | async | Delete snapshot |
 | GET | /api/mix/tracks | sync | Current track list |
 | POST | /api/mix/tracks | sync | Update track state |
 | POST | /api/mix/render | job | Render mix to FLAC |
@@ -318,7 +346,9 @@ AceStep runs as a separate process managed by `run.py`:
 - **GPU:** `--gpu N` sets `CUDA_VISIBLE_DEVICES` on the AceStep subprocess only
 - **State tracking:** `backend/services/acestep_state.py` — thread-safe status: disabled/starting/running/crashed
 - **Graceful degradation:** StemForge stays alive if AceStep crashes. All other tabs work normally.
-- **Compose router:** `backend/api/compose.py` proxies requests to AceStep's API via `backend/api/acestep_wrapper.py`
+- **Compose router:** `backend/api/compose.py` proxies requests to AceStep's API via `backend/api/acestep_wrapper.py` — includes generation, LoRA management (6 endpoints), and training pipeline (20+ endpoints)
+- **LoRA directory:** `Ace-Step-Wrangler/loras/` (configurable via `LORA_DIR` env var) — scanned for PEFT dirs and .safetensors files
+- **Training directory:** `Ace-Step-Wrangler/training/` (configurable via `TRAIN_DIR` env var) — audio, tensors, output, snapshots subdirs
 - **Submodule:** `Ace-Step-Wrangler/` (with nested `vendor/ACE-Step-1.5/`). To pull upstream changes: `cd Ace-Step-Wrangler && git pull origin main && cd .. && git add Ace-Step-Wrangler && git commit`
 
 **Tab bar:** Separate · Enhance · MIDI · Synth · Compose · Mix · Export
