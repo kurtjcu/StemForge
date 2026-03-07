@@ -25,6 +25,7 @@
   <!-- Tab bar -->
   <nav class="tab-bar" id="tab-bar">
     <button class="tab-btn active" data-tab="separate">Separate</button>
+    <button class="tab-btn" data-tab="enhance">Enhance</button>
     <button class="tab-btn" data-tab="midi">MIDI</button>
     <button class="tab-btn" data-tab="synth">Synth</button>
     <button class="tab-btn" data-tab="compose">Compose</button>
@@ -36,6 +37,9 @@
   <main class="tab-content">
     <section id="panel-separate" class="tab-panel">
       <!-- Loader + Separate tab content injected by separate.js -->
+    </section>
+    <section id="panel-enhance" class="tab-panel hidden">
+      <!-- Enhance tab content injected by enhance.js -->
     </section>
     <section id="panel-midi" class="tab-panel hidden">
       <!-- MIDI tab content injected by midi.js -->

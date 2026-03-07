@@ -70,6 +70,7 @@ export function initExport() {
   appState.on('mixReady', refreshArtifacts);
   appState.on('sfxReady', refreshArtifacts);
   appState.on('transformReady', refreshArtifacts);
+  appState.on('enhanceReady', refreshArtifacts);
 }
 
 function refreshArtifacts() {
@@ -124,6 +125,11 @@ function collectArtifacts() {
   // Voice transforms
   for (const [label, path] of Object.entries(appState.voicePaths || {})) {
     items.push({ label, path, type: 'voice' });
+  }
+
+  // Enhanced stems
+  for (const [label, path] of Object.entries(appState.enhancePaths || {})) {
+    items.push({ label, path, type: 'enhanced' });
   }
 
   // Mix

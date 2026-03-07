@@ -29,6 +29,7 @@ export const appState = {
   composePaths: [],
   sfxPaths: {},
   voicePaths: {},
+  enhancePaths: {},
 };
 
 // ─── API Helpers ────────────────────────────────────────────────────────
@@ -203,6 +204,7 @@ async function initComponents() {
   const [
     { initLoader },
     { initSeparate },
+    { initEnhance },
     { initMidi },
     { initMix },
     { initGenerate },
@@ -212,6 +214,7 @@ async function initComponents() {
   ] = await Promise.all([
     import('./components/loader.js'),
     import('./components/separate.js'),
+    import('./components/enhance.js'),
     import('./components/midi.js'),
     import('./components/mix.js'),
     import('./components/generate.js'),
@@ -222,6 +225,7 @@ async function initComponents() {
 
   initLoader();
   initSeparate();
+  initEnhance();
   initMidi();
   initMix();
   initGenerate();

@@ -200,6 +200,7 @@ export function initMix() {
   appState.on('composeReady', () => refreshTracks());
   appState.on('sfxReady', () => refreshTracks());
   appState.on('transformReady', () => refreshTracks());
+  appState.on('enhanceReady', () => refreshTracks());
 }
 
 async function refreshTracks() {
