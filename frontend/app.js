@@ -64,7 +64,7 @@ export async function apiUpload(path, file) {
  * @param {string} jobId
  * @param {object} opts - { onProgress(progress, stage), onDone(result), onError(msg), interval }
  */
-export function pollJob(jobId, { onProgress, onDone, onError, interval = 5000 } = {}) {
+export function pollJob(jobId, { onProgress, onDone, onError, interval = 10000 } = {}) {
   const timer = setInterval(async () => {
     try {
       const job = await api(`/jobs/${jobId}`);

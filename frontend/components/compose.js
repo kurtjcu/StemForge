@@ -1594,7 +1594,7 @@ async function ensureAceStep() {
   // Poll health until running — no fixed timeout; keeps going as long as
   // AceStep is still starting (downloading/loading models).  Backend sets
   // "crashed" only when the process actually exits, so we'll catch that.
-  const POLL_INTERVAL = 3000;
+  const POLL_INTERVAL = 10000;
   try {
     while (true) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
@@ -1707,7 +1707,7 @@ async function handleGenerate() {
       setGenerating(false);
       if (hint) hint.textContent = `Polling error: ${err.message}`;
     }
-  }, 2000);
+  }, 10000);
 }
 
 function setGenerating(on) {

@@ -314,7 +314,7 @@ async function startAceExtraction() {
       await fetch('/api/compose/start', { method: 'POST' });
       // Poll until running
       while (true) {
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 10000));
         const h = await api('/compose/health');
         if (h.acestep_status === 'running') break;
         if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
@@ -410,7 +410,7 @@ async function startAceExtraction() {
           el('div', { className: 'banner banner-error' }, `Polling error: ${err.message}`),
         );
       }
-    }, 2000);
+    }, 10000);
 
   } catch (err) {
     progressCard.classList.add('hidden');

@@ -555,7 +555,7 @@ async function startGeneration() {
     });
 
     pollJob(job_id, {
-      interval: 3000,
+      interval: 10000,
       onProgress(progress, stage) {
         document.getElementById('gen-progress-fill').style.width = `${(progress * 100).toFixed(0)}%`;
         document.getElementById('gen-pct').textContent = `${(progress * 100).toFixed(0)}%`;
