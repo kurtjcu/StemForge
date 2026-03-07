@@ -1214,6 +1214,16 @@ input[type="range"]::-moz-range-track {
   cursor: not-allowed;
 }
 
+/* ─── Seed Row ───────────────────────────────────────────────────────── */
+
+.compose-seed-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.compose-seed-row .compose-number { flex: 1; min-width: 0; }
+.compose-seed-btn { font-size: 11px; padding: 4px 8px; white-space: nowrap; }
+
 /* ─── Style Preview ──────────────────────────────────────────────────── */
 
 .compose-style-preview {

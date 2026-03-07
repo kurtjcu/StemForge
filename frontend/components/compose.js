@@ -41,6 +41,9 @@ let _voiceSourcePeaks = null;
 let _voiceModels = [];
 let _voiceJobId = null;
 
+// Seed recall
+let _lastSeed = null;
+
 const ACE_TRACKS = [
   'vocals', 'backing_vocals', 'drums', 'bass', 'guitar', 'keyboard',
   'strings', 'brass', 'woodwinds', 'synth', 'percussion', 'fx',
@@ -867,9 +870,24 @@ function buildAdvancedPanel() {
   content.appendChild(el('div', { className: 'compose-divider' }));
 
   // Seed
+  const seedLastBtn = el('button', {
+    className: 'compose-ghost-btn compose-seed-btn', id: 'compose-seed-last',
+    type: 'button', disabled: 'true', title: 'Use last seed',
+  }, 'Last');
+  seedLastBtn.addEventListener('click', () => {
+    if (_lastSeed != null) _id('compose-seed').value = _lastSeed;
+  });
+  const seedRandomBtn = el('button', {
+    className: 'compose-ghost-btn compose-seed-btn', type: 'button', title: 'Set to random',
+  }, 'Random');
+  seedRandomBtn.addEventListener('click', () => { _id('compose-seed').value = ''; });
+
   content.appendChild(el('div', { className: 'compose-control-group' },
     el('label', { className: 'compose-field-label' }, 'Seed'),
-    el('input', { type: 'number', id: 'compose-seed', className: 'compose-number', placeholder: 'Random', min: '0', max: '2147483647' }),
+    el('div', { className: 'compose-seed-row' },
+      el('input', { type: 'number', id: 'compose-seed', className: 'compose-number', placeholder: 'Random', min: '0', max: '2147483647' }),
+      seedLastBtn, seedRandomBtn,
+    ),
   ));
 
   // Scheduler
@@ -1656,10 +1674,26 @@ function cancelGeneration() {
 
 // ─── Results ────────────────────────────────────────────────────────
 
+function _captureLastSeed(results) {
+  if (!results || !results.length) return;
+  const sv = results[0].seed_value;
+  if (sv != null && sv !== '') {
+    const first = String(sv).split(',')[0].trim();
+    if (first && !isNaN(first)) {
+      _lastSeed = first;
+      const btn = _id('compose-seed-last');
+      if (btn) { btn.disabled = false; btn.title = 'Use last seed: ' + first; }
+    }
+  }
+}
+
 function showResults(taskId, results, payload) {
   const output = _id('compose-output');
   const idle = _id('compose-output-idle');
   if (idle) idle.classList.add('hidden');
+
+  // Capture actual seed for Last button
+  _captureLastSeed(results);
 
   // Destroy previous players
   for (const p of _resultPlayers) {
