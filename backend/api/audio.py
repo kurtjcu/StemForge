@@ -85,6 +85,52 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
     }
 
 
+@router.post("/upload-batch")
+async def upload_batch(files: list[UploadFile] = File(...)) -> dict:
+    """Upload multiple audio/video files for batch processing."""
+    import subprocess
+    from utils.audio_io import probe, SUPPORTED_EXTENSIONS, VIDEO_EXTENSIONS
+
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    results = []
+
+    for file in files:
+        ext = pathlib.Path(file.filename or "upload").suffix.lower()
+        if ext not in SUPPORTED_EXTENSIONS and ext not in VIDEO_EXTENSIONS:
+            results.append({"filename": file.filename, "error": f"Unsupported format: {ext}"})
+            continue
+
+        dest = _UPLOAD_DIR / f"{uuid.uuid4().hex[:8]}_{file.filename}"
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+
+        if ext in VIDEO_EXTENSIONS:
+            wav_dest = dest.with_suffix(".wav")
+            try:
+                subprocess.run(
+                    ["ffmpeg", "-i", str(dest), "-vn", "-acodec", "pcm_s16le",
+                     "-ar", "44100", str(wav_dest)],
+                    check=True, capture_output=True, timeout=120,
+                )
+            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+                dest.unlink(missing_ok=True)
+                results.append({"filename": file.filename, "error": f"Video extraction failed: {exc}"})
+                continue
+            dest.unlink(missing_ok=True)
+            dest = wav_dest
+
+        info = probe(dest)
+        results.append({
+            "filename": file.filename,
+            "path": str(dest),
+            "duration": info.duration,
+            "sample_rate": info.sample_rate,
+            "channels": info.channels,
+        })
+
+    return {"files": results}
+
+
 @router.get("/audio/stream")
 def stream_audio(path: str = Query(...)) -> FileResponse:
     p = _validate_path(path)

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import pathlib
+import shutil
+import zipfile
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
@@ -14,11 +18,24 @@ from utils.paths import STEMS_DIR
 
 router = APIRouter(prefix="/api", tags=["separate"])
 
+_BATCH_DIR = STEMS_DIR / "batch"
+
 
 class SeparateRequest(BaseModel):
     engine: str = "demucs"            # "demucs" or "roformer"
     model_id: str = "htdemucs"
     stems: list[str] | None = None    # None = all available
+
+
+class BatchSeparateRequest(BaseModel):
+    engine: str = "demucs"
+    model_id: str = "htdemucs"
+    stem: str                         # single stem to extract
+    files: list[dict]                 # [{filename, path}, ...]
+
+
+class BatchSaveAllRequest(BaseModel):
+    paths: list[dict]                 # [{filename, path}, ...]
 
 
 def _make_pipeline_cb(job_id: str):
@@ -129,6 +146,148 @@ def recommend_separator() -> dict:
         "reason": rec.reason,
         "confidence": rec.confidence,
     }
+
+
+# ─── Batch separation ────────────────────────────────────────────────────
+
+
+def _run_batch_separation(
+    engine: str,
+    model_id: str,
+    stem: str,
+    files: list[dict],
+    job_id: str,
+) -> dict:
+    """Separate one stem from each file in the batch (runs in background thread)."""
+    total = len(files)
+    results = []
+
+    _BATCH_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Load model once, reuse for all files
+    if engine == "roformer":
+        from pipelines.roformer_pipeline import RoformerConfig
+        from models.registry import get_spec, RoformerSpec
+
+        pipeline = pipeline_manager.get_roformer()
+        spec = get_spec(model_id)
+        if not isinstance(spec, RoformerSpec):
+            raise ValueError(f"{model_id} is not a Roformer model")
+
+        def _configure():
+            config = RoformerConfig(
+                model_id=model_id,
+                stems=[stem],
+                output_dir=_BATCH_DIR,
+                chunk_size=spec.default_chunk_size,
+                num_overlap=spec.default_num_overlap,
+            )
+            pipeline.configure(config)
+    else:
+        from pipelines.demucs_pipeline import DemucsConfig
+
+        pipeline = pipeline_manager.get_demucs()
+
+        def _configure():
+            config = DemucsConfig(
+                model_name=model_id,
+                stems=[stem],
+                output_dir=_BATCH_DIR,
+            )
+            pipeline.configure(config)
+
+    job_manager.update_progress(job_id, 0.02, "Loading model...")
+    _configure()
+    pipeline.load_model()
+
+    for i, finfo in enumerate(files):
+        audio_path = pathlib.Path(finfo["path"])
+        display_name = finfo["filename"]
+        base_name = pathlib.Path(display_name).stem
+
+        job_manager.update_progress(
+            job_id,
+            (i / total) * 0.9 + 0.05,
+            f"Processing {i + 1}/{total}: {display_name}",
+        )
+
+        def _batch_cb(pct, stage="", _i=i):
+            file_progress = pct / 100.0
+            overall = ((_i + file_progress) / total) * 0.9 + 0.05
+            job_manager.update_progress(job_id, overall, f"[{_i + 1}/{total}] {stage}")
+
+        pipeline.set_progress_callback(_batch_cb)
+
+        # Re-configure for each file (output_dir stays the same)
+        _configure()
+
+        try:
+            result = pipeline.run(audio_path)
+            stem_paths = dict(result.stem_paths)
+
+            if stem in stem_paths:
+                src = pathlib.Path(stem_paths[stem])
+                dest_name = f"{stem}-stem-{base_name}{src.suffix}"
+                dest = _BATCH_DIR / dest_name
+                if src != dest:
+                    shutil.move(str(src), str(dest))
+                results.append({
+                    "filename": display_name,
+                    "stem": stem,
+                    "output_name": dest_name,
+                    "path": str(dest),
+                })
+            else:
+                results.append({
+                    "filename": display_name,
+                    "error": f"Stem '{stem}' not found in output",
+                })
+        except Exception as exc:
+            results.append({
+                "filename": display_name,
+                "error": str(exc),
+            })
+
+    job_manager.update_progress(job_id, 1.0, "Done")
+    return {"results": results, "stem": stem}
+
+
+@router.post("/separate/batch")
+def start_batch_separation(req: BatchSeparateRequest) -> dict:
+    if not req.files:
+        raise HTTPException(400, "No files provided")
+
+    job_id = job_manager.create_job("separate-batch")
+    job_manager.run_job(
+        job_id,
+        _run_batch_separation,
+        req.engine,
+        req.model_id,
+        req.stem,
+        req.files,
+        job_id,
+    )
+    return {"job_id": job_id}
+
+
+@router.post("/separate/batch/save-all")
+def batch_save_all(req: BatchSaveAllRequest):
+    """Zip all batch results for download."""
+    batch_root = _BATCH_DIR.resolve()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in req.paths:
+            p = pathlib.Path(item["path"]).resolve()
+            if not str(p).startswith(str(batch_root)) or not p.exists():
+                continue
+            zf.write(p, item["filename"])
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="batch-stems.zip"'},
+    )
 
 
 @router.get("/jobs/{job_id}")
