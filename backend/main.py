@@ -8,10 +8,10 @@ import pathlib
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from utils.paths import OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, VOICE_DIR
+from utils.paths import OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, VOICE_DIR, ENHANCE_DIR
 from utils.logging_utils import configure_logging
 
-from backend.api import system, audio, separate, midi, generate, mix, export, compose, sfx, voice
+from backend.api import system, audio, separate, midi, generate, mix, export, compose, sfx, voice, enhance
 
 configure_logging()
 log = logging.getLogger("stemforge")
@@ -29,9 +29,10 @@ app.include_router(export.router)
 app.include_router(compose.router)
 app.include_router(sfx.router)
 app.include_router(voice.router)
+app.include_router(enhance.router)
 
 # Ensure output directories exist
-for d in (OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, VOICE_DIR):
+for d in (OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, VOICE_DIR, ENHANCE_DIR):
     d.mkdir(parents=True, exist_ok=True)
 
 # Mount assets (icons, etc.)

@@ -41,6 +41,7 @@ class SessionStore:
         self._compose_paths: list[dict[str, Any]] = []
         self._sfx_manifests: dict[str, dict] = {}  # sfx_id → manifest dict
         self._voice_paths: dict[str, pathlib.Path] = {}  # label → output path
+        self._enhance_paths: dict[str, pathlib.Path] = {}  # label → enhanced output path
 
     # -- audio_path --
     @property
@@ -196,6 +197,16 @@ class SessionStore:
         with self._lock:
             self._voice_paths[label] = path
 
+    # -- enhance_paths --
+    @property
+    def enhance_paths(self) -> dict[str, pathlib.Path]:
+        with self._lock:
+            return dict(self._enhance_paths)
+
+    def add_enhance_path(self, label: str, path: pathlib.Path) -> None:
+        with self._lock:
+            self._enhance_paths[label] = path
+
     def clear(self) -> None:
         with self._lock:
             self._audio_path = None
@@ -209,6 +220,7 @@ class SessionStore:
             self._compose_paths = []
             self._sfx_manifests = {}
             self._voice_paths = {}
+            self._enhance_paths = {}
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -239,6 +251,7 @@ class SessionStore:
                     for m in self._sfx_manifests.values()
                 ],
                 "voice_paths": {k: str(v) for k, v in self._voice_paths.items()},
+                "enhance_paths": {k: str(v) for k, v in self._enhance_paths.items()},
             }
 
 

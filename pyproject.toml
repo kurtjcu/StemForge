@@ -112,6 +112,9 @@ dependencies = [
     "pedalboard>=0.9.0",
     "stftpitchshift>=1.5.0",
 
+    # Audio enhancement — UVR denoise/dereverb (vendored fork)
+    "audio-separator",
+
     # Audio playback / MIDI render
     "pyfluidsynth>=1.3.4",
 
@@ -166,6 +169,7 @@ torchaudio = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 ace-step = { path = "Ace-Step-Wrangler/vendor/ACE-Step-1.5", editable = true }
 nano-vllm = { path = "Ace-Step-Wrangler/vendor/ACE-Step-1.5/acestep/third_parts/nano-vllm" }
+audio-separator = { path = "../python-audio-separator" }
 
 #---------------------------------------------------------------------------
 # Hatchling build configuration
