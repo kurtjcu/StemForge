@@ -31,6 +31,16 @@ Split a track into individual stems using one of three AI engines:
 2. Use the radio buttons to select the single stem type to extract.
 3. Click **Separate**. StemForge starts the AceStep backend if it isn't already running, uploads your audio, and runs generative extraction. The extracted stem appears as a playable waveform when complete.
 
+### Batch Mode
+
+Extract a single stem type from multiple files at once.
+
+1. Toggle **Batch mode** at the top of the Separate tab.
+2. Drop multiple audio files onto the upload zone (or click to browse and multi-select).
+3. The stem selector switches to radio buttons — pick the **one** stem type to extract from all files.
+4. Click **Separate All**. The model loads once and processes each file sequentially with per-file progress updates.
+5. Results appear as individual waveform cards named `<stem>-stem-<filename>`. Each can be saved individually, or click **Save All** to download all results as a ZIP archive.
+
 ---
 
 ## 3. MIDI — MIDI Extraction

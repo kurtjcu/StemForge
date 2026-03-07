@@ -40,6 +40,7 @@ All pipelines and the full web UI are implemented:
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
 - SFX Stem Builder (Synth tab) — DAW timeline, clip placement with fades, align-to reference waveform, render canvas to Mix
 - AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
+- Batch separation — multi-file upload, single-stem extraction across all files, Save All zip download
 - Upload supports audio (WAV, FLAC, MP3, OGG, AIFF) and video (MP4, MKV, WEBM, AVI, MOV) — video audio extracted via FFmpeg
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
 - Waveform visualization via wavesurfer.js with global transport bar
@@ -68,8 +69,8 @@ StemForge/
 │   ├── api/
 │   │   ├── __init__.py
 │   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
-│   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info, /api/audio/profile
-│   │   ├── separate.py             # /api/separate, /api/separate/recommend, /api/jobs/{id}
+│   │   ├── audio.py                # /api/upload, /api/upload-batch, /api/audio/stream|download|waveform|info, /api/audio/profile
+│   │   ├── separate.py             # /api/separate, /api/separate/batch, /api/separate/recommend, /api/jobs/{id}
 │   │   ├── midi.py                 # /api/midi/extract|render|save|stems
 │   │   ├── generate.py             # /api/generate (Synth tab)
 │   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
@@ -89,9 +90,9 @@ StemForge/
 │   ├── style.css                   # Design tokens + full layout (dark DAW aesthetic)
 │   ├── app.js                      # State management, event bus, tab switching, poll helper
 │   └── components/
-│       ├── loader.js               # Drag-and-drop upload + file info
+│       ├── loader.js               # Drag-and-drop upload + file info + batch mode
 │       ├── waveform.js             # wavesurfer.js wrapper
-│       ├── separate.js             # Separation tab
+│       ├── separate.js             # Separation tab + batch mode
 │       ├── midi.js                 # MIDI tab
 │       ├── mix.js                  # Mix tab
 │       ├── generate.js             # Synth tab (Stable Audio Open)
@@ -164,12 +165,15 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | GET | /api/session | sync | Current session state |
 | DELETE | /api/session | sync | Clear session |
 | POST | /api/upload | sync | Upload audio/video file (video → FFmpeg audio extraction) |
+| POST | /api/upload-batch | sync | Upload multiple audio/video files for batch processing |
 | GET | /api/audio/stream | sync | Stream audio (inline) |
 | GET | /api/audio/download | sync | Download audio (attachment) |
 | GET | /api/audio/waveform | sync | Downsampled peaks JSON |
 | GET | /api/audio/info | sync | Audio metadata |
 | POST | /api/audio/profile | sync | Audio profiler + recommendation |
 | POST | /api/separate | job | Start separation |
+| POST | /api/separate/batch | job | Batch separation — single stem from multiple files |
+| POST | /api/separate/batch/save-all | sync | Zip batch results for download |
 | GET | /api/separate/recommend | sync | Quick engine recommendation |
 | GET | /api/jobs/{id} | sync | Poll any job's status |
 | POST | /api/midi/extract | job | Start MIDI extraction |
@@ -225,6 +229,8 @@ Compose done   → appState.emit("composeReady", {path, title, metadata})
 Mix done       → appState.emit("mixReady", mixPath)
 SFX ready      → appState.emit("sfxReady", {id})
 File loaded    → appState.emit("fileLoaded", {path, filename})
+Batch loaded   → appState.emit("batchFilesLoaded", uploadedFiles)
+Batch toggled  → appState.emit("batchModeChanged", boolean)
 ```
 
 Downstream components subscribe in their `init*()` functions:
@@ -232,11 +238,11 @@ Downstream components subscribe in their `init*()` functions:
 - Mix listens to `stemsReady` + `generateReady` + `composeReady` + `sfxReady` → add/refresh tracks
 - Generate listens to `stemsReady` + `midiReady` + `mixReady` + `fileLoaded` → populate conditioning/align sources
 - Export listens to all (including `composeReady`) → enable artifact checkboxes
-- Separate listens to `fileLoaded` → enable separation button
+- Separate listens to `fileLoaded` + `batchFilesLoaded` + `batchModeChanged` → enable separation, toggle batch UI
 
 ### Job polling
 
-Long-running pipeline jobs use `pollJob(jobId, {onProgress, onDone, onError, interval})` with 2s default interval.
+Long-running pipeline jobs use `pollJob(jobId, {onProgress, onDone, onError, interval})` with 10s default interval.
 
 ---
 
