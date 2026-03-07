@@ -239,11 +239,15 @@ async function refreshTracks() {
       // ─── Control row ───
       const enableInput = el('input', { type: 'checkbox' });
       enableInput.checked = track.enabled;
-      enableInput.addEventListener('change', () => {
-        api('/mix/tracks', {
-          method: 'POST',
-          body: JSON.stringify({ track_id: track.track_id, enabled: enableInput.checked }),
-        });
+      enableInput.addEventListener('change', async () => {
+        try {
+          await api('/mix/tracks', {
+            method: 'POST',
+            body: JSON.stringify({ track_id: track.track_id, enabled: enableInput.checked }),
+          });
+        } catch (err) {
+          console.error('Failed to save track state:', err);
+        }
       });
 
       const volumeSlider = el('input', {
@@ -262,11 +266,16 @@ async function refreshTracks() {
         const trackPlayer = _players.find(p => p._trackId === track.track_id);
         if (trackPlayer) trackPlayer.ws.setVolume(vol);
       });
-      volumeSlider.addEventListener('change', () => {
-        api('/mix/tracks', {
-          method: 'POST',
-          body: JSON.stringify({ track_id: track.track_id, volume: parseFloat(volumeSlider.value) }),
-        });
+      volumeSlider.addEventListener('change', async () => {
+        try {
+          await api('/mix/tracks', {
+            method: 'POST',
+            body: JSON.stringify({ track_id: track.track_id, volume: parseFloat(volumeSlider.value) }),
+          });
+        } catch (err) {
+          console.error('Failed to save volume:', err);
+          volumeLabel.textContent = 'Error';
+        }
       });
 
       // Determine badge class based on source type

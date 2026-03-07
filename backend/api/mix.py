@@ -154,10 +154,10 @@ def _run_mix_render(job_id: str) -> dict:
         padded[:len(audio)] = audio
         mix += padded * volume
 
-    # Normalize
+    # Prevent clipping — only normalize down, never boost quiet mixes
     peak = np.abs(mix).max()
-    if peak > 0:
-        mix = mix / peak * 0.9
+    if peak > 1.0:
+        mix = mix / peak * 0.95
 
     # Write stereo
     stereo = np.stack([mix, mix])  # (2, samples)
