@@ -16,6 +16,7 @@ AI-powered audio processing web application with six core pipelines:
 - **AceStep** — full song generation from style descriptions + lyrics (Compose tab, runs as subprocess)
 
 Additional systems:
+- **Enhance** — vocal cleanup via vendored `python-audio-separator` fork (UVR denoise, dereverb, debleed — 8 curated presets across Roformer/MDXC/VR architectures)
 - **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
 - **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, and FLAC render
@@ -75,6 +76,7 @@ StemForge/
 │   │   ├── generate.py             # /api/generate (Synth tab)
 │   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
 │   │   ├── acestep_wrapper.py      # HTTP client for AceStep API
+│   │   ├── enhance.py              # /api/enhance, /api/enhance/presets|stems (Enhance tab)
 │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
 │   │   ├── sfx.py                  # /api/sfx/* (SFX Stem Builder — canvas, placements, render)
 │   │   └── export.py               # /api/export, /api/export/download-zip
@@ -93,6 +95,8 @@ StemForge/
 │       ├── loader.js               # Drag-and-drop upload + file info + batch mode
 │       ├── waveform.js             # wavesurfer.js wrapper
 │       ├── separate.js             # Separation tab + batch mode
+│       ├── enhance.js             # Enhance tab (denoise/dereverb + diff viz)
+│       ├── waveform-diff.js       # Shared audio peak diff visualization
 │       ├── midi.js                 # MIDI tab
 │       ├── mix.js                  # Mix tab
 │       ├── generate.js             # Synth tab (Stable Audio Open)
@@ -101,7 +105,8 @@ StemForge/
 │       ├── midi-viz.js             # Canvas piano roll
 │       └── audio-player.js         # Global transport bar
 │
-├── pipelines/                      # UNCHANGED — all pipeline logic
+├── pipelines/                      # All pipeline logic
+│   ├── enhance_pipeline.py         # UVR denoise/dereverb via audio-separator
 │   ├── demucs_pipeline.py
 │   ├── roformer_pipeline.py
 │   ├── midi_pipeline.py
@@ -212,6 +217,9 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | DELETE | /api/sfx/{id} | sync | Delete canvas |
 | GET | /api/sfx/{id}/stream | sync | Stream rendered canvas audio |
 | GET | /api/sfx/{id}/reference-waveform | sync | Downsampled peaks for align ref |
+| GET | /api/enhance/presets | sync | Available enhancement presets |
+| GET | /api/enhance/stems | sync | Stems available for enhancement |
+| POST | /api/enhance | job | Start enhancement (denoise/dereverb) |
 | POST | /api/export | job | Start export |
 | POST | /api/export/download-zip | sync | Zip download |
 
@@ -227,6 +235,7 @@ MIDI done      → appState.emit("midiReady", {labels, noteCounts})
 Generate done  → appState.emit("generateReady", audioPath)
 Compose done   → appState.emit("composeReady", {path, title, metadata})
 Mix done       → appState.emit("mixReady", mixPath)
+Enhance done   → appState.emit("enhanceReady", {output_path, preset, label})
 SFX ready      → appState.emit("sfxReady", {id})
 File loaded    → appState.emit("fileLoaded", {path, filename})
 Batch loaded   → appState.emit("batchFilesLoaded", uploadedFiles)
@@ -295,6 +304,7 @@ StemForgeError
 | `COMPOSE_DIR` | `~/.local/share/stemforge/output/compose/` |
 | `MIX_DIR` | `~/.local/share/stemforge/output/mix/` |
 | `SFX_DIR` | `~/.local/share/stemforge/output/sfx/` |
+| `ENHANCE_DIR` | `~/.local/share/stemforge/output/enhance/` |
 | `EXPORT_DIR` | `~/.local/share/stemforge/output/exports/` |
 
 ---
@@ -311,7 +321,7 @@ AceStep runs as a separate process managed by `run.py`:
 - **Compose router:** `backend/api/compose.py` proxies requests to AceStep's API via `backend/api/acestep_wrapper.py`
 - **Submodule:** `Ace-Step-Wrangler/` (with nested `vendor/ACE-Step-1.5/`). To pull upstream changes: `cd Ace-Step-Wrangler && git pull origin main && cd .. && git add Ace-Step-Wrangler && git commit`
 
-**Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
+**Tab bar:** Separate · Enhance · MIDI · Synth · Compose · Mix · Export
 
 ---
 
