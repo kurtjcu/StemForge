@@ -98,12 +98,17 @@ def launch() -> bool:
         if var in os.environ:
             env[var] = os.environ[var]
 
-    # Enable Tensor Core acceleration on Ampere+ GPUs (trades negligible
-    # precision for speed).  Done via -c preamble so we don't touch vendor code.
+    # Preamble sets process-wide torch config without touching vendor code:
+    # - Tensor Core acceleration (medium precision) for speed on Ampere+ GPUs
+    # - Deterministic CUDA ops for reproducible generation with same seed
     cmd = [
         sys.executable, "-c",
+        "import os; os.environ.setdefault('CUBLAS_WORKSPACE_CONFIG', ':4096:8');"
         "import torch;"
         "torch.set_float32_matmul_precision('medium');"
+        "torch.use_deterministic_algorithms(True, warn_only=True);"
+        "torch.backends.cudnn.deterministic = True;"
+        "torch.backends.cudnn.benchmark = False;"
         "from acestep.api_server import main; main()",
         "--host", "127.0.0.1",
         "--port", str(port),
