@@ -1522,6 +1522,20 @@ async function _clearTrainFiles() {
 async function _trainScan() {
   const status = _id('compose-train-pipeline-status');
   const stemsMode = _id('compose-train-stems-mode')?.checked || false;
+  // Ensure AceStep is running before first scan
+  if (!_aceStepRunning) {
+    if (status) status.textContent = 'Starting AceStep\u2026';
+    try {
+      await ensureAceStep();
+      _aceStepRunning = true;
+      // Update the generate button label now that AceStep is running
+      const btn = _id('compose-generate-btn');
+      if (btn && !btn.disabled) btn.textContent = _modeLabel();
+    } catch (err) {
+      if (status) status.textContent = 'AceStep: ' + err.message;
+      return;
+    }
+  }
   if (status) status.textContent = 'Scanning...';
   try {
     await api('/compose/train/scan', { method: 'POST', body: JSON.stringify({ stems_mode: stemsMode }) });
@@ -1547,14 +1561,16 @@ async function _trainLabel() {
     const timer = setInterval(async () => {
       try {
         const data = await api('/compose/train/label/status');
-        const pct = data.progress ?? 0;
+        const current = data.current ?? 0;
+        const total = data.total ?? 1;
+        const pct = total > 0 ? current / total : 0;
         const fill = _id('compose-train-label-fill');
         const pctEl = _id('compose-train-label-pct');
         if (fill) fill.style.width = `${Math.round(pct * 100)}%`;
         if (pctEl) pctEl.textContent = `${Math.round(pct * 100)}%`;
         // Update samples live
         await _fetchSamples();
-        if (data.status === 'done' || data.status === 'idle') {
+        if (data.status === 'completed' || data.status === 'idle') {
           clearInterval(timer);
           _trainLabeled = true;
           if (progress) progress.classList.add('hidden');
@@ -1562,6 +1578,10 @@ async function _trainLabel() {
           _id('compose-train-snapshot-save').disabled = false;
           if (status) status.textContent = 'Labeling complete';
           await api('/compose/train/save', { method: 'POST' });
+        } else if (data.status === 'failed') {
+          clearInterval(timer);
+          if (progress) progress.classList.add('hidden');
+          if (status) status.textContent = 'Labeling failed: ' + (data.error || 'unknown error');
         }
       } catch {
         clearInterval(timer);
@@ -1585,12 +1605,14 @@ async function _trainPreprocess() {
     const timer = setInterval(async () => {
       try {
         const data = await api(`/compose/train/preprocess/status${taskId ? '?task_id=' + taskId : ''}`);
-        const pct = data.progress ?? 0;
+        const current = data.current ?? 0;
+        const total = data.total ?? 1;
+        const pct = total > 0 ? current / total : 0;
         const fill = _id('compose-train-progress-fill');
         const pctEl = _id('compose-train-progress-pct');
         if (fill) fill.style.width = `${Math.round(pct * 100)}%`;
         if (pctEl) pctEl.textContent = `${Math.round(pct * 100)}%`;
-        if (data.status === 'done' || data.status === 'idle') {
+        if (data.status === 'completed' || data.status === 'idle') {
           clearInterval(timer);
           _trainPreprocessed = true;
           if (progress) progress.classList.add('hidden');
@@ -1598,6 +1620,10 @@ async function _trainPreprocess() {
           _id('compose-train-snapshot-save').disabled = false;
           if (status) status.textContent = 'Preprocessing complete';
           await api('/compose/train/save', { method: 'POST' });
+        } else if (data.status === 'failed') {
+          clearInterval(timer);
+          if (progress) progress.classList.add('hidden');
+          if (status) status.textContent = 'Preprocessing failed: ' + (data.error || 'unknown error');
         }
       } catch {
         clearInterval(timer);

@@ -26,6 +26,18 @@ def _base_url() -> str:
     return f"http://localhost:{get_port()}"
 
 
+def _unwrap(body: dict) -> dict:
+    """Strip AceStep's standard {data: ..., code: ..., timestamp: ...} envelope.
+
+    AceStep wraps all responses in this format.  The generation helpers
+    (release_task, query_result) already unwrap manually; this helper
+    provides a consistent unwrapper for LoRA and training endpoints.
+    """
+    if isinstance(body.get("data"), (dict, list)):
+        return body["data"]
+    return body
+
+
 async def health_check() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(f"{_base_url()}/health")
@@ -142,7 +154,7 @@ async def lora_load(lora_path: str, adapter_name: str | None = None) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_LORA) as client:
         r = await client.post(f"{_base_url()}/v1/lora/load", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def lora_unload() -> dict:
@@ -150,7 +162,7 @@ async def lora_unload() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_LORA) as client:
         r = await client.post(f"{_base_url()}/v1/lora/unload")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def lora_toggle(use_lora: bool) -> dict:
@@ -158,7 +170,7 @@ async def lora_toggle(use_lora: bool) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.post(f"{_base_url()}/v1/lora/toggle", json={"use_lora": use_lora})
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def lora_scale(scale: float, adapter_name: str | None = None) -> dict:
@@ -169,7 +181,7 @@ async def lora_scale(scale: float, adapter_name: str | None = None) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.post(f"{_base_url()}/v1/lora/scale", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def lora_status() -> dict:
@@ -177,7 +189,7 @@ async def lora_status() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(f"{_base_url()}/v1/lora/status")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 # ─── Training pipeline ────────────────────────────────────────────────────
@@ -190,7 +202,7 @@ async def dataset_scan(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
         r = await client.post(f"{_base_url()}/v1/dataset/scan", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_preprocess_async(output_dir: str) -> dict:
@@ -198,7 +210,7 @@ async def dataset_preprocess_async(output_dir: str) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
         r = await client.post(f"{_base_url()}/v1/dataset/preprocess_async", json={"output_dir": output_dir})
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_preprocess_status(task_id: str | None = None) -> dict:
@@ -209,7 +221,7 @@ async def dataset_preprocess_status(task_id: str | None = None) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(url)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_auto_label_async(payload: dict) -> dict:
@@ -217,7 +229,7 @@ async def dataset_auto_label_async(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
         r = await client.post(f"{_base_url()}/v1/dataset/auto_label_async", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_auto_label_status() -> dict:
@@ -225,7 +237,7 @@ async def dataset_auto_label_status() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(f"{_base_url()}/v1/dataset/auto_label_status")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_sample_update(sample_idx: int, payload: dict) -> dict:
@@ -233,7 +245,7 @@ async def dataset_sample_update(sample_idx: int, payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.put(f"{_base_url()}/v1/dataset/sample/{sample_idx}", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_samples() -> dict:
@@ -241,7 +253,7 @@ async def dataset_samples() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(f"{_base_url()}/v1/dataset/samples")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_save(file_path: str) -> dict:
@@ -249,7 +261,7 @@ async def dataset_save(file_path: str) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.post(f"{_base_url()}/v1/dataset/save", json={"file_path": file_path})
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def dataset_load(file_path: str) -> dict:
@@ -257,7 +269,7 @@ async def dataset_load(file_path: str) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(f"{_base_url()}/v1/dataset/load", params={"file_path": file_path})
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def training_start(payload: dict) -> dict:
@@ -265,7 +277,7 @@ async def training_start(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
         r = await client.post(f"{_base_url()}/v1/training/start", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def training_start_lokr(payload: dict) -> dict:
@@ -273,7 +285,7 @@ async def training_start_lokr(payload: dict) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
         r = await client.post(f"{_base_url()}/v1/training/start_lokr", json=payload)
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def training_status() -> dict:
@@ -281,7 +293,7 @@ async def training_status() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.get(f"{_base_url()}/v1/training/status")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def training_stop() -> dict:
@@ -289,7 +301,7 @@ async def training_stop() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_POLL) as client:
         r = await client.post(f"{_base_url()}/v1/training/stop")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def training_export(export_path: str, lora_output_dir: str) -> dict:
@@ -299,7 +311,7 @@ async def training_export(export_path: str, lora_output_dir: str) -> dict:
             "export_path": export_path, "lora_output_dir": lora_output_dir,
         })
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
 
 
 async def reinitialize_service() -> dict:
@@ -307,4 +319,4 @@ async def reinitialize_service() -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT_TRAIN) as client:
         r = await client.post(f"{_base_url()}/v1/reinitialize")
         r.raise_for_status()
-        return r.json()
+        return _unwrap(r.json())
