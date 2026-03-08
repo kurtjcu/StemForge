@@ -756,6 +756,70 @@ _TRAIN_DATASET_FILE = _TRAIN_DIR / "dataset.json"
 for _d in (_TRAIN_DIR, _TRAIN_AUDIO_DIR, _TRAIN_TENSOR_DIR, _TRAIN_OUTPUT_DIR, _TRAIN_SNAPSHOTS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
+_SIDECAR_SUFFIX = ".stemforge.json"
+_SIDECAR_KEYS = ("caption", "genre", "lyrics", "bpm", "keyscale", "timesignature",
+                 "language", "is_instrumental", "prompt_override")
+
+
+async def _write_sidecars() -> int:
+    """Write .stemforge.json sidecar files for all labeled samples.
+
+    Called after labeling completes or manual edits are saved so that
+    captions survive re-scans and interruptions.
+    """
+    try:
+        data = await dataset_samples()
+    except Exception:
+        return 0
+    samples = data.get("samples", [])
+    written = 0
+    for s in samples:
+        if not s.get("labeled") and not s.get("caption"):
+            continue
+        filename = s.get("filename", "")
+        if not filename:
+            continue
+        sidecar = _TRAIN_AUDIO_DIR / (filename + _SIDECAR_SUFFIX)
+        payload = {k: s.get(k) for k in _SIDECAR_KEYS if s.get(k) is not None}
+        if payload:
+            sidecar.write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+            written += 1
+    return written
+
+
+async def _apply_sidecars() -> int:
+    """Read .stemforge.json sidecars and apply them to scanned samples.
+
+    Called after scan so that previously labeled files keep their captions.
+    """
+    try:
+        data = await dataset_samples()
+    except Exception:
+        return 0
+    samples = data.get("samples", [])
+    applied = 0
+    for i, s in enumerate(samples):
+        if s.get("labeled") or s.get("caption"):
+            continue
+        filename = s.get("filename", "")
+        if not filename:
+            continue
+        sidecar = _TRAIN_AUDIO_DIR / (filename + _SIDECAR_SUFFIX)
+        if not sidecar.is_file():
+            continue
+        try:
+            meta = json.loads(sidecar.read_text())
+        except Exception:
+            continue
+        if not meta:
+            continue
+        try:
+            await dataset_sample_update(i, meta)
+            applied += 1
+        except Exception:
+            pass
+    return applied
+
 
 class TrainScanRequest(BaseModel):
     stems_mode: bool = False
@@ -819,24 +883,28 @@ async def train_upload(files: List[UploadFile]):
         dest.write_bytes(content)
         uploaded.append(safe_name)
 
-    audio_files = sorted(p.name for p in _TRAIN_AUDIO_DIR.iterdir() if p.is_file())
+    audio_files = sorted(p.name for p in _TRAIN_AUDIO_DIR.iterdir()
+                         if p.is_file() and not p.name.endswith(_SIDECAR_SUFFIX))
     return {"uploaded": uploaded, "skipped": skipped, "files": audio_files, "audio_dir": str(_TRAIN_AUDIO_DIR)}
 
 
 @router.post("/train/clear")
 async def train_clear():
-    """Delete all audio and tensor files."""
-    audio_removed = sum(1 for f in _TRAIN_AUDIO_DIR.iterdir() if f.is_file() and f.unlink() is None)
+    """Delete all audio, sidecar, and tensor files."""
+    audio_removed = sum(1 for f in _TRAIN_AUDIO_DIR.iterdir()
+                        if f.is_file() and not f.name.endswith(_SIDECAR_SUFFIX) and f.unlink() is None)
+    sidecar_removed = sum(1 for f in _TRAIN_AUDIO_DIR.glob(f"*{_SIDECAR_SUFFIX}") if f.unlink() is None)
     tensor_removed = sum(1 for f in _TRAIN_TENSOR_DIR.rglob("*.pt") if f.unlink() is None)
     if _TRAIN_DATASET_FILE.exists():
         _TRAIN_DATASET_FILE.unlink()
-    return {"removed": {"audio": audio_removed, "tensors": tensor_removed}}
+    return {"removed": {"audio": audio_removed, "sidecars": sidecar_removed, "tensors": tensor_removed}}
 
 
 @router.get("/train/pipeline-state")
 async def train_pipeline_state():
     """Report disk state for pipeline recovery."""
-    audio_files = sorted(p.name for p in _TRAIN_AUDIO_DIR.iterdir() if p.is_file()) if _TRAIN_AUDIO_DIR.is_dir() else []
+    audio_files = sorted(p.name for p in _TRAIN_AUDIO_DIR.iterdir()
+                         if p.is_file() and not p.name.endswith(_SIDECAR_SUFFIX)) if _TRAIN_AUDIO_DIR.is_dir() else []
     tensor_count = sum(1 for _ in _TRAIN_TENSOR_DIR.rglob("*.pt")) if _TRAIN_TENSOR_DIR.is_dir() else 0
     return {
         "audio_files": audio_files,
@@ -855,7 +923,13 @@ async def train_scan(req: TrainScanRequest):
         payload = {"audio_dir": str(_TRAIN_AUDIO_DIR)}
         if req.stems_mode:
             payload["stems_mode"] = True
-        return await dataset_scan(payload)
+        result = await dataset_scan(payload)
+        # Restore captions from sidecar files written during previous labeling
+        restored = await _apply_sidecars()
+        if restored:
+            await dataset_save(str(_TRAIN_DATASET_FILE))
+            result["restored_captions"] = restored
+        return result
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
     except Exception as exc:
@@ -898,10 +972,11 @@ async def train_samples():
 
 @router.put("/train/sample/{sample_idx}")
 async def train_sample_update(sample_idx: int, req: SampleUpdateRequest):
-    """Update sample metadata and auto-save."""
+    """Update sample metadata, auto-save, and write caption sidecar."""
     try:
         result = await dataset_sample_update(sample_idx, req.model_dump())
         await dataset_save(str(_TRAIN_DATASET_FILE))
+        await _write_sidecars()
         return result
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
@@ -911,9 +986,11 @@ async def train_sample_update(sample_idx: int, req: SampleUpdateRequest):
 
 @router.post("/train/save")
 async def train_save():
-    """Save dataset to disk."""
+    """Save dataset to disk and write caption sidecars."""
     try:
-        return await dataset_save(str(_TRAIN_DATASET_FILE))
+        result = await dataset_save(str(_TRAIN_DATASET_FILE))
+        await _write_sidecars()
+        return result
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
 

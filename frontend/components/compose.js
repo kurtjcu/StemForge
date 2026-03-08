@@ -1538,11 +1538,19 @@ async function _trainScan() {
   }
   if (status) status.textContent = 'Scanning...';
   try {
-    await api('/compose/train/scan', { method: 'POST', body: JSON.stringify({ stems_mode: stemsMode }) });
+    const scanResult = await api('/compose/train/scan', { method: 'POST', body: JSON.stringify({ stems_mode: stemsMode }) });
     _trainScanned = true;
     await _fetchSamples();
     _id('compose-train-label').disabled = false;
-    if (status) status.textContent = 'Scan complete';
+    const restored = scanResult.restored_captions || 0;
+    if (restored > 0) {
+      _trainLabeled = true;
+      _id('compose-train-preprocess').disabled = false;
+      _id('compose-train-snapshot-save').disabled = false;
+    }
+    if (status) status.textContent = restored > 0
+      ? `Scan complete \u2014 ${restored} caption${restored > 1 ? 's' : ''} restored`
+      : 'Scan complete';
   } catch (e) {
     if (status) status.textContent = 'Scan failed: ' + e.message;
   }
