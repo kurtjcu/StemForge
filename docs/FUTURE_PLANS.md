@@ -168,6 +168,8 @@ Custom adapter training is now live in the **Compose tab** as a 6th mode
 - **Multi-GPU training** — currently single-GPU only.
 - **Training presets** — save/recall hyperparameter configurations.
 - **Adapter comparison** — A/B generation with different adapters loaded.
+  Use `--deterministic` flag + fixed seed for reproducible A/B comparisons
+  between base model and LoRA-adapted output.
 
 ---
 
@@ -189,11 +191,44 @@ Pitch correction for vocal stems using CREPE neural pitch detection
 key, scale (chromatic/major/minor/pentatonic/blues), correction strength,
 and humanization. Formant-preserving — no metallic artifacts.
 
+### Phase 4 — Region Edit — planned
+
+Manual region-based volume editing for cleaning up stems before voice
+conversion or mixing. New **Edit** mode in the Enhance tab mode bar
+(Clean Up · Tune · Edit · Effects).
+
+- **Region selection** — wavesurfer.js Regions plugin for click-drag
+  selection on the waveform. Multiple independent regions per stem.
+- **Per-region controls** — inline popup with volume slider (0–100%,
+  where 0% = silence), fade-in/out duration (ms), apply/delete buttons.
+- **Apply All** — backend renders the modified audio (NumPy gain
+  multiplication with cosine fade at region edges), emits `enhanceReady`
+  for cross-tab integration.
+- **Use case** — silence AceStep pre-lyrics vocalizations and other
+  artifacts that don't voice-swap well, attenuate bleed in specific
+  sections, manual cleanup that automated presets can't target.
+
 ### Phase 2 — Effects Chain (Pedalboard) — planned
 
 Apply audio effects (EQ, compression, limiting, chorus, delay) via
 Spotify's Pedalboard library. Non-destructive chain with drag-to-reorder
 and per-effect bypass. Stubbed as "Effects" in the Enhance tab mode bar.
+
+- **Draggable effect panels** — slidable panels for reordering effects in
+  the chain via pointer events (smoother than HTML5 drag-and-drop for
+  this kind of UI). Each panel represents one effect with inline controls.
+
+---
+
+## SFX Stem Builder improvements
+
+- **Draggable clip placement** — replace the current click-to-position
+  workflow with direct drag-along-the-timeline via pointer events. Clips
+  slide smoothly to new positions with visual snap feedback. Same
+  interaction pattern as the Pedalboard effect panels — pointer events
+  with manual hit-testing for smooth sub-pixel control.
+- **Drag-to-resize** — grab clip edges to adjust fade in/out duration
+  visually on the timeline.
 
 ---
 

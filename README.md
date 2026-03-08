@@ -29,15 +29,17 @@ StemForge runs entirely on your local machine with no internet connection requir
 - **Demucs** — stem separation (vocals, drums, bass, other) — 4 models including fine-tuned and MDX variants
 - **BS-Roformer** — high-quality AI stem separation with 2-stem vocal, 4-stem, and 6-stem (guitar + piano) models
 - **MIDI extraction** — polyphonic BasicPitch for instruments, faster-whisper + pitch tracking for vocals; per-stem MIDI preview via FluidSynth
+- **Enhance** — three-mode vocal enhancement: Clean Up (8 UVR denoise/dereverb presets), Tune (CREPE + Praat PSOLA auto-tune with key/scale snapping), Effects (planned)
 - **Stable Audio Open** — text-conditioned audio generation up to 600 s, with optional audio and MIDI conditioning (Synth tab)
-- **AceStep** — full AI song generation from style descriptions + lyrics, with Create and Rework modes (Compose tab)
+- **SFX Stem Builder** — DAW-style timeline canvas for placing audio clips with per-clip fades and volume, aligned to a reference stem (Synth tab)
+- **AceStep** — full AI song generation from style descriptions + lyrics, with Create, Rework, Lego, and Complete modes (Compose tab); LoRA/LoKR adapter training pipeline with live loss chart, snapshots, and export
 - **RVC Voice Conversion** — AI voice transformation via vendored Applio inference; 14 built-in voices, searchable HuggingFace model browser, pitch shift, F0 method selection (Compose tab → Voice mode)
-- **Mix** — multi-track mixer combining audio stems, MIDI-rendered tracks, synth outputs, and composed songs; per-track instrument, volume, and FLAC render
+- **Mix** — multi-track mixer combining audio stems, MIDI-rendered tracks, synth outputs, and composed songs; per-track instrument, volume, multi-track preview, and FLAC render
 - **Export** — transcode any pipeline output (stems, MIDI, mix, generated audio, composed songs) to wav / flac / mp3 / ogg
 
 Everything runs locally with deterministic environments via uv.
 
-**Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
+**Tab bar:** Separate · Enhance · MIDI · Synth · Compose · Mix · Export
 
 See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md) for a guide to every tab, or [Future Plans](docs/FUTURE_PLANS.md) for the roadmap.
 
@@ -243,6 +245,7 @@ All AI models are downloaded lazily on first use — StemForge does not download
 | BS-Roformer separation | ~500 MB per model | First separation |
 | Stable Audio Open (Synth) | ~2 GB | First generation (requires HuggingFace auth — see below) |
 | AceStep (Compose) | ~20 GB | Click "Initialize" on Compose tab |
+| Enhance Clean Up (UVR) | ~100–500 MB per preset | First enhancement with that preset |
 | Whisper (Vocal MIDI) | ~40–500 MB depending on model size | First vocal MIDI extraction |
 | RVC Voice (Compose → Voice) | ~50–140 MB per voice model | First voice conversion with that model |
 
@@ -284,6 +287,9 @@ After updating, run `uv sync` to pick up any dependency changes.
 ### Separate
 AI-powered stem separation using Demucs and BS-Roformer. Upload any audio or video file, choose an engine and model, and split it into individual stems (vocals, drums, bass, other, guitar, piano). Automatic engine and model recommendation based on spectral analysis of your audio.
 
+### Enhance
+Three-mode vocal enhancement. **Clean Up** applies UVR denoise, dereverb, or debleed via 8 curated presets across Roformer/MDXC/VR architectures. **Tune** applies auto-tune via CREPE neural pitch detection + Praat PSOLA resynthesis — choose key, scale, correction strength, and humanization. **Effects** is planned (Pedalboard). Batch mode supported for Clean Up.
+
 ### MIDI
 Extract MIDI from separated stems. BasicPitch handles polyphonic instrument stems; faster-whisper + PYIN pitch tracking handles vocal melodies. Per-stem FluidSynth preview lets you audition MIDI renderings directly in the browser via wavesurfer.js.
 
@@ -294,6 +300,9 @@ Duration up to 600 s (chunked generation, 47 s per chunk).
 Includes Vocal Preservation Mode.
 See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md#4-synth--audio-generation--sfx-stem-builder) for usage details.
 
+### SFX Stem Builder
+DAW-style canvas (inside the Synth tab) for placing audio clips on a timeline. Per-clip fades, volume controls, and alignment to a reference stem waveform. Render the canvas to a single audio file and send it directly to the Mix tab.
+
 ### Compose
 Full song generation via AceStep 1.5 and voice transformation via RVC, running as managed pipelines.
 See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md#5-compose--full-song-generation-acestep) for usage details.
@@ -301,8 +310,11 @@ See [INSTRUCTIONS.md](docs/INSTRUCTIONS.md#5-compose--full-song-generation-acest
 - **Initialize** — on first visit, the button says "Initialize". Click it to start the AceStep backend and download models (~20 GB on first run). Once ready, the button becomes "Generate".
 - **Create mode** — build a song from genre/mood tags, song parameters, and lyrics (manual, AI-generated, or instrumental)
 - **Rework mode** — transform an existing audio file via Reimagine (full regeneration) or Fix & Blend (region-targeted)
+- **Train mode** — LoRA/LoKR adapter training: upload audio → scan → auto-label → preprocess → train with live loss chart → export. Named snapshots for iterating without re-processing.
+- **LoRA management** — browse, load, unload, and scale (0–100%) adapters during generation
 - **Voice mode** — AI voice conversion via RVC (Retrieval-based Voice Conversion). Select a separated vocal stem or load any audio file, choose from 14 built-in voices (Freddie Mercury, Adele, Drake, etc.) or search HuggingFace for thousands more. Controls for pitch shift, F0 extraction method, voice character, and consonant protection. Voice models auto-download on first use (~50–140 MB each).
 - **Cross-tab integration** — send composed or voice-transformed audio to Separate for stem extraction, or to Mix for multi-track blending
+- **Seed recall** — Last/Random buttons for reproducible generation; use `--deterministic` flag for A/B testing
 
 AceStep model weights are cached under `MODEL_LOCATION` (default `~/.cache/stemforge/`) or `checkpoints/` in the submodule if unset.
 
@@ -327,6 +339,7 @@ and download individually or as a ZIP archive.
 | `--acestep-port` | 8001 | AceStep API port (also `ACESTEP_PORT` env var) |
 | `--gpu N` | auto | Set `CUDA_VISIBLE_DEVICES=N` on the AceStep subprocess only |
 | `--model-dir` | `~/.cache/stemforge/` | Shared model cache directory (also `MODEL_LOCATION` env var) |
+| `--deterministic` | off | Near-greedy LM temperature + CUDA deterministic ops when seed is set — useful for A/B testing LoRA vs base model |
 
 ---
 
@@ -367,7 +380,9 @@ All pipelines and the full web UI are implemented and working:
 - MIDI extraction — BasicPitch for instruments, faster-whisper + pitch for vocals
 - MIDI preview — per-stem FluidSynth render, streamed to browser via wavesurfer.js
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
-- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration
+- Enhance tab — Clean Up (8 UVR presets, batch mode), Tune (CREPE + Praat auto-tune), Effects (stub)
+- SFX Stem Builder — DAW timeline, clip placement with fades, align-to reference, render to Mix
+- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration, LoRA/LoKR training pipeline, adapter management, seed recall, dismissable result cards
 - RVC voice conversion (Compose tab → Voice mode) — 14 built-in voices, HuggingFace search/import, local .pth upload, pitch/F0/index controls
 - Mix tab — per-track instrument/volume controls, audio/MIDI/synth/compose source types, FLAC render
 - Export panel — all pipeline outputs, 4 audio formats (wav/flac/mp3/ogg), zip download
@@ -400,7 +415,8 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │
     ├── docs/
     │   ├── INSTRUCTIONS.md             # User guide — how to use each tab
-    │   ├── FUTURE_PLANS.md             # Roadmap: voice transformation, packaging, DAW integration
+    │   ├── CURRENT_STATE.md             # Current state and design values
+    │   ├── FUTURE_PLANS.md             # Roadmap: voice training, effects, packaging, DAW integration
     │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
     │
     ├── backend/
@@ -408,11 +424,14 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │   ├── api/
     │   │   ├── system.py               # /api/health, /api/device, /api/models, /api/session
     │   │   ├── audio.py                # /api/upload, /api/audio/stream|download|waveform|info|profile
-    │   │   ├── separate.py             # /api/separate, /api/separate/status, /api/stems/*
-    │   │   ├── midi.py                 # /api/midi/extract, /api/midi/status, /api/midi/preview
+    │   │   ├── separate.py             # /api/separate, /api/separate/batch
+    │   │   ├── enhance.py             # /api/enhance, /api/enhance/autotune
+    │   │   ├── midi.py                 # /api/midi/extract, /api/midi/render, /api/midi/save
     │   │   ├── generate.py             # /api/generate (Stable Audio Open)
-    │   │   ├── compose.py              # /api/compose/* (AceStep proxy)
+    │   │   ├── compose.py              # /api/compose/* (AceStep proxy, LoRA, training)
+    │   │   ├── acestep_wrapper.py      # httpx async client for AceStep REST API
     │   │   ├── voice.py               # /api/voice/* (RVC voice conversion)
+    │   │   ├── sfx.py                 # /api/sfx/* (SFX Stem Builder)
     │   │   ├── mix.py                  # /api/mix/render, /api/mix/tracks
     │   │   └── export.py               # /api/export
     │   └── services/
@@ -434,6 +453,8 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     │   ├── basicpitch_pipeline.py
     │   ├── vocal_midi_pipeline.py
     │   ├── musicgen_pipeline.py
+    │   ├── enhance_pipeline.py
+    │   ├── autotune_pipeline.py
     │   └── rvc_pipeline.py
     │
     ├── models/                         # Model registry + loaders

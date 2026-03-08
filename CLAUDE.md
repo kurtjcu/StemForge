@@ -43,7 +43,7 @@ All pipelines and the full web UI are implemented:
 - Mix tab — per-track volume controls, audio/MIDI source types, FLAC render, multi-track preview
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, up to 600 s (chunked at 47 s), Vocal Preservation Mode
 - SFX Stem Builder (Synth tab) — DAW timeline, clip placement with fades, align-to reference waveform, render canvas to Mix
-- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration, LoRA adapter management, project save/load, seed recall
+- AceStep generation (Compose tab) — full song creation/rework, AI lyrics, 3-column UI, cross-tab integration, LoRA adapter management, project save/load, seed recall, dismissable result cards
 - AceStep LoRA training (Compose tab Train mode) — upload audio, scan/label/preprocess pipeline, LoRA/LoKR fine-tuning with loss chart, snapshot management, adapter export
 - Batch separation — multi-file upload, single-stem extraction across all files, Save All zip download
 - Upload supports audio (WAV, FLAC, MP3, OGG, AIFF) and video (MP4, MKV, WEBM, AVI, MOV) — video audio extracted via FFmpeg
@@ -353,6 +353,7 @@ AceStep runs as a separate process managed by `run.py`:
 - **Port:** 8001 (configurable via `--acestep-port` or `ACESTEP_PORT`)
 - **Disable:** `--no-acestep` flag — Compose tab shows disabled state
 - **GPU:** `--gpu N` sets `CUDA_VISIBLE_DEVICES` on the AceStep subprocess only
+- **Deterministic:** `--deterministic` flag — sets near-greedy LM temperature (0.01) when seed is set + CUDA deterministic ops on AceStep subprocess. Useful for A/B testing LoRA vs base model.
 - **State tracking:** `backend/services/acestep_state.py` — thread-safe status: disabled/starting/running/crashed
 - **Graceful degradation:** StemForge stays alive if AceStep crashes. All other tabs work normally.
 - **Compose router:** `backend/api/compose.py` proxies requests to AceStep's API via `backend/api/acestep_wrapper.py` — includes generation, LoRA management (6 endpoints), and training pipeline (20+ endpoints)

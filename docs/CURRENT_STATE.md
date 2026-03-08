@@ -25,7 +25,10 @@ StemForge v1.0.0 is published and actively developed post-release. All core pipe
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, chunked to 600s
 - SFX Stem Builder — DAW timeline with clip placement, fades, align-to reference
 - AceStep composition (Compose tab) — 6 modes: Create, Rework, Lego, Complete, Voice, Train
-- LoRA/LoKR adapter training pipeline with live loss chart, snapshots, export
+- Compose result cards accumulate (newest first) with close buttons for dismissal
+- `--deterministic` CLI flag for reproducible generation (near-greedy LM temperature + CUDA deterministic ops when seed is set)
+- LoRA/LoKR adapter training pipeline with live loss chart, snapshots, export (correct field names per adapter type)
+- LoRA browse detects nested `adapter/` subdirectory structure from training exports
 - RVC voice conversion with 14 built-in voices + HuggingFace model search
 - Mix tab with multi-track preview, per-track volume, FLAC render
 - Export panel with 4 formats and zip download
