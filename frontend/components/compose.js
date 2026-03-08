@@ -1543,14 +1543,21 @@ async function _trainScan() {
     await _fetchSamples();
     _id('compose-train-label').disabled = false;
     const restored = scanResult.restored_captions || 0;
-    if (restored > 0) {
+    const total = scanResult.num_samples || 0;
+    const allLabeled = restored > 0 && restored >= total;
+    if (allLabeled) {
       _trainLabeled = true;
       _id('compose-train-preprocess').disabled = false;
       _id('compose-train-snapshot-save').disabled = false;
     }
-    if (status) status.textContent = restored > 0
-      ? `Scan complete \u2014 ${restored} caption${restored > 1 ? 's' : ''} restored`
-      : 'Scan complete';
+    if (status) {
+      if (restored > 0) {
+        const suffix = allLabeled ? '' : ` of ${total}`;
+        status.textContent = `Scan complete \u2014 ${restored}${suffix} caption${restored > 1 ? 's' : ''} restored`;
+      } else {
+        status.textContent = 'Scan complete';
+      }
+    }
   } catch (e) {
     if (status) status.textContent = 'Scan failed: ' + e.message;
   }
