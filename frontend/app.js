@@ -100,34 +100,8 @@ export function pollJob(jobId, { onProgress, onDone, onError, interval = 10000 }
  * @param {string} suggestedName - default filename shown in the dialog
  */
 export async function saveFileAs(url, suggestedName = 'download') {
-  const ext = suggestedName.split('.').pop() || '';
-  const mimeMap = {
-    wav: 'audio/wav', flac: 'audio/flac', mp3: 'audio/mpeg',
-    ogg: 'audio/ogg', mid: 'audio/midi', zip: 'application/zip',
-  };
-
-  if (window.showSaveFilePicker) {
-    try {
-      const handle = await window.showSaveFilePicker({
-        suggestedName,
-        types: [{
-          description: `${ext.toUpperCase()} file`,
-          accept: { [mimeMap[ext] || 'application/octet-stream']: [`.${ext}`] },
-        }],
-      });
-      const writable = await handle.createWritable();
-      const res = await fetch(url);
-      await res.body.pipeTo(writable);
-      return;
-    } catch (err) {
-      if (err.name === 'AbortError') return; // user cancelled
-      console.warn('showSaveFilePicker failed, falling back to download:', err.name, err.message);
-    }
-  } else {
-    console.info('showSaveFilePicker not available — using download link');
-  }
-
-  // Fallback: trigger Chrome's "Save As" via programmatic click on a blob link
+  // Always use blob + anchor download — showSaveFilePicker's WritableFileStream
+  // is unreliable on Linux/Chrome (leaves .crdownload temp files).
   const res = await fetch(url);
   const blob = await res.blob();
   const blobUrl = URL.createObjectURL(blob);

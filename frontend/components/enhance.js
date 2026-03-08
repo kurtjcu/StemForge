@@ -989,22 +989,13 @@ function showBatchResults(results, preset) {
       });
       const blob = await resp.blob();
 
-      if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: `batch-enhanced-${preset}.zip`,
-          types: [{ accept: { 'application/zip': ['.zip'] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-      } else {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `batch-enhanced-${preset}.zip`;
-        a.click();
-        URL.revokeObjectURL(url);
-      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `batch-enhanced-${preset}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
 
       saveAllBtn.textContent = 'Saved!';
       setTimeout(() => { saveAllBtn.textContent = origText; saveAllBtn.disabled = false; }, 2000);

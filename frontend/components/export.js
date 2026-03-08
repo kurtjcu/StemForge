@@ -207,34 +207,20 @@ async function downloadZip() {
   if (!items.length) return;
 
   try {
-    if (window.showSaveFilePicker) {
-      const handle = await window.showSaveFilePicker({
-        suggestedName: 'stemforge_export.zip',
-        types: [{ description: 'ZIP archive', accept: { 'application/zip': ['.zip'] } }],
-      });
-      const writable = await handle.createWritable();
-      const res = await fetch('/api/export/download-zip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      });
-      await res.body.pipeTo(writable);
-    } else {
-      const res = await fetch('/api/export/download-zip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      });
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'stemforge_export.zip';
-      a.click();
-      URL.revokeObjectURL(url);
-    }
+    const res = await fetch('/api/export/download-zip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'stemforge_export.zip';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
   } catch (err) {
-    if (err.name === 'AbortError') return;
     alert(`ZIP download failed: ${err.message}`);
   }
 }
