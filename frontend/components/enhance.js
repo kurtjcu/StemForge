@@ -1,9 +1,10 @@
 /**
- * Enhance tab — vocal cleanup and audio enhancement.
+ * Enhance tab — three-mode audio enhancement pipeline.
  *
- * Phase 1: UVR denoise / dereverb via audio-separator presets.
- * Shows original stem + processed result with diff waveform overlay.
- * Supports batch mode: process multiple files with one preset.
+ * Modes: Clean Up (UVR denoise/dereverb), Tune (auto-tune), Effects (stub).
+ * Each mode has its own results, progress, and original preview — switching
+ * modes never destroys state. Results from earlier modes appear as sources
+ * for later modes (Clean Up outputs feed into Tune's stem dropdown).
  */
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
@@ -17,9 +18,9 @@ function clearChildren(elem) {
 
 // ─── Mode state ─────────────────────────────────────────────────────
 
+let _currentEnhanceMode = 'cleanup';
 let _batchMode = false;
 let _batchFiles = [];    // [{filename, path, duration?, ...}]
-let _autotuneMode = false;  // false = denoise/dereverb, true = auto-tune
 
 // ─── Inline audio players (exclusive playback) ───────────────────────
 
@@ -34,7 +35,7 @@ function _stopOtherPlayers(except) {
   }
 }
 
-function _createPlayer(label, url, audioPath) {
+function _createPlayer(label, url, audioPath, source) {
   const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
   const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
   const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -73,8 +74,7 @@ function _createPlayer(label, url, audioPath) {
       _stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
-      const source = _autotuneMode ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
-      transportLoad(url, label, false, source);
+      transportLoad(url, label, false, source || 'Enhance');
     }
   });
 
@@ -94,6 +94,34 @@ function _createPlayer(label, url, audioPath) {
   return { card, ws };
 }
 
+// ─── Progress bar helpers ────────────────────────────────────────────
+
+function _resetProgress(prefix) {
+  document.getElementById(`${prefix}-progress-fill`).style.width = '0%';
+  document.getElementById(`${prefix}-pct`).textContent = '0%';
+  document.getElementById(`${prefix}-stage`).textContent = '';
+}
+
+function _updateProgress(prefix, progress, stage) {
+  document.getElementById(`${prefix}-progress-fill`).style.width = `${(progress * 100).toFixed(0)}%`;
+  document.getElementById(`${prefix}-pct`).textContent = `${(progress * 100).toFixed(0)}%`;
+  document.getElementById(`${prefix}-stage`).textContent = stage;
+}
+
+function _makeProgressCard(prefix) {
+  return el('div', { className: 'card hidden', id: `${prefix}-progress` },
+    el('div', { className: 'progress-container' },
+      el('div', { className: 'progress-bar' },
+        el('div', { className: 'progress-fill', id: `${prefix}-progress-fill` }),
+      ),
+      el('div', { className: 'progress-label' },
+        el('span', { id: `${prefix}-stage` }, ''),
+        el('span', { id: `${prefix}-pct` }, '0%'),
+      ),
+    ),
+  );
+}
+
 // ─── Init ─────────────────────────────────────────────────────────────
 
 export function initEnhance() {
@@ -108,13 +136,17 @@ export function initEnhance() {
     ),
   );
 
+  // ═══════════════════════════════════════════════════════════════════
+  // CLEAN UP mode elements
+  // ═══════════════════════════════════════════════════════════════════
+
   // Batch toggle — only shown in Clean Up mode
   const batchCheckbox = el('input', { type: 'checkbox', id: 'enhance-batch-toggle' });
   const batchToggle = el('div', { className: 'batch-toggle', id: 'enhance-batch-toggle-row' },
     el('label', {}, batchCheckbox, ' Batch mode'),
   );
 
-  // ─── Single mode: stem selector + file browse (shared across modes) ───
+  // Stem selector + file browse
   const stemLabel = el('label', { className: 'field-label' }, 'Source Audio');
   const stemSelect = el('select', { id: 'enhance-stem', className: 'select' });
   const singleFileInput = el('input', { type: 'file', accept: 'audio/*,.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' }, id: 'enhance-single-input' });
@@ -122,7 +154,7 @@ export function initEnhance() {
     stemLabel, stemSelect, singleFileInput,
   );
 
-  // ─── Batch mode: file upload zone (matches Separate tab drop-zone) ───
+  // Batch file upload zone
   const batchFileInput = el('input', { type: 'file', multiple: true, accept: 'audio/*,.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' }, id: 'enhance-batch-input' });
   const batchDropZone = el('div', {
     className: 'drop-zone',
@@ -135,7 +167,7 @@ export function initEnhance() {
   );
   const batchFileList = el('div', { className: 'batch-file-list', id: 'enhance-batch-files', style: { display: 'none', marginTop: '8px', marginBottom: '12px' } });
 
-  // ─── Clean Up mode: preset selector ───
+  // Preset selector
   const presetLabel = el('label', { className: 'field-label' }, 'Enhancement');
   const presetSelect = el('select', { id: 'enhance-preset', className: 'select' });
   const presetDesc = el('div', {
@@ -147,7 +179,49 @@ export function initEnhance() {
     presetLabel, presetSelect, presetDesc,
   );
 
-  // ─── Tune mode: auto-tune controls (hidden by default) ───
+  // Process button for Clean Up
+  const cleanupProcessBtn = el('button', {
+    className: 'btn btn-primary',
+    id: 'enhance-process-cleanup',
+    disabled: 'true',
+  }, 'Process');
+
+  const cleanupControlRow = el('div', {
+    id: 'enhance-controls-cleanup',
+    style: { display: 'flex', gap: '12px', alignItems: 'flex-start' },
+  },
+    el('div', { style: { flex: '1' } }, stemGroup),
+    el('div', { style: { flex: '1' }, id: 'enhance-right-col' }, presetGroup),
+    el('div', { style: { paddingTop: '22px' } }, cleanupProcessBtn),
+  );
+
+  const batchSection = el('div', { id: 'enhance-batch-section', style: { display: 'none' } },
+    batchDropZone, batchFileInput, batchFileList,
+  );
+
+  const cleanupProgress = _makeProgressCard('enhance-cleanup');
+
+  const cleanupOriginal = el('div', { id: 'enhance-original-cleanup', style: { display: 'none', marginTop: '16px' } },
+    el('div', { className: 'section-title', style: { fontSize: '13px', marginBottom: '6px' } }, 'Original'),
+  );
+
+  const cleanupResults = el('div', { id: 'enhance-results-cleanup', style: { marginTop: '16px' } });
+
+  const cleanupPanel = el('div', { id: 'enhance-panel-cleanup' },
+    batchToggle, cleanupControlRow, batchSection, cleanupProgress, cleanupOriginal, cleanupResults,
+  );
+
+  // ═══════════════════════════════════════════════════════════════════
+  // TUNE mode elements
+  // ═══════════════════════════════════════════════════════════════════
+
+  const tuneStemLabel = el('label', { className: 'field-label' }, 'Source Audio');
+  const tuneStemSelect = el('select', { id: 'enhance-stem-tune', className: 'select' });
+  const tuneSingleFileInput = el('input', { type: 'file', accept: 'audio/*,.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' }, id: 'enhance-single-input-tune' });
+  const tuneStemGroup = el('div', { className: 'field-group', style: { marginBottom: '12px' } },
+    tuneStemLabel, tuneStemSelect, tuneSingleFileInput,
+  );
+
   const atKeySelect = el('select', { id: 'enhance-at-key', className: 'select' });
   const atScaleSelect = el('select', { id: 'enhance-at-scale', className: 'select' });
 
@@ -163,7 +237,20 @@ export function initEnhance() {
   });
   const atHumanizeLabel = el('span', { className: 'text-dim', style: { minWidth: '36px', textAlign: 'right' } }, '15%');
 
-  const autotuneGroup = el('div', { id: 'enhance-autotune-group', style: { display: 'none', marginBottom: '12px' } },
+  const tuneProcessBtn = el('button', {
+    className: 'btn btn-primary',
+    id: 'enhance-process-tune',
+    disabled: 'true',
+  }, 'Process');
+
+  const tuneControlRow = el('div', {
+    style: { display: 'flex', gap: '12px', alignItems: 'flex-start' },
+  },
+    el('div', { style: { flex: '1' } }, tuneStemGroup),
+    el('div', { style: { paddingTop: '22px' } }, tuneProcessBtn),
+  );
+
+  const autotuneGroup = el('div', { id: 'enhance-autotune-group', style: { marginBottom: '12px' } },
     el('div', { style: { display: 'flex', gap: '12px', marginBottom: '8px' } },
       el('div', { className: 'field-group', style: { flex: '1' } },
         el('label', { className: 'field-label' }, 'Key'), atKeySelect),
@@ -184,83 +271,48 @@ export function initEnhance() {
     ),
   );
 
-  // ─── Effects mode: stub (hidden by default) ───
-  const effectsGroup = el('div', { id: 'enhance-effects-group', style: { display: 'none' } },
-    el('div', { className: 'banner banner-info' }, 'Effects chain (EQ, compression, limiting, chorus, delay) \u2014 coming soon.'),
-  );
+  const tuneProgress = _makeProgressCard('enhance-tune');
 
-  // Process button
-  const processBtn = el('button', {
-    className: 'btn btn-primary',
-    id: 'enhance-process',
-    disabled: 'true',
-  }, 'Process');
-
-  // Progress
-  const progressCard = el('div', { className: 'card hidden', id: 'enhance-progress' },
-    el('div', { className: 'progress-container' },
-      el('div', { className: 'progress-bar' },
-        el('div', { className: 'progress-fill', id: 'enhance-progress-fill' }),
-      ),
-      el('div', { className: 'progress-label' },
-        el('span', { id: 'enhance-stage' }, ''),
-        el('span', { id: 'enhance-pct' }, '0%'),
-      ),
-    ),
-  );
-
-  // Original stem player (shown when stem is selected, single mode only)
-  const originalSection = el('div', { id: 'enhance-original', style: { display: 'none', marginTop: '16px' } },
+  const tuneOriginal = el('div', { id: 'enhance-original-tune', style: { display: 'none', marginTop: '16px' } },
     el('div', { className: 'section-title', style: { fontSize: '13px', marginBottom: '6px' } }, 'Original'),
   );
 
-  // Results container
-  const resultsSection = el('div', { id: 'enhance-results', style: { marginTop: '16px' } });
+  const tuneResults = el('div', { id: 'enhance-results-tune', style: { marginTop: '16px' } });
 
-  const controlRow = el('div', {
-    id: 'enhance-controls',
-    style: { display: 'flex', gap: '12px', alignItems: 'flex-start' },
-  },
-    el('div', { style: { flex: '1' } }, stemGroup),
-    el('div', { style: { flex: '1' }, id: 'enhance-right-col' }, presetGroup),
-    el('div', { style: { paddingTop: '22px' } }, processBtn),
+  const tunePanel = el('div', { id: 'enhance-panel-tune', style: { display: 'none' } },
+    tuneControlRow, autotuneGroup, tuneProgress, tuneOriginal, tuneResults,
   );
 
-  // Batch drop zone sits below the control row (hidden by default)
-  const batchSection = el('div', { id: 'enhance-batch-section', style: { display: 'none' } },
-    batchDropZone, batchFileInput, batchFileList,
+  // ═══════════════════════════════════════════════════════════════════
+  // EFFECTS mode elements (stub)
+  // ═══════════════════════════════════════════════════════════════════
+
+  const effectsPanel = el('div', { id: 'enhance-panel-effects', style: { display: 'none' } },
+    el('div', { className: 'banner banner-info' }, 'Effects chain (EQ, compression, limiting, chorus, delay) \u2014 coming soon.'),
   );
 
-  panel.append(modeBar, batchToggle, controlRow, autotuneGroup, effectsGroup, batchSection, progressCard, originalSection, resultsSection);
+  // ─── Assemble ───
+  panel.append(modeBar, cleanupPanel, tunePanel, effectsPanel);
 
-  // ─── Load presets + initial stems + autotune options ───
+  // ─── Load data ───
   loadPresets();
   refreshStems();
   loadAutotuneOptions();
 
-  // ─── Wire events ───
-  processBtn.addEventListener('click', () => {
+  // ─── Wire Clean Up events ───
+  cleanupProcessBtn.addEventListener('click', () => {
     if (_batchMode) startBatchEnhance();
-    else if (_autotuneMode) startAutotune();
     else startEnhance();
-  });
-
-  // Auto-tune slider labels
-  atStrengthSlider.addEventListener('input', () => {
-    atStrengthLabel.textContent = `${atStrengthSlider.value}%`;
-  });
-  atHumanizeSlider.addEventListener('input', () => {
-    atHumanizeLabel.textContent = `${atHumanizeSlider.value}%`;
   });
 
   stemSelect.addEventListener('change', () => {
     if (stemSelect.value === '__browse__') {
       singleFileInput.click();
-      stemSelect.value = '';  // reset so dropdown doesn't stick on "Browse..."
+      stemSelect.value = '';
       return;
     }
-    updateOriginalPreview();
-    processBtn.disabled = !stemSelect.value;
+    updateOriginalPreview('cleanup');
+    cleanupProcessBtn.disabled = !stemSelect.value;
   });
 
   singleFileInput.addEventListener('change', async () => {
@@ -281,14 +333,12 @@ export function initEnhance() {
 
   presetSelect.addEventListener('change', updatePresetDescription);
 
-  // Batch toggle
   batchCheckbox.addEventListener('change', () => {
     _batchMode = batchCheckbox.checked;
     _batchFiles = [];
     toggleBatchMode();
   });
 
-  // Batch drop zone
   batchDropZone.addEventListener('click', () => batchFileInput.click());
   batchDropZone.addEventListener('dragover', (e) => { e.preventDefault(); batchDropZone.classList.add('dragover'); });
   batchDropZone.addEventListener('dragleave', () => batchDropZone.classList.remove('dragover'));
@@ -299,10 +349,46 @@ export function initEnhance() {
   });
   batchFileInput.addEventListener('change', () => {
     if (batchFileInput.files.length) handleBatchFiles(batchFileInput.files);
-    batchFileInput.value = '';  // reset so re-selecting same files triggers change
+    batchFileInput.value = '';
   });
 
-  // Listen for stems and files becoming available
+  // ─── Wire Tune events ───
+  tuneProcessBtn.addEventListener('click', startAutotune);
+
+  tuneStemSelect.addEventListener('change', () => {
+    if (tuneStemSelect.value === '__browse__') {
+      tuneSingleFileInput.click();
+      tuneStemSelect.value = '';
+      return;
+    }
+    updateOriginalPreview('tune');
+    tuneProcessBtn.disabled = !tuneStemSelect.value;
+  });
+
+  tuneSingleFileInput.addEventListener('change', async () => {
+    if (!tuneSingleFileInput.files.length) return;
+    const file = tuneSingleFileInput.files[0];
+    tuneSingleFileInput.value = '';
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const data = await (await fetch('/api/upload', { method: 'POST', body: formData })).json();
+      if (data.path) {
+        await refreshStems();
+        tuneStemSelect.value = data.path;
+        tuneStemSelect.dispatchEvent(new Event('change'));
+      }
+    } catch { /* ignore */ }
+  });
+
+  atStrengthSlider.addEventListener('input', () => {
+    atStrengthLabel.textContent = `${atStrengthSlider.value}%`;
+  });
+  atHumanizeSlider.addEventListener('input', () => {
+    atHumanizeLabel.textContent = `${atHumanizeSlider.value}%`;
+  });
+
+  // ─── Listen for stems becoming available ───
   appState.on('stemsReady', () => refreshStems());
   appState.on('fileLoaded', () => refreshStems());
   appState.on('enhanceReady', () => refreshStems());
@@ -312,60 +398,22 @@ export function initEnhance() {
 
 // ─── Mode switching (Clean Up | Tune | Effects) ─────────────────────
 
-let _currentEnhanceMode = 'cleanup';
-
 function switchEnhanceMode(mode) {
+  if (mode === _currentEnhanceMode) return;
   _currentEnhanceMode = mode;
-  _autotuneMode = mode === 'tune';
 
   // Update mode bar buttons
   document.querySelectorAll('#panel-enhance .enhance-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === mode),
   );
 
-  const presetGroupEl = document.getElementById('enhance-preset-group');
-  const autotuneGroupEl = document.getElementById('enhance-autotune-group');
-  const effectsGroupEl = document.getElementById('enhance-effects-group');
-  const batchRow = document.getElementById('enhance-batch-toggle-row');
-  const processBtn = document.getElementById('enhance-process');
-  const rightCol = document.getElementById('enhance-right-col');
-  const controlRow = document.getElementById('enhance-controls');
+  // Show/hide mode panels — never destroy contents
+  document.getElementById('enhance-panel-cleanup').style.display = mode === 'cleanup' ? '' : 'none';
+  document.getElementById('enhance-panel-tune').style.display = mode === 'tune' ? '' : 'none';
+  document.getElementById('enhance-panel-effects').style.display = mode === 'effects' ? '' : 'none';
 
-  // Hide all mode-specific panels
-  presetGroupEl.style.display = 'none';
-  autotuneGroupEl.style.display = 'none';
-  effectsGroupEl.style.display = 'none';
-
-  if (mode === 'cleanup') {
-    presetGroupEl.style.display = '';
-    rightCol.style.display = '';
-    controlRow.style.display = '';
-    batchRow.style.display = '';
-    processBtn.style.display = '';
-  } else if (mode === 'tune') {
-    rightCol.style.display = 'none';
-    controlRow.style.display = '';
-    autotuneGroupEl.style.display = '';
-    processBtn.style.display = '';
-    // Disable batch mode for auto-tune
-    batchRow.style.display = 'none';
-    if (_batchMode) {
-      document.getElementById('enhance-batch-toggle').checked = false;
-      _batchMode = false;
-      toggleBatchMode();
-    }
-  } else if (mode === 'effects') {
-    rightCol.style.display = 'none';
-    controlRow.style.display = '';
-    effectsGroupEl.style.display = '';
-    batchRow.style.display = 'none';
-    processBtn.style.display = 'none';
-    if (_batchMode) {
-      document.getElementById('enhance-batch-toggle').checked = false;
-      _batchMode = false;
-      toggleBatchMode();
-    }
-  }
+  // Refresh stems when switching to Tune (picks up new Clean Up results)
+  if (mode === 'tune') refreshStems();
 }
 
 // ─── Batch mode toggle ──────────────────────────────────────────────
@@ -375,11 +423,8 @@ function toggleBatchMode() {
   const batchSection = document.getElementById('enhance-batch-section');
   const batchDrop = document.getElementById('enhance-batch-drop');
   const batchFiles = document.getElementById('enhance-batch-files');
-  const originalSection = document.getElementById('enhance-original');
-  const processBtn = document.getElementById('enhance-process');
-  const resultsSection = document.getElementById('enhance-results');
-
-  clearChildren(resultsSection);
+  const originalSection = document.getElementById('enhance-original-cleanup');
+  const processBtn = document.getElementById('enhance-process-cleanup');
 
   if (_batchMode) {
     stemGroup.style.display = 'none';
@@ -407,8 +452,8 @@ async function handleBatchFiles(fileList) {
   for (const f of fileList) formData.append('files', f);
 
   const batchFileListEl = document.getElementById('enhance-batch-files');
-  const processBtn = document.getElementById('enhance-process');
-  const resultsSection = document.getElementById('enhance-results');
+  const processBtn = document.getElementById('enhance-process-cleanup');
+  const resultsSection = document.getElementById('enhance-results-cleanup');
 
   // Clear previous results when loading new files
   clearChildren(resultsSection);
@@ -454,7 +499,6 @@ async function loadPresets() {
     const select = document.getElementById('enhance-preset');
     clearChildren(select);
 
-    // Group by type
     const denoiseGroup = el('optgroup', { label: 'Denoise' });
     const dereverbGroup = el('optgroup', { label: 'Dereverb' });
 
@@ -490,11 +534,13 @@ async function loadAutotuneOptions() {
     const scaleSelect = document.getElementById('enhance-at-scale');
 
     clearChildren(keySelect);
+    keySelect.appendChild(el('option', { value: 'Auto' }, 'Auto-detect'));
     for (const k of data.keys || []) {
       keySelect.appendChild(el('option', { value: k }, k));
     }
 
     clearChildren(scaleSelect);
+    scaleSelect.appendChild(el('option', { value: 'auto' }, 'Auto-detect'));
     for (const s of data.scales || []) {
       scaleSelect.appendChild(el('option', { value: s.key }, s.label));
     }
@@ -503,109 +549,128 @@ async function loadAutotuneOptions() {
   }
 }
 
-// ─── Stems ───────────────────────────────────────────────────────────
+// ─── Stems (shared — populates both cleanup and tune dropdowns) ─────
 
 async function refreshStems() {
-  if (_batchMode) return;
   try {
     const data = await api('/enhance/stems');
     const stems = data.stems || [];
-    const select = document.getElementById('enhance-stem');
-    const prevValue = select.value;
 
-    clearChildren(select);
+    // Populate both stem selects
+    for (const selectId of ['enhance-stem', 'enhance-stem-tune']) {
+      const select = document.getElementById(selectId);
+      if (!select) continue;
+      const prevValue = select.value;
 
-    select.appendChild(el('option', { value: '' }, '-- Select audio --'));
+      clearChildren(select);
+      select.appendChild(el('option', { value: '' }, '-- Select audio --'));
 
-    // Group by source
-    if (stems.length > 0) {
-      const groups = {};
-      for (const s of stems) {
-        const groupLabel = s.source === 'separation' ? 'Separated Stems'
-          : s.source === 'enhanced' ? 'Enhanced'
-          : s.source === 'upload' ? 'Uploads'
-          : 'Other';
-        if (!groups[groupLabel]) groups[groupLabel] = [];
-        groups[groupLabel].push(s);
-      }
-
-      for (const [label, items] of Object.entries(groups)) {
-        const group = el('optgroup', { label });
-        for (const s of items) {
-          group.appendChild(el('option', { value: s.path }, s.label));
+      if (stems.length > 0) {
+        const groups = {};
+        for (const s of stems) {
+          const groupLabel = s.source === 'separation' ? 'Separated Stems'
+            : s.source === 'enhanced' ? 'Enhanced'
+            : s.source === 'upload' ? 'Uploads'
+            : 'Other';
+          if (!groups[groupLabel]) groups[groupLabel] = [];
+          groups[groupLabel].push(s);
         }
-        select.appendChild(group);
+
+        for (const [label, items] of Object.entries(groups)) {
+          const group = el('optgroup', { label });
+          for (const s of items) {
+            group.appendChild(el('option', { value: s.path }, s.label));
+          }
+          select.appendChild(group);
+        }
+      }
+
+      select.appendChild(el('option', { value: '__browse__' }, 'Browse file\u2026'));
+
+      // Restore previous selection if still available
+      if (prevValue && prevValue !== '__browse__' && [...select.options].some(o => o.value === prevValue)) {
+        select.value = prevValue;
       }
     }
 
-    // Always offer file browse
-    select.appendChild(el('option', { value: '__browse__' }, 'Browse file\u2026'));
-
-    // Restore previous selection if still available
-    if (prevValue && prevValue !== '__browse__' && [...select.options].some(o => o.value === prevValue)) {
-      select.value = prevValue;
+    // Update process button states
+    const cleanupBtn = document.getElementById('enhance-process-cleanup');
+    const cleanupStem = document.getElementById('enhance-stem');
+    if (cleanupBtn && !_batchMode) {
+      cleanupBtn.disabled = !cleanupStem.value || cleanupStem.value === '__browse__';
     }
 
-    document.getElementById('enhance-process').disabled = !select.value || select.value === '__browse__';
-    updateOriginalPreview();
+    const tuneBtn = document.getElementById('enhance-process-tune');
+    const tuneStem = document.getElementById('enhance-stem-tune');
+    if (tuneBtn) {
+      tuneBtn.disabled = !tuneStem.value || tuneStem.value === '__browse__';
+    }
+
+    // Update original preview for whichever mode is active
+    if (_currentEnhanceMode === 'cleanup' && !_batchMode) {
+      updateOriginalPreview('cleanup');
+    } else if (_currentEnhanceMode === 'tune') {
+      updateOriginalPreview('tune');
+    }
   } catch { /* ignore */ }
 }
 
-// ─── Original preview ────────────────────────────────────────────────
+// ─── Original preview (per-mode) ────────────────────────────────────
 
-let _originalPlayer = null;
-let _originalPeaks = null;
+const _originalPlayers = { cleanup: null, tune: null };
+const _originalPeaks = { cleanup: null, tune: null };
 
-function updateOriginalPreview() {
-  const select = document.getElementById('enhance-stem');
-  const section = document.getElementById('enhance-original');
-  const stemPath = select.value;
+function updateOriginalPreview(mode) {
+  const selectId = mode === 'tune' ? 'enhance-stem-tune' : 'enhance-stem';
+  const sectionId = mode === 'tune' ? 'enhance-original-tune' : 'enhance-original-cleanup';
+  const select = document.getElementById(selectId);
+  const section = document.getElementById(sectionId);
+  const stemPath = select?.value;
 
-  // Destroy old player
-  if (_originalPlayer) {
-    _originalPlayer.ws.destroy();
-    const idx = _players.indexOf(_originalPlayer);
+  // Destroy old player for this mode
+  if (_originalPlayers[mode]) {
+    _originalPlayers[mode].ws.destroy();
+    const idx = _players.indexOf(_originalPlayers[mode]);
     if (idx !== -1) _players.splice(idx, 1);
-    _originalPlayer = null;
-    _originalPeaks = null;
+    _originalPlayers[mode] = null;
+    _originalPeaks[mode] = null;
   }
 
-  if (!stemPath) {
+  if (!stemPath || stemPath === '__browse__') {
     section.style.display = 'none';
     return;
   }
 
   section.style.display = '';
 
-  // Remove old card if present (keep the title)
+  // Remove old card (keep the title)
   while (section.children.length > 1) section.removeChild(section.lastChild);
 
   const url = `/api/audio/stream?path=${encodeURIComponent(stemPath)}`;
   const label = select.options[select.selectedIndex]?.text || 'Original';
-  const { card, ws } = _createPlayer(`Original: ${label}`, url, stemPath);
+  const source = mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
+  const { card } = _createPlayer(`Original: ${label}`, url, stemPath, source);
   section.appendChild(card);
-  _originalPlayer = _players[_players.length - 1];
+  _originalPlayers[mode] = _players[_players.length - 1];
 
-  // Pre-decode peaks for diff visualization later
+  // Pre-decode peaks for diff visualization
   decodeAudioPeaks(url, 200).then(peaks => {
-    _originalPeaks = peaks;
+    _originalPeaks[mode] = peaks;
   }).catch(() => {});
 }
 
-// ─── Single-file process ────────────────────────────────────────────
+// ─── Single-file Clean Up ───────────────────────────────────────────
 
 async function startEnhance() {
   const stemPath = document.getElementById('enhance-stem').value;
   const preset = document.getElementById('enhance-preset').value;
   if (!stemPath || !preset) return;
 
-  const processBtn = document.getElementById('enhance-process');
-  const progressCard = document.getElementById('enhance-progress');
+  const processBtn = document.getElementById('enhance-process-cleanup');
+  const progressCard = document.getElementById('enhance-cleanup-progress');
 
   processBtn.disabled = true;
-  document.getElementById('enhance-progress-fill').style.width = '0%';
-  document.getElementById('enhance-pct').textContent = '0%';
-  document.getElementById('enhance-stage').textContent = '';
+  _resetProgress('enhance-cleanup');
   progressCard.classList.remove('hidden');
 
   try {
@@ -616,26 +681,23 @@ async function startEnhance() {
 
     pollJob(job_id, {
       onProgress(progress, stage) {
-        document.getElementById('enhance-progress-fill').style.width = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('enhance-pct').textContent = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('enhance-stage').textContent = stage;
+        _updateProgress('enhance-cleanup', progress, stage);
       },
       onDone(result) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        showResult(result);
+        showResult(result, 'cleanup');
         appState.emit('enhanceReady', result);
       },
       onError(msg) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        const resultsSection = document.getElementById('enhance-results');
-        resultsSection.appendChild(
+        document.getElementById('enhance-results-cleanup').appendChild(
           el('div', { className: 'banner banner-error' }, `Enhancement failed: ${msg}`),
         );
       },
     });
-  } catch (err) {
+  } catch {
     progressCard.classList.add('hidden');
     processBtn.disabled = false;
   }
@@ -644,7 +706,7 @@ async function startEnhance() {
 // ─── Auto-tune process ──────────────────────────────────────────────
 
 async function startAutotune() {
-  const stemPath = document.getElementById('enhance-stem').value;
+  const stemPath = document.getElementById('enhance-stem-tune').value;
   if (!stemPath) return;
 
   const key = document.getElementById('enhance-at-key').value;
@@ -652,13 +714,11 @@ async function startAutotune() {
   const strength = parseInt(document.getElementById('enhance-at-strength').value, 10) / 100;
   const humanize = parseInt(document.getElementById('enhance-at-humanize').value, 10) / 100;
 
-  const processBtn = document.getElementById('enhance-process');
-  const progressCard = document.getElementById('enhance-progress');
+  const processBtn = document.getElementById('enhance-process-tune');
+  const progressCard = document.getElementById('enhance-tune-progress');
 
   processBtn.disabled = true;
-  document.getElementById('enhance-progress-fill').style.width = '0%';
-  document.getElementById('enhance-pct').textContent = '0%';
-  document.getElementById('enhance-stage').textContent = '';
+  _resetProgress('enhance-tune');
   progressCard.classList.remove('hidden');
 
   try {
@@ -672,26 +732,23 @@ async function startAutotune() {
 
     pollJob(job_id, {
       onProgress(progress, stage) {
-        document.getElementById('enhance-progress-fill').style.width = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('enhance-pct').textContent = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('enhance-stage').textContent = stage;
+        _updateProgress('enhance-tune', progress, stage);
       },
       onDone(result) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        showResult(result);
+        showResult(result, 'tune');
         appState.emit('enhanceReady', result);
       },
       onError(msg) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        const resultsSection = document.getElementById('enhance-results');
-        resultsSection.appendChild(
+        document.getElementById('enhance-results-tune').appendChild(
           el('div', { className: 'banner banner-error' }, `Auto-tune failed: ${msg}`),
         );
       },
     });
-  } catch (err) {
+  } catch {
     progressCard.classList.add('hidden');
     processBtn.disabled = false;
   }
@@ -699,32 +756,43 @@ async function startAutotune() {
 
 // ─── Single-file result display ─────────────────────────────────────
 
-function _ensureClearAllBtn() {
-  const resultsSection = document.getElementById('enhance-results');
-  if (document.getElementById('enhance-clear-all')) return;
+function _ensureClearAllBtn(resultsSection, clearBtnId) {
+  if (document.getElementById(clearBtnId)) return;
 
   const clearAllBtn = el('button', {
     className: 'btn btn-sm',
-    id: 'enhance-clear-all',
+    id: clearBtnId,
     style: { marginBottom: '12px' },
   }, '\u2715 Clear All');
 
   clearAllBtn.addEventListener('click', () => {
-    // Destroy all result players (skip _originalPlayer)
+    // Destroy all result players in this section (skip original players)
+    const originals = new Set(Object.values(_originalPlayers).filter(Boolean));
     for (let i = _players.length - 1; i >= 0; i--) {
-      if (_originalPlayer && _players[i] === _originalPlayer) continue;
-      _players[i].ws.destroy();
-      _players.splice(i, 1);
+      if (originals.has(_players[i])) continue;
+      // Only destroy if the player's card is inside this results section
+      const cardEl = _players[i].ws?.getWrapper?.()?.closest?.('.stem-card');
+      if (cardEl && resultsSection.contains(cardEl)) {
+        _players[i].ws.destroy();
+        _players.splice(i, 1);
+      }
     }
-    clearChildren(resultsSection);
+    // Remove all children except the clear button itself
+    while (resultsSection.children.length > 1) {
+      resultsSection.removeChild(resultsSection.lastChild);
+    }
+    clearAllBtn.remove();
   });
 
   resultsSection.insertBefore(clearAllBtn, resultsSection.firstChild);
 }
 
-async function showResult(result) {
-  const resultsSection = document.getElementById('enhance-results');
+async function showResult(result, mode) {
+  const resultsSectionId = mode === 'tune' ? 'enhance-results-tune' : 'enhance-results-cleanup';
+  const clearBtnId = mode === 'tune' ? 'enhance-clear-all-tune' : 'enhance-clear-all-cleanup';
+  const resultsSection = document.getElementById(resultsSectionId);
   const outputUrl = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
+  const source = mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
 
   // Update appState for export tab
   appState.enhancePaths = appState.enhancePaths || {};
@@ -734,7 +802,34 @@ async function showResult(result) {
     `Enhanced: ${result.label}`,
     outputUrl,
     result.output_path,
+    source,
   );
+
+  // Show detected key/scale info when auto-detection was used
+  if (result.detected_key || result.detected_scale) {
+    const detectedParts = [];
+    if (result.detected_key) detectedParts.push(result.detected_key);
+    if (result.detected_scale) {
+      const scaleDisplay = result.detected_scale.replace(/_/g, ' ');
+      detectedParts.push(scaleDisplay.charAt(0).toUpperCase() + scaleDisplay.slice(1));
+    }
+    const detectedInfo = el('div', {
+      className: 'text-dim',
+      style: { fontSize: '11px', padding: '2px 8px 4px', color: 'var(--accent)' },
+    }, `Detected key: ${detectedParts.join(' ')}`);
+    const header = card.querySelector('.stem-card-header');
+    if (header) header.after(detectedInfo);
+
+    // Auto-populate dropdowns with detected values for next run
+    if (result.detected_key) {
+      const keySelect = document.getElementById('enhance-at-key');
+      if (keySelect) keySelect.value = result.detected_key;
+    }
+    if (result.detected_scale) {
+      const scaleSelect = document.getElementById('enhance-at-scale');
+      if (scaleSelect) scaleSelect.value = result.detected_scale;
+    }
+  }
 
   // Close button
   const closeBtn = el('button', {
@@ -749,14 +844,14 @@ async function showResult(result) {
     card.remove();
     const remaining = resultsSection.querySelectorAll('.stem-card');
     if (remaining.length === 0) {
-      const btn = document.getElementById('enhance-clear-all');
+      const btn = document.getElementById(clearBtnId);
       if (btn) btn.remove();
     }
   });
   const actions = card.querySelector('.stem-actions');
   if (actions) actions.appendChild(closeBtn);
 
-  // Overlay diff canvas on the waveform — colors bars by change intensity
+  // Overlay diff canvas on the waveform
   const waveContainer = card.querySelector('.stem-waveform');
   waveContainer.style.position = 'relative';
   const diffCanvas = el('canvas', {
@@ -765,8 +860,8 @@ async function showResult(result) {
   });
 
   // Ensure Clear All button exists, then insert card after it
-  _ensureClearAllBtn();
-  const clearBtn = document.getElementById('enhance-clear-all');
+  _ensureClearAllBtn(resultsSection, clearBtnId);
+  const clearBtn = document.getElementById(clearBtnId);
   if (clearBtn && clearBtn.nextSibling) {
     resultsSection.insertBefore(card, clearBtn.nextSibling);
   } else {
@@ -777,9 +872,10 @@ async function showResult(result) {
   ws.on('ready', async () => {
     try {
       waveContainer.appendChild(diffCanvas);
-      const barCount = _originalPeaks ? _originalPeaks.length : 200;
+      const origPeaks = _originalPeaks[mode];
+      const barCount = origPeaks ? origPeaks.length : 200;
       const resultPeaks = await decodeAudioPeaks(outputUrl, barCount);
-      renderDiffWaveform(diffCanvas, waveContainer, resultPeaks, _originalPeaks);
+      renderDiffWaveform(diffCanvas, waveContainer, resultPeaks, origPeaks);
     } catch (err) {
       console.error('Diff waveform error:', err);
     }
@@ -792,13 +888,11 @@ async function startBatchEnhance() {
   const preset = document.getElementById('enhance-preset').value;
   if (!preset || _batchFiles.length === 0) return;
 
-  const processBtn = document.getElementById('enhance-process');
-  const progressCard = document.getElementById('enhance-progress');
+  const processBtn = document.getElementById('enhance-process-cleanup');
+  const progressCard = document.getElementById('enhance-cleanup-progress');
 
   processBtn.disabled = true;
-  document.getElementById('enhance-progress-fill').style.width = '0%';
-  document.getElementById('enhance-pct').textContent = '0%';
-  document.getElementById('enhance-stage').textContent = '';
+  _resetProgress('enhance-cleanup');
   progressCard.classList.remove('hidden');
 
   try {
@@ -812,9 +906,7 @@ async function startBatchEnhance() {
 
     pollJob(job_id, {
       onProgress(progress, stage) {
-        document.getElementById('enhance-progress-fill').style.width = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('enhance-pct').textContent = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('enhance-stage').textContent = stage;
+        _updateProgress('enhance-cleanup', progress, stage);
       },
       onDone(result) {
         progressCard.classList.add('hidden');
@@ -825,13 +917,12 @@ async function startBatchEnhance() {
       onError(msg) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        const resultsSection = document.getElementById('enhance-results');
-        resultsSection.appendChild(
+        document.getElementById('enhance-results-cleanup').appendChild(
           el('div', { className: 'banner banner-error' }, `Batch enhancement failed: ${msg}`),
         );
       },
     });
-  } catch (err) {
+  } catch {
     progressCard.classList.add('hidden');
     processBtn.disabled = false;
   }
@@ -839,7 +930,7 @@ async function startBatchEnhance() {
 
 // ─── Batch result display ───────────────────────────────────────────
 
-let _batchResults = [];  // mutable list for Save All — items removed via close button
+let _batchResults = [];
 
 function _updateSaveAllBtn() {
   const btn = document.getElementById('enhance-save-all');
@@ -855,7 +946,7 @@ function _updateSaveAllBtn() {
 }
 
 function showBatchResults(results, preset) {
-  const resultsSection = document.getElementById('enhance-results');
+  const resultsSection = document.getElementById('enhance-results-cleanup');
   clearChildren(resultsSection);
 
   _batchResults = results.filter(r => !r.error);
@@ -876,7 +967,7 @@ function showBatchResults(results, preset) {
   clearAllBtn.addEventListener('click', () => {
     _batchResults = [];
     clearChildren(resultsSection);
-    // Destroy all batch players
+    // Destroy batch players only
     for (let i = _players.length - 1; i >= 0; i--) {
       _players[i].ws.destroy();
       _players.splice(i, 1);
@@ -917,7 +1008,7 @@ function showBatchResults(results, preset) {
 
       saveAllBtn.textContent = 'Saved!';
       setTimeout(() => { saveAllBtn.textContent = origText; saveAllBtn.disabled = false; }, 2000);
-    } catch (err) {
+    } catch {
       saveAllBtn.textContent = origText;
       saveAllBtn.disabled = false;
     }
@@ -944,9 +1035,8 @@ function showBatchResults(results, preset) {
 
 function _appendBatchCard(container, r) {
   const url = `/api/audio/stream?path=${encodeURIComponent(r.path)}`;
-  const { card, ws } = _createPlayer(r.output_name, url, r.path);
+  const { card, ws } = _createPlayer(r.output_name, url, r.path, 'Enhance \u203A Clean Up');
 
-  // Close button — removes card and excludes from Save All
   const closeBtn = el('button', {
     className: 'btn btn-sm',
     style: { marginLeft: 'auto', fontSize: '14px', lineHeight: '1', padding: '2px 6px' },
@@ -954,19 +1044,15 @@ function _appendBatchCard(container, r) {
   }, '\u2715');
 
   closeBtn.addEventListener('click', () => {
-    // Destroy wavesurfer player
     ws.destroy();
     const idx = _players.findIndex(p => p.ws === ws);
     if (idx !== -1) _players.splice(idx, 1);
-    // Remove from Save All list
     const ri = _batchResults.indexOf(r);
     if (ri !== -1) _batchResults.splice(ri, 1);
-    // Remove DOM
     card.remove();
     _updateSaveAllBtn();
   });
 
-  // Insert close button into the card header actions
   const actions = card.querySelector('.stem-actions');
   if (actions) actions.appendChild(closeBtn);
 

@@ -41,8 +41,8 @@ class BatchSaveAllRequest(BaseModel):
 
 class AutotuneRequest(BaseModel):
     stem_path: str
-    key: str = "C"
-    scale: str = "chromatic"
+    key: str = "Auto"                # "Auto" for auto-detection
+    scale: str = "auto"              # "auto" for auto-detection
     correction_strength: float = 0.8  # 0.0–1.0
     humanize: float = 0.15            # 0.0–1.0
 
@@ -273,8 +273,13 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
 
     result = pipeline.run(path, progress_cb=progress_cb)
 
+    # Use the actual key/scale (may have been auto-detected)
+    actual_key = result.key
+    actual_scale = result.scale
+    scale_display = SCALE_LABELS.get(actual_scale, actual_scale)
+
     # Store in session
-    label = f"{path.stem} (Auto-Tune {key} {SCALE_LABELS.get(scale, scale)})"
+    label = f"{path.stem} (Auto-Tune {actual_key} {scale_display})"
     session.add_enhance_path(label, result.output_path)
 
     # Add as mix track
@@ -286,21 +291,26 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
     )
     session.add_track(track)
 
-    return {
+    resp = {
         "output_path": str(result.output_path),
         "label": label,
-        "key": key,
-        "scale": scale,
+        "key": actual_key,
+        "scale": actual_scale,
         "stem_path": stem_path,
     }
+    if result.detected_key:
+        resp["detected_key"] = result.detected_key
+    if result.detected_scale:
+        resp["detected_scale"] = result.detected_scale
+    return resp
 
 
 @router.post("/autotune")
 def start_autotune(req: AutotuneRequest) -> dict:
     """Start an auto-tune job."""
-    if req.key not in NOTE_NAMES:
+    if req.key != "Auto" and req.key not in NOTE_NAMES:
         raise HTTPException(400, f"Unknown key: {req.key}")
-    if req.scale not in SCALES:
+    if req.scale != "auto" and req.scale not in SCALES:
         raise HTTPException(400, f"Unknown scale: {req.scale}")
 
     path = pathlib.Path(req.stem_path)

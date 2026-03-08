@@ -44,6 +44,55 @@ SCALE_LABELS: dict[str, str] = {
 }
 
 
+# Krumhansl-Kessler key profiles — empirical probe-tone ratings for
+# how "stable" each pitch class sounds in major and minor keys.
+_KK_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+_KK_MINOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+
+
+def detect_key_and_scale(f0: np.ndarray) -> tuple[str, str]:
+    """Detect the musical key and scale (major/minor) from an F0 contour.
+
+    Uses Krumhansl-Kessler key-profile correlation: builds a chroma
+    histogram from voiced frames and correlates against all 24 major/minor
+    profiles. Returns (key_name, scale_name) e.g. ("A", "minor").
+    """
+    # Build chroma histogram from voiced frames
+    voiced = f0[f0 > 0]
+    if len(voiced) < 10:
+        return ("C", "major")  # fallback — not enough data
+
+    midi_notes = 12.0 * np.log2(voiced / 440.0) + 69.0
+    pitch_classes = np.round(midi_notes).astype(int) % 12
+    chroma = np.bincount(pitch_classes, minlength=12).astype(float)
+
+    # Normalize to zero-mean for Pearson correlation
+    chroma -= chroma.mean()
+    chroma_norm = np.linalg.norm(chroma)
+    if chroma_norm < 1e-9:
+        return ("C", "major")
+
+    best_corr = -2.0
+    best_root = 0
+    best_mode = "major"
+
+    for root in range(12):
+        # Rotate profile so index 0 aligns with this root
+        for mode, profile in [("major", _KK_MAJOR), ("minor", _KK_MINOR)]:
+            rotated = np.array([profile[(i - root) % 12] for i in range(12)], dtype=float)
+            rotated -= rotated.mean()
+            r_norm = np.linalg.norm(rotated)
+            if r_norm < 1e-9:
+                continue
+            corr = np.dot(chroma, rotated) / (chroma_norm * r_norm)
+            if corr > best_corr:
+                best_corr = corr
+                best_root = root
+                best_mode = mode
+
+    return (NOTE_NAMES[best_root], best_mode)
+
+
 def _build_scale_notes(root: int, scale_key: str) -> set[int]:
     """Return the set of MIDI note classes (0–11) for a root + scale."""
     pattern = SCALES.get(scale_key, SCALES["chromatic"])
@@ -74,8 +123,8 @@ def _snap_to_scale(midi_note: float, scale_notes: set[int]) -> float:
 class AutotuneConfig:
     """Per-run configuration for :class:`AutotunePipeline`."""
 
-    key: str = "C"                     # root note name
-    scale: str = "chromatic"           # key into SCALES
+    key: str = "Auto"                  # root note name, or "Auto" for detection
+    scale: str = "auto"               # key into SCALES, or "auto" for detection
     correction_strength: float = 0.8   # 0.0 = no correction, 1.0 = full snap
     humanize: float = 0.15             # random detuning amount (0.0–1.0)
     output_dir: pathlib.Path = ENHANCE_DIR
@@ -89,6 +138,8 @@ class AutotuneResult:
     key: str
     scale: str
     correction_strength: float
+    detected_key: str | None = None    # populated when key was "Auto"
+    detected_scale: str | None = None  # populated when scale was "auto"
 
 
 # ---------------------------------------------------------------------------
@@ -164,9 +215,28 @@ class AutotunePipeline:
         if progress_cb:
             progress_cb(0.40, "Computing pitch correction...")
 
+        # --- Auto-detect key and/or scale if requested ---
+        detected_key = None
+        detected_scale = None
+        use_key = cfg.key
+        use_scale = cfg.scale
+
+        if cfg.key == "Auto" or cfg.scale == "auto":
+            det_k, det_s = detect_key_and_scale(f0)
+            if cfg.key == "Auto":
+                use_key = det_k
+                detected_key = det_k
+                log.info("Auto-detected key: %s", det_k)
+            if cfg.scale == "auto":
+                use_scale = det_s
+                detected_scale = det_s
+                log.info("Auto-detected scale: %s", det_s)
+            if progress_cb:
+                progress_cb(0.42, f"Detected: {use_key} {SCALE_LABELS.get(use_scale, use_scale)}")
+
         # --- Scale snapping ---
-        root = NOTE_NAMES.index(cfg.key) if cfg.key in NOTE_NAMES else 0
-        scale_notes = _build_scale_notes(root, cfg.scale)
+        root = NOTE_NAMES.index(use_key) if use_key in NOTE_NAMES else 0
+        scale_notes = _build_scale_notes(root, use_scale)
         rng = np.random.default_rng()
 
         corrected_f0 = np.copy(f0)
@@ -247,13 +317,13 @@ class AutotunePipeline:
 
         # Write output
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        scale_label = cfg.scale.replace("_", "-")
-        out_name = f"{audio_path.stem}_autotune_{cfg.key}_{scale_label}.wav"
+        scale_label = use_scale.replace("_", "-")
+        out_name = f"{audio_path.stem}_autotune_{use_key}_{scale_label}.wav"
         output_path = cfg.output_dir / out_name
         sf.write(str(output_path), output_audio, sr, subtype="FLOAT")
 
         log.info("Auto-tune complete: %s → %s (key=%s, scale=%s, strength=%.0f%%)",
-                 audio_path.name, output_path.name, cfg.key, cfg.scale,
+                 audio_path.name, output_path.name, use_key, use_scale,
                  cfg.correction_strength * 100)
 
         if progress_cb:
@@ -261,9 +331,11 @@ class AutotunePipeline:
 
         return AutotuneResult(
             output_path=output_path,
-            key=cfg.key,
-            scale=cfg.scale,
+            key=use_key,
+            scale=use_scale,
             correction_strength=cfg.correction_strength,
+            detected_key=detected_key,
+            detected_scale=detected_scale,
         )
 
     def clear(self) -> None:
