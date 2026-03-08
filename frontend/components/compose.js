@@ -1803,19 +1803,39 @@ async function _pollTrainStatus() {
         if (lossFill) lossFill.style.width = `${(1 - bar) * 100}%`;
       }
       if (data.loss_history) _drawLossChart(data.loss_history);
-      if (data.progress != null) {
-        const pct = Math.round(data.progress * 100);
+      if (data.config?.epochs && data.current_epoch) {
+        const pct = Math.round((data.current_epoch / data.config.epochs) * 100);
         if (progressFill) progressFill.style.width = `${pct}%`;
         if (progressPct) progressPct.textContent = `${pct}%`;
       }
-    } else if (data.status === 'done' || data.status === 'completed' || (!data.is_training && data.current_epoch > 0)) {
-      _stopTrainStatusPoll();
-      if (status) status.textContent = 'Training complete';
+      _id('compose-train-start').disabled = true;
+      _id('compose-train-stop')?.classList.remove('hidden');
+      _id('compose-train-complete')?.classList.add('hidden');
+    } else {
+      // Not training
       _id('compose-train-stop')?.classList.add('hidden');
-      _id('compose-train-complete')?.classList.remove('hidden');
-    } else if (data.error) {
-      _stopTrainStatusPoll();
-      if (status) status.textContent = 'Error: ' + data.error;
+      const startBtn = _id('compose-train-start');
+      if (startBtn) startBtn.disabled = !_trainPreprocessed;
+
+      if (data.error) {
+        _stopTrainStatusPoll();
+        if (status) status.textContent = 'Error';
+        if (epochInfo) epochInfo.textContent = '';
+        const log = _id('compose-train-log');
+        if (log) log.querySelector('p').textContent = data.error;
+      } else if (data.current_step > 0) {
+        // Training completed
+        _stopTrainStatusPoll();
+        if (status) status.textContent = 'Complete';
+        if (epochInfo) epochInfo.textContent = '';
+        if (progressFill) progressFill.style.width = '100%';
+        if (progressPct) progressPct.textContent = '100%';
+        if (data.loss_history) _drawLossChart(data.loss_history);
+        _id('compose-train-complete')?.classList.remove('hidden');
+      } else {
+        if (status) status.textContent = 'Idle';
+        if (epochInfo) epochInfo.textContent = '';
+      }
     }
   } catch {}
 }
