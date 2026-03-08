@@ -60,11 +60,13 @@ export function initTransport() {
  * @param {string} url - audio URL to load
  * @param {string} label - display label
  * @param {boolean} autoplay - start playing once loaded (default: true)
+ * @param {string} source - tab/section name shown in "Now Playing (source)"
  */
-export function transportLoad(url, label = '', autoplay = true) {
+export function transportLoad(url, label = '', autoplay = true, source = '') {
   if (!ws) return;
   currentLabel = label;
-  document.getElementById('transport-label').textContent = label;
+  const prefix = source ? `Now Playing (${source})` : 'Now Playing';
+  document.getElementById('transport-label').textContent = label ? `${prefix}: ${label}` : '';
   ws.load(url);
   if (autoplay) {
     ws.once('ready', () => ws.play());

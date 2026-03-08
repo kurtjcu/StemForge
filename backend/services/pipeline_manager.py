@@ -52,6 +52,10 @@ def _get_or_create(name: str) -> Any:
             from pipelines.enhance_pipeline import EnhancePipeline
             _pipelines[name] = EnhancePipeline()
 
+        elif name == "autotune":
+            from pipelines.autotune_pipeline import AutotunePipeline
+            _pipelines[name] = AutotunePipeline()
+
         else:
             raise ValueError(f"Unknown pipeline: {name!r}")
 
@@ -80,6 +84,10 @@ def get_rvc() -> Any:
 
 def get_enhance() -> Any:
     return _get_or_create("enhance")
+
+
+def get_autotune() -> Any:
+    return _get_or_create("autotune")
 
 
 def evict(name: str) -> None:

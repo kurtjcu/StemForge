@@ -201,17 +201,19 @@ function buildUI(panel) {
   // Right column (controls)
   const rightCol = buildRightColumn();
 
-  // Train panels (hidden by default)
+  mainGrid.append(leftCol, centerCol, rightCol);
+
+  // Train panels live in a separate grid (hidden by default)
+  const trainGrid = el('div', { className: 'compose-main compose-train-grid hidden', id: 'compose-train-grid' });
   const trainLeft = buildTrainLeftPanel();
   const trainCenter = buildTrainCenterPanel();
   const trainRight = buildTrainRightPanel();
-
-  mainGrid.append(leftCol, centerCol, rightCol, trainLeft, trainCenter, trainRight);
+  trainGrid.append(trainLeft, trainCenter, trainRight);
 
   // Output panel
   const output = buildOutputPanel();
 
-  panel.append(modeBar, mainGrid, output);
+  panel.append(modeBar, mainGrid, trainGrid, output);
 
   // Init slider fills
   panel.querySelectorAll('.compose-slider').forEach(s => {
@@ -1254,7 +1256,7 @@ let _trainPreprocessed = false;
 let _trainPollTimer = null;
 
 function buildTrainLeftPanel() {
-  const col = el('div', { className: 'compose-col compose-col-left hidden', id: 'compose-train-left' });
+  const col = el('div', { className: 'compose-col compose-train-col-left', id: 'compose-train-left' });
 
   col.appendChild(el('h3', { className: 'compose-section-title' }, 'Training Dataset'));
 
@@ -1329,7 +1331,7 @@ function buildTrainLeftPanel() {
 }
 
 function buildTrainCenterPanel() {
-  const col = el('div', { className: 'compose-col compose-col-center hidden', id: 'compose-train-center' });
+  const col = el('div', { className: 'compose-col compose-train-col-center', id: 'compose-train-center' });
 
   // Sample table
   const datasetView = el('div', { className: 'compose-train-dataset hidden', id: 'compose-train-dataset' });
@@ -1389,7 +1391,7 @@ function buildTrainCenterPanel() {
 }
 
 function buildTrainRightPanel() {
-  const col = el('div', { className: 'compose-col compose-col-right hidden', id: 'compose-train-right' });
+  const col = el('div', { className: 'compose-col compose-train-col-right', id: 'compose-train-right' });
 
   col.appendChild(el('h3', { className: 'compose-section-title' }, 'Training Config'));
 
@@ -1957,21 +1959,17 @@ function switchMode(mode) {
   if (vp) vp.classList.toggle('hidden', mode !== 'voice');
   if (tabs) tabs.classList.toggle('hidden', mode !== 'create');
 
-  // Toggle train panels
-  const tl = _id('compose-train-left');
-  const tc = _id('compose-train-center');
-  const tr = _id('compose-train-right');
-  if (tl) tl.classList.toggle('hidden', !isTrain);
-  if (tc) tc.classList.toggle('hidden', !isTrain);
-  if (tr) tr.classList.toggle('hidden', !isTrain);
+  // Toggle between main grid and train grid
+  const mainGrid = document.querySelector('#panel-compose > .compose-main:not(.compose-train-grid)');
+  const trainGrid = _id('compose-train-grid');
+  if (mainGrid) mainGrid.classList.toggle('hidden', isTrain);
+  if (trainGrid) trainGrid.classList.toggle('hidden', !isTrain);
 
-  // For lego/complete/voice/train, hide the center column lyrics and right column controls
+  // For lego/complete/voice, hide the center/right columns (original behavior)
   const centerCol = document.querySelector('.compose-col-center');
   const rightCol = document.querySelector('.compose-col-right');
-  const leftCol = document.querySelector('.compose-col-left');
-  if (leftCol) leftCol.classList.toggle('hidden', isTrain);
-  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice' || isTrain);
-  if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice' || isTrain);
+  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice');
+  if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice');
 
   // Start/stop train polling
   if (isTrain) { _startTrainStatusPoll(); _recoverPipelineState(); }
@@ -2793,7 +2791,7 @@ function buildResultCard(taskId, index, total, result, fmt) {
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
         // Load into global transport for cross-tab "Now Playing"
-        transportLoad(audioSrc, label, false);
+        transportLoad(audioSrc, label, false, 'Compose');
       }
     });
 
@@ -3208,7 +3206,7 @@ function showVoiceResult(result) {
       _stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
-      transportLoad(audioSrc, label, false);
+      transportLoad(audioSrc, label, false, 'Compose › Voice');
     }
   });
 

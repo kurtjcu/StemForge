@@ -134,6 +134,69 @@ mutual exclusion with inference pipelines.
 
 ---
 
+## AceStep LoRA / LoKR training — IMPLEMENTED
+
+Custom adapter training is now live in the **Compose tab** as a 6th mode
+(**Create | Rework | Lego | Complete | Voice | Train**).
+
+### What shipped
+
+- **Full training pipeline** in Compose tab Train mode: Upload → Scan →
+  Auto-label → Preprocess → Train → Export.
+- **Two adapter types**: LoRA (general purpose) and LoKR (compact).
+- **Configurable hyperparameters**: rank, epochs, learning rate, batch size,
+  warmup steps, gradient accumulation, save interval.
+- **Live loss chart** with canvas 2D rendering and HiDPI support.
+- **Named snapshots** — save/load/delete dataset + preprocessed tensors
+  for iterating on training without re-running the pipeline.
+- **Adapter export** to `loras/` directory for immediate use via the
+  LoRA browser in generation modes.
+- **Model reinitialization** after training to pick up new adapters.
+- **Pipeline state recovery** — switching to Train mode checks disk state
+  and in-progress tasks to resume where you left off.
+
+### Also shipped (Compose tab additions)
+
+- **LoRA adapter management** — browse, load, unload, scale (0–100%)
+  adapters during generation. Post-generation warning if adapter is
+  silently dropped.
+- **Seed controls** — Last / Random buttons for reproducible generation.
+- **Project save/load** — full Compose state serialized to JSON (~30 fields).
+
+### Future improvements
+
+- **Multi-GPU training** — currently single-GPU only.
+- **Training presets** — save/recall hyperparameter configurations.
+- **Adapter comparison** — A/B generation with different adapters loaded.
+
+---
+
+## Audio enhancement — Phase 2
+
+Phases 1 and 3 are shipped. The Enhance tab now has a three-mode bar:
+**Clean Up** (Phase 1) · **Tune** (Phase 3) · **Effects** (Phase 2 stub).
+
+### Phase 1 — UVR Clean Up — IMPLEMENTED
+
+8 curated presets (denoise, dereverb, debleed) via vendored
+`python-audio-separator` fork across Roformer/MDXC/VR architectures.
+Batch mode supported.
+
+### Phase 3 — Auto-Tune — IMPLEMENTED
+
+Pitch correction for vocal stems using CREPE neural pitch detection
+(`torchcrepe`) + Praat TD-PSOLA resynthesis (`parselmouth`). Controls:
+key, scale (chromatic/major/minor/pentatonic/blues), correction strength,
+and humanization. Formant-preserving — no metallic artifacts.
+
+### Phase 2 — Effects Chain (Pedalboard) — planned
+
+Apply audio effects (EQ, compression, limiting, chorus, delay) via
+Spotify's Pedalboard library. Non-destructive chain with drag-to-reorder
+and per-effect bypass. Stubbed as "Effects" in the Enhance tab mode bar.
+
+---
+
 ## Other ideas
 
 _Add future feature ideas below this line._
@@ -144,10 +207,11 @@ _Add future feature ideas below this line._
 - .dmg for macOS
 - Would make StemForge accessible to non-developers
 
-### Batch processing
-- Process multiple audio files through the same pipeline sequence
+### Batch processing (partially implemented)
+- Batch stem separation is live — extract one stem type from multiple files
+- Batch enhancement is live — apply one preset to multiple files
+- Extend to other pipelines: batch MIDI extraction
 - Useful for albums or sample libraries
-- Would benefit from a queue/job system in the GUI
 
 ### DAW integration
 - Export stems + MIDI in a format that opens directly as a DAW project

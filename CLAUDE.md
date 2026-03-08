@@ -16,7 +16,10 @@ AI-powered audio processing web application with six core pipelines:
 - **AceStep** — full song generation from style descriptions + lyrics (Compose tab, runs as subprocess)
 
 Additional systems:
-- **Enhance** — vocal cleanup via vendored `python-audio-separator` fork (UVR denoise, dereverb, debleed — 8 curated presets across Roformer/MDXC/VR architectures)
+- **Enhance** — three-mode vocal enhancement tab:
+  - **Clean Up** — UVR denoise, dereverb, debleed via vendored `python-audio-separator` fork (8 curated presets across Roformer/MDXC/VR architectures)
+  - **Tune** — auto-tune via CREPE neural pitch detection (`torchcrepe`) + Praat TD-PSOLA resynthesis (`parselmouth`); scale snapping with correction strength and humanization controls
+  - **Effects** — stub for future Pedalboard effects chain (Phase 2)
 - **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
 - **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, and FLAC render
@@ -77,7 +80,7 @@ StemForge/
 │   │   ├── generate.py             # /api/generate (Synth tab)
 │   │   ├── compose.py              # /api/compose/* (Compose tab — AceStep proxy)
 │   │   ├── acestep_wrapper.py      # HTTP client for AceStep API
-│   │   ├── enhance.py              # /api/enhance, /api/enhance/presets|stems (Enhance tab)
+│   │   ├── enhance.py              # /api/enhance, /api/enhance/presets|stems|autotune (Enhance tab)
 │   │   ├── mix.py                  # /api/mix/tracks|render|add-audio|add-midi
 │   │   ├── sfx.py                  # /api/sfx/* (SFX Stem Builder — canvas, placements, render)
 │   │   └── export.py               # /api/export, /api/export/download-zip
@@ -96,7 +99,7 @@ StemForge/
 │       ├── loader.js               # Drag-and-drop upload + file info + batch mode
 │       ├── waveform.js             # wavesurfer.js wrapper
 │       ├── separate.js             # Separation tab + batch mode
-│       ├── enhance.js             # Enhance tab (denoise/dereverb + diff viz)
+│       ├── enhance.js             # Enhance tab (Clean Up / Tune / Effects mode bar)
 │       ├── waveform-diff.js       # Shared audio peak diff visualization
 │       ├── midi.js                 # MIDI tab
 │       ├── mix.js                  # Mix tab
@@ -108,6 +111,7 @@ StemForge/
 │
 ├── pipelines/                      # All pipeline logic
 │   ├── enhance_pipeline.py         # UVR denoise/dereverb via audio-separator
+│   ├── autotune_pipeline.py        # CREPE pitch detection + Praat PSOLA resynthesis
 │   ├── demucs_pipeline.py
 │   ├── roformer_pipeline.py
 │   ├── midi_pipeline.py
@@ -248,6 +252,10 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | GET | /api/enhance/presets | sync | Available enhancement presets |
 | GET | /api/enhance/stems | sync | Stems available for enhancement |
 | POST | /api/enhance | job | Start enhancement (denoise/dereverb) |
+| POST | /api/enhance/batch | job | Batch enhancement — same preset across multiple files |
+| POST | /api/enhance/batch/save-all | sync | Zip batch enhancement results for download |
+| GET | /api/enhance/autotune-options | sync | Available keys and scales for auto-tune |
+| POST | /api/enhance/autotune | job | Start auto-tune (CREPE + PSOLA pitch correction) |
 | POST | /api/export | job | Start export |
 | POST | /api/export/download-zip | sync | Zip download |
 
@@ -264,6 +272,7 @@ Generate done  → appState.emit("generateReady", audioPath)
 Compose done   → appState.emit("composeReady", {path, title, metadata})
 Mix done       → appState.emit("mixReady", mixPath)
 Enhance done   → appState.emit("enhanceReady", {output_path, preset, label})
+Autotune done  → appState.emit("enhanceReady", {output_path, preset: "autotune", label})
 SFX ready      → appState.emit("sfxReady", {id})
 File loaded    → appState.emit("fileLoaded", {path, filename})
 Batch loaded   → appState.emit("batchFilesLoaded", uploadedFiles)

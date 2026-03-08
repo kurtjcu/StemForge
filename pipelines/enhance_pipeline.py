@@ -88,12 +88,21 @@ class EnhanceConfig:
 
 
 @dataclass
+class EnhanceOutput:
+    """A single output file from the separator."""
+
+    path: pathlib.Path
+    stem_label: str  # e.g. "Dry", "Other", "Vocals", "Instrumental", "No Reverb", "Reverb"
+
+
+@dataclass
 class EnhanceResult:
     """Return value from :meth:`EnhancePipeline.run`."""
 
     output_path: pathlib.Path
     preset: str
     label: str
+    all_outputs: list[EnhanceOutput] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +115,7 @@ class EnhancePipeline:
     def __init__(self) -> None:
         self._separator = None
         self._loaded_model: str | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._config: EnhanceConfig | None = None
 
     def configure(self, config: EnhanceConfig) -> None:
@@ -177,22 +186,59 @@ class EnhancePipeline:
         if not output_files:
             raise RuntimeError("Enhancement produced no output files")
 
-        # The separator outputs two stems: primary (clean) and secondary (removed).
-        # Pick the primary stem — the one NOT containing noise/reverb keywords.
-        noise_keywords = {"noise", "reverb", "instrumental"}
-        output_path = None
-        for f in output_files:
-            name_lower = pathlib.Path(f).stem.lower()
-            if not any(kw in name_lower for kw in noise_keywords):
-                output_path = pathlib.Path(f)
+        # Resolve bare filenames to full paths (separator may return either).
+        def _resolve(f):
+            fp = pathlib.Path(f)
+            return fp if fp.is_absolute() else output_dir / fp
+
+        resolved = [_resolve(f) for f in output_files]
+        log.info("Separator returned %d files: %s", len(resolved),
+                 [fp.name for fp in resolved])
+
+        # Extract the stem label from filenames like "song_(Dry)_model.wav"
+        import re
+        def _extract_stem_label(fp):
+            m = re.search(r'\(([^)]+)\)', fp.stem)
+            return m.group(1) if m else fp.stem
+
+        # Build list of all outputs with their stem labels
+        all_outputs = []
+        for fp in resolved:
+            if fp.exists():
+                all_outputs.append(EnhanceOutput(
+                    path=fp,
+                    stem_label=_extract_stem_label(fp),
+                ))
+
+        if not all_outputs:
+            raise RuntimeError("Enhancement produced no valid output files")
+
+        # Auto-select the "clean" stem for session/mix integration.
+        # All verified by ear — naming is counterintuitive for some presets:
+        #   denoise/debleed: "Instrumental" = clean, "Vocals" = noise
+        #   denoise_aggr: "Dry" = clean
+        #   dereverb, dereverb_anvuew: "Noreverb" = clean
+        #   dereverb_echo, dereverb_mdxc, dereverb_vr: "Dry" = clean
+        _CLEAN_STEM_MAP = {
+            "denoise": "Instrumental",
+            "denoise_aggr": "Dry",
+            "denoise_debleed": "Instrumental",
+            "dereverb": "Noreverb",
+            "dereverb_anvuew": "Noreverb",
+            "dereverb_echo": "Dry",
+            "dereverb_mdxc": "Dry",
+            "dereverb_vr": "Dry",
+        }
+
+        expected_clean = _CLEAN_STEM_MAP.get(preset_key, "").lower()
+        output_path = all_outputs[0].path  # fallback
+        for out in all_outputs:
+            if out.stem_label.lower() == expected_clean:
+                output_path = out.path
                 break
 
-        # Fallback to first output if heuristic didn't match
-        if output_path is None:
-            output_path = pathlib.Path(output_files[0])
-
-        if not output_path.exists():
-            raise RuntimeError(f"Expected output not found: {output_path}")
+        log.info("Selected output: %s (all: %s)", output_path.name,
+                 [(o.stem_label, o.path.name) for o in all_outputs])
 
         log.info("Enhancement complete: %s → %s", audio_path, output_path)
 
@@ -203,6 +249,7 @@ class EnhancePipeline:
             output_path=output_path,
             preset=preset_key,
             label=preset["label"],
+            all_outputs=all_outputs,
         )
 
     def clear(self) -> None:

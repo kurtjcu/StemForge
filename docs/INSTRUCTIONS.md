@@ -1,6 +1,6 @@
 # StemForge — User Guide
 
-**Tab bar:** Separate · MIDI · Synth · Compose · Mix · Export
+**Tab bar:** Separate · Enhance · MIDI · Synth · Compose · Mix · Export
 
 ---
 
@@ -43,7 +43,63 @@ Extract a single stem type from multiple files at once.
 
 ---
 
-## 3. MIDI — MIDI Extraction
+## 3. Enhance — Audio Enhancement
+
+Three processing modes, selected via the mode bar at the top of the tab: **Clean Up** · **Tune** · **Effects**
+
+**Source audio:** Select from separated stems, enhanced outputs, uploads, or composed songs. Sources refresh automatically as other tabs produce results.
+
+### Clean Up
+
+Remove noise and reverb from vocals and instruments using UVR (Ultimate Vocal Remover) models.
+
+**Presets:** 8 curated presets across three model architectures:
+
+- **Denoise** — remove background noise and hiss (Roformer, MDXC, and VR-architecture models at varying aggressiveness levels)
+- **Dereverb** — strip room reverb and ambience (Roformer and VR-architecture models)
+
+Models auto-download on first use (~50–200 MB each, cached at `~/.cache/stemforge/uvr/`).
+
+**Workflow:**
+1. Select a source audio file from the dropdown.
+2. Choose a denoise or dereverb preset.
+3. Click **Process**. Progress is shown while the model runs.
+4. The result appears as a waveform below the original, with a **change intensity** diff visualization showing where the enhancement had the most effect.
+5. Enhanced audio is automatically available in Mix, Export, and as a source for further enhancement (chain denoise → dereverb).
+
+#### Batch Mode
+
+Apply the same enhancement preset to multiple files at once.
+
+1. Toggle **Batch mode** at the top of the Enhance tab.
+2. Drop multiple audio files onto the upload zone (or click to browse and multi-select).
+3. Choose a denoise or dereverb preset.
+4. Click **Process All**. The model loads once and processes each file sequentially with per-file progress updates.
+5. Results appear as individual waveform cards. Each can be saved individually, or click **Save All** to download all results as a ZIP archive.
+
+### Tune (Auto-Tune)
+
+Pitch-correct vocals using CREPE neural pitch detection and Praat TD-PSOLA resynthesis. Preserves vocal formants — no metallic artifacts.
+
+**Controls:**
+- **Key** — root note (C through B). Determines the tonal center for scale snapping.
+- **Scale** — chromatic, major, minor, major pentatonic, minor pentatonic, or blues. Notes are snapped to the nearest scale degree.
+- **Correction strength** — 0% (no correction) to 100% (hard snap to nearest note). Default: 80%. Lower values preserve more natural pitch variation.
+- **Humanize** — 0% (robotic precision) to 100% (loose, natural feel). Adds random micro-detuning (Gaussian ±50 cents) to avoid the "T-Pain effect". Default: 15%.
+
+**Workflow:**
+1. Select a vocal stem from the dropdown.
+2. Set key, scale, correction strength, and humanize.
+3. Click **Process**. CREPE analyses the pitch contour, scale snapping is applied, and Praat resynthesizes the corrected audio.
+4. The tuned result appears as a playable waveform and is added to Mix and Export.
+
+### Effects (coming soon)
+
+Placeholder for Phase 2 — Pedalboard-powered effects chain (EQ, compression, reverb, delay, etc.).
+
+---
+
+## 4. MIDI — MIDI Extraction
 
 Extract a MIDI representation from any separated stem.
 
@@ -54,7 +110,7 @@ Select the stems to extract from, then click **Extract MIDI**. Each extracted st
 
 ---
 
-## 4. Synth — Audio Generation & SFX Stem Builder
+## 5. Synth — Audio Generation & SFX Stem Builder
 
 ### Audio Generation (Stable Audio Open)
 
@@ -85,11 +141,11 @@ A DAW-style timeline for assembling sound-effect stems from individual clips.
 
 ---
 
-## 5. Compose — Full Song Generation (AceStep)
+## 6. Compose — Full Song Generation (AceStep)
 
 AceStep runs as a background process. On first visit the button reads **Initialize** — click it to start the backend and download model weights (~20 GB, cached for future sessions). Once ready the button becomes **Generate**.
 
-Three modes are available via tabs:
+Six modes are available via tabs:
 
 ### Create mode
 
@@ -109,6 +165,14 @@ Transform an existing audio file:
 
 Upload audio via the Rework upload zone or use a separated stem or composed song from the session.
 
+### Lego / Complete modes
+
+Advanced structural editing powered by AceStep's analysis capabilities:
+- **Lego** — decompose a song into sections and regenerate individual parts while keeping the rest intact
+- **Complete** — extend or fill in missing sections of a partial composition
+
+Both modes require the base generation model (auto-selected when entering the mode).
+
 ### Voice mode
 
 Apply AI voice conversion (RVC) to any audio source:
@@ -123,9 +187,58 @@ Apply AI voice conversion (RVC) to any audio source:
 
 Click **Convert**. The result appears as a waveform. Use **Send to Separate** or **Send to Mix** to route it into the rest of the workflow.
 
+### Seed controls
+
+Every generation produces a seed value that can be reused for reproducible results:
+- **Last** — recall the seed from the most recent generation
+- **Random** — clear the seed field to let AceStep pick a random seed
+- Set a specific seed number to reproduce an earlier result exactly (same tags, lyrics, duration, and seed → same output)
+
+### LoRA adapter management
+
+Fine-tuned adapters can be loaded to steer AceStep's generation style:
+
+1. **Browse** — select from adapters in the `loras/` directory (supports PEFT LoRA directories and `.safetensors` files)
+2. **Load** — activate the selected adapter. A status indicator shows the active adapter name.
+3. **Scale** — adjust influence from 0% (base model only) to 100% (full adapter effect) via the slider
+4. **Unload** — remove the adapter and restore the base model
+
+If an adapter is silently dropped during generation (can happen after long idle periods), a warning appears so you can reload it.
+
+### Project save / load
+
+Save and restore the complete Compose tab state:
+- **Save Project** — downloads a `.json` file capturing all settings: tags, lyrics, duration, mode, approach, seed, LoRA state, advanced parameters (~30 fields)
+- **Load Project** — upload a previously saved project file to restore all settings in one click
+
+### Train mode
+
+Train custom LoRA or LoKR adapters to teach AceStep new styles, genres, or artist signatures.
+
+**Pipeline (5 steps):**
+
+1. **Upload** — drag audio files onto the upload zone (WAV, MP3, FLAC, OGG). These are the reference tracks AceStep will learn from.
+2. **Scan** — load the uploaded audio into AceStep's dataset system. File durations and basic metadata are extracted.
+3. **Auto-label** — AI-powered analysis generates style tags and structural captions for each sample. Progress is shown per-sample. Labels can be manually edited in the sample table after completion.
+4. **Preprocess** — convert audio + labels into training tensors. This is the most time-intensive preparation step.
+5. **Train** — start LoRA or LoKR fine-tuning with configurable parameters:
+   - **Adapter type** — LoRA (general purpose) or LoKR (more compact)
+   - **Rank** — adapter capacity (4–128, higher = more expressive but slower)
+   - **Epochs** — number of training passes
+   - **Learning rate** — training step size
+   - **Advanced** — batch size, warmup steps, gradient accumulation, save interval
+
+A live **loss chart** tracks training progress. Training can be stopped early if results are satisfactory.
+
+**After training:**
+- **Export** — save the trained adapter to the `loras/` directory, making it immediately available in the LoRA browser
+- **Reinitialize** — reload the generation model to pick up the new adapter
+
+**Snapshots:** Save and load named snapshots of your dataset + preprocessed tensors. Useful for iterating on training with different hyperparameters without re-running the full pipeline.
+
 ---
 
-## 6. Mix — Multi-Track Mixer
+## 7. Mix — Multi-Track Mixer
 
 Combines stems, MIDI-rendered tracks, synth outputs, and composed songs into a single stereo mix.
 
@@ -141,7 +254,7 @@ Click **Render Mix** to bounce all enabled tracks to a stereo FLAC file. The res
 
 ---
 
-## 7. Export
+## 8. Export
 
 Select any combination of pipeline outputs and download them in your preferred format.
 
@@ -149,4 +262,4 @@ Select any combination of pipeline outputs and download them in your preferred f
 - **Select all / deselect all** — quick toggle for bulk export
 - Individual files can be downloaded separately or all selected files can be bundled as a **ZIP archive**
 
-Available outputs include all separated stems, extracted MIDI files, Synth-generated audio, composed songs, voice-converted audio, SFX renders, and the final mix.
+Available outputs include all separated stems, enhanced audio, extracted MIDI files, Synth-generated audio, composed songs, voice-converted audio, SFX renders, and the final mix.

@@ -234,7 +234,7 @@ async function renderAndPlay(label) {
       method: 'POST',
       body: JSON.stringify({ stem_label: label }),
     });
-    transportLoad(`/api/audio/stream?path=${encodeURIComponent(res.audio_path)}`, `MIDI: ${label}`);
+    transportLoad(`/api/audio/stream?path=${encodeURIComponent(res.audio_path)}`, label, true, 'MIDI');
   } catch (err) {
     alert(`Render failed: ${err.message}`);
   }
