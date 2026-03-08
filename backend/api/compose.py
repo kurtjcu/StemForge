@@ -223,6 +223,8 @@ def _build_payload(req: GenerateRequest) -> dict:
         else _QUALITY_STEPS[quality]
     )
 
+    has_seed = req.seed is not None
+
     payload = {
         "prompt": prompt,
         "lyrics": req.lyrics,
@@ -231,11 +233,18 @@ def _build_payload(req: GenerateRequest) -> dict:
         "shift": shift,
         "inference_steps": inference_steps,
         "batch_size": max(1, req.batch_size),
-        "use_random_seed": req.seed is None,
-        "seed": req.seed if req.seed is not None else -1,
+        "use_random_seed": not has_seed,
+        "seed": req.seed if has_seed else -1,
         "infer_method": _SCHEDULER.get(req.scheduler, "ode"),
         "audio_format": req.audio_format,
     }
+
+    # When the user provides a specific seed, force the LM to greedy
+    # decoding (temperature=0) so its metadata/caption output is
+    # deterministic.  Without this, LM sampling randomness changes the
+    # diffusion conditioning each run, making the seed meaningless.
+    if has_seed:
+        payload["lm_temperature"] = 0.0
 
     if req.audio_guidance_scale is not None:
         payload["audio_guidance_scale"] = req.audio_guidance_scale
