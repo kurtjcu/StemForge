@@ -1027,6 +1027,7 @@ async def train_preprocess_status(task_id: Optional[str] = None):
 @router.post("/train/start")
 async def train_start(req: TrainStartRequest):
     """Start LoRA/LoKR training."""
+    out_dir = req.output_dir or str(_TRAIN_OUTPUT_DIR)
     payload = {
         "lora_rank": req.lora_rank,
         "lora_alpha": req.lora_alpha,
@@ -1039,11 +1040,12 @@ async def train_start(req: TrainStartRequest):
         "training_seed": req.training_seed,
         "gradient_checkpointing": req.gradient_checkpointing,
         "tensor_dir": req.tensor_dir or str(_TRAIN_TENSOR_DIR),
-        "output_dir": req.output_dir or str(_TRAIN_OUTPUT_DIR),
     }
     try:
         if req.adapter_type == "lokr":
+            payload["output_dir"] = out_dir  # LoKR uses output_dir
             return await training_start_lokr(payload)
+        payload["lora_output_dir"] = out_dir  # LoRA uses lora_output_dir
         return await training_start(payload)
     except httpx.HTTPStatusError as exc:
         raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
