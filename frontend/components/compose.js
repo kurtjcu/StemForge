@@ -2761,12 +2761,6 @@ function showResults(taskId, results, payload) {
   // Capture actual seed for Last button
   _captureLastSeed(results);
 
-  // Destroy previous players
-  for (const p of _resultPlayers) {
-    try { p.ws.destroy(); } catch {}
-  }
-  _resultPlayers.length = 0;
-
   // AI Lyrics — populate the Generated Lyrics textarea
   if (_createTab === 'ai-lyrics' && results[0]?.lyrics) {
     const display = _id('compose-ai-lyrics-display');
@@ -2778,7 +2772,7 @@ function showResults(taskId, results, payload) {
   results.forEach((result, i) => {
     const audioPath = result.audio_url || '';
     const card = buildResultCard(taskId, i, results.length, result, fmt);
-    if (output) output.appendChild(card);
+    if (output) output.prepend(card);
 
     // Emit composeReady for cross-tab integration
     appState.composePaths.push({ path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
@@ -2832,10 +2826,12 @@ function buildResultCard(taskId, index, total, result, fmt) {
       onClick: () => saveFileAs(dlAudioUrl, filename),
     }, '\u2193 Save');
 
+    const closeBtn = el('button', { className: 'btn btn-sm', title: 'Close' }, '\u2715');
+
     const header = el('div', { className: 'stem-card-header' },
       el('span', { className: 'stem-label' }, label),
       el('div', { className: 'stem-actions' },
-        playBtn, stopBtn, rewindBtn, timeLabel, saveBtn,
+        playBtn, stopBtn, rewindBtn, timeLabel, saveBtn, closeBtn,
       ),
     );
 
@@ -2846,7 +2842,22 @@ function buildResultCard(taskId, index, total, result, fmt) {
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(audioSrc);
 
-    _resultPlayers.push({ ws, playBtn });
+    const playerEntry = { ws, playBtn };
+    _resultPlayers.push(playerEntry);
+
+    closeBtn.addEventListener('click', () => {
+      ws.destroy();
+      const idx = _resultPlayers.indexOf(playerEntry);
+      if (idx !== -1) _resultPlayers.splice(idx, 1);
+      // Remove from composePaths so other tabs stop referencing it
+      const ci = appState.composePaths.findIndex(c => c.path === audioPath);
+      if (ci !== -1) appState.composePaths.splice(ci, 1);
+      card.remove();
+      // Restore idle message if no cards remain
+      const output = _id('compose-output');
+      const idle = _id('compose-output-idle');
+      if (idle && output && !output.querySelector('.stem-card')) idle.classList.remove('hidden');
+    });
 
     playBtn.addEventListener('click', () => {
       if (ws.isPlaying()) {
@@ -3251,9 +3262,11 @@ function showVoiceResult(result) {
       audioPath.split('/').pop() || 'voice.wav'),
   }, '\u2193 Save');
 
+  const closeBtn = el('button', { className: 'btn btn-sm', title: 'Close' }, '\u2715');
+
   const header = el('div', { className: 'stem-card-header' },
     el('span', { className: 'stem-label' }, label),
-    el('div', { className: 'stem-actions' }, playBtn, stopBtn, rewindBtn, timeLabel, saveBtn),
+    el('div', { className: 'stem-actions' }, playBtn, stopBtn, rewindBtn, timeLabel, saveBtn, closeBtn),
   );
 
   const waveContainer = el('div', { className: 'stem-waveform' });
@@ -3262,7 +3275,16 @@ function showVoiceResult(result) {
   const ws = createWaveform(waveContainer, { height: 50 });
   ws.load(audioSrc);
 
-  _resultPlayers.push({ ws, playBtn });
+  const playerEntry = { ws, playBtn };
+  _resultPlayers.push(playerEntry);
+
+  closeBtn.addEventListener('click', () => {
+    ws.destroy();
+    const idx = _resultPlayers.indexOf(playerEntry);
+    if (idx !== -1) _resultPlayers.splice(idx, 1);
+    delete appState.voicePaths[label];
+    card.remove();
+  });
 
   playBtn.addEventListener('click', () => {
     if (ws.isPlaying()) {
