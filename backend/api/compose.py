@@ -940,7 +940,7 @@ async def train_scan(req: TrainScanRequest):
 async def train_label(req: TrainLabelRequest):
     """Start async auto-labeling."""
     try:
-        payload: dict = {}
+        payload: dict = {"only_unlabeled": True}
         if req.lm_model_path:
             payload["lm_model_path"] = req.lm_model_path
         if req.stems_mode:
