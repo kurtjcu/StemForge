@@ -361,6 +361,9 @@ export function initEnhance() {
       tuneStemSelect.value = '';
       return;
     }
+    // Reset key/scale to auto-detect for the new source
+    atKeySelect.value = 'Auto';
+    atScaleSelect.value = 'auto';
     updateOriginalPreview('tune');
     tuneProcessBtn.disabled = !tuneStemSelect.value;
   });
