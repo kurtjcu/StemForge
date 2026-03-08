@@ -1669,7 +1669,7 @@ function _renderSampleTable(samples) {
         });
       } catch {}
     });
-    const filename = (s.file || s.path || '').split('/').pop() || `Sample ${i}`;
+    const filename = s.filename || (s.audio_path || s.file || s.path || '').split('/').pop() || `Sample ${i}`;
     const dur = s.duration ? `${Math.floor(s.duration / 60)}:${String(Math.floor(s.duration % 60)).padStart(2, '0')}` : '--';
     const row = el('div', { className: 'compose-train-sample-row' + (hasCaption ? ' labeled' : '') },
       el('span', { className: 'compose-train-sample-file' }, filename),
