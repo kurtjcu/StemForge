@@ -239,11 +239,11 @@ def _build_payload(req: GenerateRequest) -> dict:
         "audio_format": req.audio_format,
     }
 
-    # When the user provides a specific seed, force the LM to greedy
-    # decoding (temperature=0) so its metadata/caption output is
-    # deterministic.  Without this, LM sampling randomness changes the
-    # diffusion conditioning each run, making the seed meaningless.
-    if has_seed:
+    # --deterministic mode: when a seed is set, force near-zero LM
+    # temperature so the language model produces identical conditioning
+    # each run.  Without this, LM sampling randomness makes the seed
+    # meaningless for A/B testing.
+    if has_seed and os.environ.get("STEMFORGE_DETERMINISTIC"):
         payload["lm_temperature"] = 0.01
 
     if req.audio_guidance_scale is not None:

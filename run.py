@@ -54,6 +54,13 @@ def _parse_args() -> argparse.Namespace:
         help="Shared model cache directory (also MODEL_LOCATION env var). "
              "Default: ~/.cache/stemforge/",
     )
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        default=False,
+        help="Enable deterministic generation: low LM temperature + CUDA "
+             "deterministic ops when a seed is set. Useful for A/B testing.",
+    )
     return parser.parse_args()
 
 
@@ -96,6 +103,9 @@ def main() -> None:
     from utils.cache import get_model_cache_base
     model_base = get_model_cache_base()
     os.environ.setdefault("TORCH_HOME", str(model_base / "torch_hub"))
+
+    if args.deterministic:
+        os.environ["STEMFORGE_DETERMINISTIC"] = "1"
 
     from backend.services import acestep_state
 
