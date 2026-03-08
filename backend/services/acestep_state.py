@@ -98,8 +98,13 @@ def launch() -> bool:
         if var in os.environ:
             env[var] = os.environ[var]
 
+    # Enable Tensor Core acceleration on Ampere+ GPUs (trades negligible
+    # precision for speed).  Done via -c preamble so we don't touch vendor code.
     cmd = [
-        sys.executable, "-m", "acestep.api_server",
+        sys.executable, "-c",
+        "import torch;"
+        "torch.set_float32_matmul_precision('medium');"
+        "from acestep.api_server import main; main()",
         "--host", "127.0.0.1",
         "--port", str(port),
     ]
