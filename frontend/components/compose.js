@@ -1254,6 +1254,7 @@ let _trainScanned = false;
 let _trainLabeled = false;
 let _trainPreprocessed = false;
 let _trainPollTimer = null;
+let _needsReinit = false;
 
 function buildTrainLeftPanel() {
   const col = el('div', { className: 'compose-col compose-train-col-left', id: 'compose-train-left' });
@@ -1382,7 +1383,6 @@ function buildTrainCenterPanel() {
     ),
     el('div', { className: 'compose-train-complete hidden', id: 'compose-train-complete' },
       el('button', { className: 'compose-ghost-btn', id: 'compose-train-export', onClick: _trainExport }, 'Export to loras/'),
-      el('button', { className: 'compose-ghost-btn', id: 'compose-train-reinit', onClick: _trainReinit }, 'Restore generation model'),
     ),
   );
 
@@ -1762,16 +1762,6 @@ async function _trainExport() {
   }
 }
 
-async function _trainReinit() {
-  const status = _id('compose-train-status-label');
-  try {
-    await api('/compose/train/reinitialize', { method: 'POST' });
-    if (status) status.textContent = 'Generation model restored';
-  } catch (e) {
-    if (status) status.textContent = 'Reinit failed: ' + e.message;
-  }
-}
-
 // ─── Training status polling + loss chart ────────────────────────────
 
 function _startTrainStatusPoll() {
@@ -1824,7 +1814,8 @@ async function _pollTrainStatus() {
         const log = _id('compose-train-log');
         if (log) log.querySelector('p').textContent = data.error;
       } else if (data.current_step > 0) {
-        // Training completed
+        // Training completed — model needs reinit before next generation
+        _needsReinit = true;
         _stopTrainStatusPoll();
         if (status) status.textContent = 'Complete';
         if (epochInfo) epochInfo.textContent = '';
@@ -2622,6 +2613,20 @@ async function handleGenerate() {
   }
 
   // ── Generate flow (AceStep is running) ──
+
+  // Restore model if training modified it
+  if (_needsReinit) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Restoring model\u2026'; }
+    try {
+      await api('/compose/train/reinitialize', { method: 'POST' });
+      _needsReinit = false;
+    } catch (err) {
+      if (hint) hint.textContent = 'Model restore failed: ' + err.message;
+      if (btn) { btn.disabled = false; btn.textContent = _modeLabel(); }
+      return;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = _modeLabel(); }
+  }
 
   // Validation
   if (_mode === 'rework' && !_uploadedPath) {
