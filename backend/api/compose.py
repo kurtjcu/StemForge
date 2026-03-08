@@ -244,7 +244,7 @@ def _build_payload(req: GenerateRequest) -> dict:
     # deterministic.  Without this, LM sampling randomness changes the
     # diffusion conditioning each run, making the seed meaningless.
     if has_seed:
-        payload["lm_temperature"] = 0.0
+        payload["lm_temperature"] = 0.01
 
     if req.audio_guidance_scale is not None:
         payload["audio_guidance_scale"] = req.audio_guidance_scale
