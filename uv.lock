@@ -2,7 +2,8 @@ version = 1
 revision = 3
 requires-python = "==3.11.*"
 resolution-markers = [
-    "platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'",
+    "platform_machine == 's390x' and sys_platform == 'linux'",
     "platform_machine == 'aarch64' and sys_platform == 'linux'",
 ]
 supported-markers = [
@@ -259,6 +260,8 @@ dependencies = [
     { name = "librosa", marker = "sys_platform == 'linux'" },
     { name = "ml-collections", marker = "sys_platform == 'linux'" },
     { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "onnx-weekly", marker = "sys_platform == 'linux'" },
+    { name = "onnx2torch-py313", marker = "sys_platform == 'linux'" },
     { name = "pydub", marker = "sys_platform == 'linux'" },
     { name = "pyyaml", marker = "sys_platform == 'linux'" },
     { name = "requests", marker = "sys_platform == 'linux'" },
@@ -283,8 +286,8 @@ requires-dist = [
     { name = "librosa", specifier = ">=0.10" },
     { name = "ml-collections" },
     { name = "numpy", specifier = ">=2" },
-    { name = "onnx-weekly", marker = "extra == 'cpu' or extra == 'dml' or extra == 'gpu'" },
-    { name = "onnx2torch-py313", marker = "extra == 'cpu' or extra == 'dml' or extra == 'gpu'", specifier = ">=1.6" },
+    { name = "onnx-weekly" },
+    { name = "onnx2torch-py313", specifier = ">=1.6" },
     { name = "onnxruntime", marker = "extra == 'cpu'", specifier = ">=1.17" },
     { name = "onnxruntime-directml", marker = "extra == 'dml'", specifier = ">=1.17" },
     { name = "onnxruntime-gpu", marker = "extra == 'gpu'", specifier = ">=1.17" },
@@ -1331,6 +1334,19 @@ wheels = [
 ]
 
 [[package]]
+name = "ml-dtypes"
+version = "0.5.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/4a/c27b42ed9b1c7d13d9ba8b6905dece787d6259152f2309338aed29b2447b/ml_dtypes-0.5.4.tar.gz", hash = "sha256:8ab06a50fb9bf9666dd0fe5dfb4676fa2b0ac0f31ecff72a6c3af8e22c063453", size = 692314, upload-time = "2025-11-17T22:32:31.031Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/cf/912146dfd4b5c0eea956836c01dcd2fce6c9c844b2691f5152aca196ce4f/ml_dtypes-0.5.4-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:bc11d7e8c44a65115d05e2ab9989d1e045125d7be8e05a071a48bc76eb6d6040", size = 5056165, upload-time = "2025-11-17T22:31:41.071Z" },
+    { url = "https://files.pythonhosted.org/packages/a9/80/19189ea605017473660e43762dc853d2797984b3c7bf30ce656099add30c/ml_dtypes-0.5.4-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:19b9a53598f21e453ea2fbda8aa783c20faff8e1eeb0d7ab899309a0053f1483", size = 5034975, upload-time = "2025-11-17T22:31:42.758Z" },
+]
+
+[[package]]
 name = "modelscope"
 version = "1.34.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1670,6 +1686,39 @@ wheels = [
 ]
 
 [[package]]
+name = "onnx-weekly"
+version = "1.21.0.dev20260302"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ml-dtypes", marker = "sys_platform == 'linux'" },
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "protobuf", marker = "sys_platform == 'linux'" },
+    { name = "typing-extensions", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/8c/07a7ed271fd5d9b16c9b4f5c034c4d96500721077f0b908977d8a6fae35d/onnx_weekly-1.21.0.dev20260302.tar.gz", hash = "sha256:73ab33a8b940e3534805623c72018ff4fb9e1b658e2abc64212a5e0950ed2ab3", size = 12080438, upload-time = "2026-03-02T01:03:05.186Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/07/f07485a11cc6ec5f9178c125023421734a8e0449ccff023a0efbd6765c45/onnx_weekly-1.21.0.dev20260302-cp311-cp311-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:4d4af493a0fb0f881828aaa55da9dc0ffb95c471c00a821c9b55a99c1305cd08", size = 17528852, upload-time = "2026-03-02T01:01:57.261Z" },
+    { url = "https://files.pythonhosted.org/packages/13/44/ad605c2f4c716c7cc6ab56e380d12b609c6c12f6985b98c8adabbaea2e49/onnx_weekly-1.21.0.dev20260302-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:27076c2412c5f650b6edbe8bd498b83c60a7f995ff6ce8a21dab55cc76c55dae", size = 17610909, upload-time = "2026-03-02T01:02:00.577Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/7a/3c8f0efca729c719056e5c083a43e0eca126dfd54b09343eca6efb3ec521/onnx_weekly-1.21.0.dev20260302-cp312-abi3-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:72c034b22ece5b7c5e545d8b7d3d106e872b3252b68a13446778f37ef4b724f9", size = 17525650, upload-time = "2026-03-02T01:02:16.279Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/2f/2ea8857628dd919469307a8892f06c936c25539526c228d9c96e0ad5a8f4/onnx_weekly-1.21.0.dev20260302-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b7892041eb3ba49657678f6fd98f9811cca59df6b60c7930523189204b82ddf6", size = 17607721, upload-time = "2026-03-02T01:02:19.674Z" },
+]
+
+[[package]]
+name = "onnx2torch-py313"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", marker = "sys_platform == 'linux'" },
+    { name = "onnx-weekly", marker = "sys_platform == 'linux'" },
+    { name = "torch", marker = "sys_platform == 'linux'" },
+    { name = "torchvision", marker = "sys_platform == 'linux'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1e/bb/6301c1ea4c8f8859aff60d2d58a038fd68f9cdb507d1c60776d4e3b93b1f/onnx2torch_py313-1.6.0.tar.gz", hash = "sha256:d27b54c7e170f12ad252fe186e6cab8f3cade8ee4e596682acc5a3afddadb753", size = 49594, upload-time = "2025-04-11T03:52:32.88Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/14/bb49cfba5020c99ec37efcf64bb79f9793c1068992feffa81bcad9e10c92/onnx2torch_py313-1.6.0-py3-none-any.whl", hash = "sha256:03b1cc771f93941cc221635547e97dd7823dffc05f052057e51c6a45fbacba70", size = 81251, upload-time = "2025-04-11T03:52:31.179Z" },
+]
+
+[[package]]
 name = "onnxruntime"
 version = "1.24.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1923,11 +1972,14 @@ wheels = [
 
 [[package]]
 name = "protobuf"
-version = "3.19.6"
+version = "7.34.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/51/d1/79bfd1f481469b661a2eddab551255536401892722189433282bfb13cfb1/protobuf-3.19.6.tar.gz", hash = "sha256:5f5540d57a43042389e87661c6eaa50f47c19c6176e8cf1c4f287aeefeccb5c4", size = 218071, upload-time = "2022-09-29T22:07:23.03Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/00/04a2ab36b70a52d0356852979e08b44edde0435f2115dc66e25f2100f3ab/protobuf-7.34.0.tar.gz", hash = "sha256:3871a3df67c710aaf7bb8d214cc997342e63ceebd940c8c7fc65c9b3d697591a", size = 454726, upload-time = "2026-02-27T00:30:25.421Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/32/27/1141a8232723dcb10a595cc0ce4321dcbbd5215300bf4acfc142343205bf/protobuf-3.19.6-py2.py3-none-any.whl", hash = "sha256:14082457dc02be946f60b15aad35e9f5c69e738f80ebbc0900a19bc83734a5a4", size = 162648, upload-time = "2022-09-29T22:07:20.303Z" },
+    { url = "https://files.pythonhosted.org/packages/45/99/b029bbbc61e8937545da5b79aa405ab2d9cf307a728f8c9459ad60d7a481/protobuf-7.34.0-cp310-abi3-manylinux2014_aarch64.whl", hash = "sha256:9d7a5005fb96f3c1e64f397f91500b0eb371b28da81296ae73a6b08a5b76cdd6", size = 325753, upload-time = "2026-02-27T00:30:17.247Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/79/09f02671eb75b251c5550a1c48e7b3d4b0623efd7c95a15a50f6f9fc1e2e/protobuf-7.34.0-cp310-abi3-manylinux2014_s390x.whl", hash = "sha256:4a72a8ec94e7a9f7ef7fe818ed26d073305f347f8b3b5ba31e22f81fd85fca02", size = 340200, upload-time = "2026-02-27T00:30:18.672Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/57/89727baef7578897af5ed166735ceb315819f1c184da8c3441271dbcfde7/protobuf-7.34.0-cp310-abi3-manylinux2014_x86_64.whl", hash = "sha256:964cf977e07f479c0697964e83deda72bcbc75c3badab506fb061b352d991b01", size = 324268, upload-time = "2026-02-27T00:30:20.088Z" },
+    { url = "https://files.pythonhosted.org/packages/a4/e7/14dc9366696dcb53a413449881743426ed289d687bcf3d5aee4726c32ebb/protobuf-7.34.0-py3-none-any.whl", hash = "sha256:e3b914dd77fa33fa06ab2baa97937746ab25695f389869afdf03e81f34e45dc7", size = 170716, upload-time = "2026-02-27T00:30:23.994Z" },
 ]
 
 [[package]]

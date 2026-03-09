@@ -172,7 +172,7 @@ torchaudio = { index = "pytorch-cu130" }
 torchvision = { index = "pytorch-cu130" }
 ace-step = { path = "Ace-Step-Wrangler/vendor/ACE-Step-1.5", editable = true }
 nano-vllm = { path = "Ace-Step-Wrangler/vendor/ACE-Step-1.5/acestep/third_parts/nano-vllm" }
-audio-separator = { path = "../python-audio-separator" }
+audio-separator = { path = "vendor/python-audio-separator" }
 
 #---------------------------------------------------------------------------
 # Hatchling build configuration

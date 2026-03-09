@@ -1,3 +1,6 @@
 [submodule "Ace-Step-Wrangler"]
 	path = Ace-Step-Wrangler
 	url = git@github.com:tsondo/Ace-Step-Wrangler.git
+[submodule "vendor/python-audio-separator"]
+	path = vendor/python-audio-separator
+	url = git@github.com:tsondo/python-audio-separator.git
