@@ -6,7 +6,11 @@ import logging
 import pathlib
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import Response
 
 from utils.paths import OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, VOICE_DIR, ENHANCE_DIR
 from utils.logging_utils import configure_logging
@@ -17,6 +21,22 @@ configure_logging()
 log = logging.getLogger("stemforge")
 
 app = FastAPI(title="StemForge", version="0.2.0")
+
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    """Prevent browsers from caching frontend JS/CSS files during development."""
+
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        path = request.url.path
+        if path.endswith((".js", ".css", ".html")) or path == "/":
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+
+app.add_middleware(NoCacheStaticMiddleware)
 
 # Register API routers
 app.include_router(system.router)
