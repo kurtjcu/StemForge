@@ -19,6 +19,9 @@ const ACE_TRACKS = [
 
 let models = { demucs: [], roformer: [] };
 
+/** Set of model_ids whose license warning the user has acknowledged this session. */
+const acknowledgedModels = new Set();
+
 export function initSeparate() {
   const panel = document.getElementById('panel-separate');
 
@@ -90,7 +93,10 @@ export function initSeparate() {
   loadModels();
 
   document.getElementById('sep-engine').addEventListener('change', updateModelOptions);
-  document.getElementById('sep-model').addEventListener('change', updateStemControls);
+  document.getElementById('sep-model').addEventListener('change', () => {
+    updateStemControls();
+    checkLicenseWarning();
+  });
   document.getElementById('sep-help').addEventListener('click', runRecommend);
   document.getElementById('sep-start').addEventListener('click', () => {
     if (isBatchMode()) startBatchSeparation();
@@ -154,6 +160,7 @@ function updateModelOptions() {
   }
 
   updateStemControls();
+  checkLicenseWarning();
 }
 
 /** Update stem checkboxes (single mode) or radio buttons (batch mode). */
@@ -209,6 +216,58 @@ function updateStemControls() {
   }
 }
 
+/** Show or hide a license warning banner when a model with license concerns is selected. */
+function checkLicenseWarning() {
+  const engine = document.getElementById('sep-engine').value;
+  const modelId = document.getElementById('sep-model').value;
+  const list = models[engine] || [];
+  const model = list.find(m => m.model_id === modelId);
+
+  // Remove any existing warning banner
+  const existing = document.getElementById('sep-license-warning');
+  if (existing) existing.remove();
+
+  if (!model?.license_warning) return;
+
+  // Already acknowledged this session — show a brief reminder only
+  if (acknowledgedModels.has(modelId)) {
+    const reminder = el('div', {
+      className: 'banner banner-warn', id: 'sep-license-warning',
+    }, 'License warning acknowledged. Using unlicensed model weights at your own risk.');
+    // Insert after model selector
+    const modelGroup = document.getElementById('sep-model').closest('.form-group');
+    modelGroup.after(reminder);
+    return;
+  }
+
+  // Show full warning with acknowledge button
+  const ackBtn = el('button', { className: 'btn btn-sm' }, 'I understand the risk — proceed');
+  const banner = el('div', {
+    className: 'banner banner-warn', id: 'sep-license-warning',
+  },
+    el('strong', {}, 'License warning: '),
+    model.license_warning,
+    el('div', { style: 'margin-top: 0.5rem' }, ackBtn),
+  );
+
+  ackBtn.addEventListener('click', () => {
+    acknowledgedModels.add(modelId);
+    checkLicenseWarning();
+  });
+
+  const modelGroup = document.getElementById('sep-model').closest('.form-group');
+  modelGroup.after(banner);
+}
+
+/** Returns true if the currently selected model requires but lacks acknowledgment. */
+function isLicenseBlocked() {
+  const engine = document.getElementById('sep-engine').value;
+  const modelId = document.getElementById('sep-model').value;
+  const list = models[engine] || [];
+  const model = list.find(m => m.model_id === modelId);
+  return !!(model?.license_warning && !acknowledgedModels.has(modelId));
+}
+
 async function runRecommend() {
   const resultEl = document.getElementById('sep-help-result');
   resultEl.classList.remove('hidden');
@@ -216,13 +275,18 @@ async function runRecommend() {
 
   try {
     const rec = await api('/separate/recommend');
-    resultEl.textContent = `${rec.engine}/${rec.model_id} — ${rec.reason} (${rec.confidence})`;
+    let text = `${rec.engine}/${rec.model_id} — ${rec.reason} (${rec.confidence})`;
+    if (rec.license_warning) {
+      text += `\n\u26A0 ${rec.license_warning}`;
+    }
+    resultEl.textContent = text;
 
     // Auto-select recommended
     document.getElementById('sep-engine').value = rec.engine;
     updateModelOptions();
     document.getElementById('sep-model').value = rec.model_id;
     updateStemControls();
+    checkLicenseWarning();
   } catch (err) {
     resultEl.textContent = `Error: ${err.message}`;
     resultEl.className = 'banner banner-error';
@@ -237,6 +301,8 @@ async function startSeparation() {
   if (engine === 'ace') {
     return startAceExtraction();
   }
+
+  if (isLicenseBlocked()) return;
 
   const modelId = document.getElementById('sep-model').value;
 
@@ -596,6 +662,8 @@ function showStemResults(stemPaths) {
 // ─── Batch separation ────────────────────────────────────────────────────
 
 async function startBatchSeparation() {
+  if (isLicenseBlocked()) return;
+
   const engine = document.getElementById('sep-engine').value;
   const modelId = document.getElementById('sep-model').value;
 

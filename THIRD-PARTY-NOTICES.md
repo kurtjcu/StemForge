@@ -36,7 +36,7 @@ automatically on first use and cached locally.
 | BS-Roformer ViperX vocals | ViperX / TRvlvr | MIT | Yes | [github.com/TRvlvr/model_repo](https://github.com/TRvlvr/model_repo) |
 | BS-Roformer ZFTurbo 4-stem | ZFTurbo | MIT | Yes | [github.com/ZFTurbo/Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training) |
 | BS-Roformer KimberleyJensen vocals | KimberleyJensen | GPL-3.0 | Copyleft | [huggingface.co/KimberleyJSN/melbandroformer](https://huggingface.co/KimberleyJSN/melbandroformer) |
-| BS-Roformer jarredou 6-stem | jarredou | **No license specified** | **Unknown — see warning below** | [huggingface.co/jarredou/BS-ROFO-SW-Fixed](https://huggingface.co/jarredou/BS-ROFO-SW-Fixed) |
+| BS-Roformer jarredou 6-stem | jarredou (re-hosted) | **No license (all rights reserved)** | **Not permitted — see warning below** | [huggingface.co/jarredou/BS-ROFO-SW-Fixed](https://huggingface.co/jarredou/BS-ROFO-SW-Fixed) |
 | Stable Audio Open 1.0 | Stability AI | Stability AI Community License | < $1 M revenue: Yes; otherwise: requires Enterprise license | [huggingface.co/stabilityai/stable-audio-open-1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0) |
 | ACE-Step 1.5 | ACE Studio & StepFun | MIT | Yes | [github.com/ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) |
 | Whisper (tiny, base, small, medium) | OpenAI | MIT | Yes | [github.com/openai/whisper](https://github.com/openai/whisper) |
@@ -92,11 +92,15 @@ in a future release to mitigate this concern.
 ### Unlicensed model weights: jarredou BS-Roformer
 
 The jarredou 6-stem BS-Roformer model weights have **no license specified** by the
-model author. Under copyright law, absence of a license means no rights are granted
-to use, modify, or distribute the work. StemForge provides the ability to download
-and use these weights as a convenience, but **users do so at their own legal risk**.
-Users requiring clear licensing for their use case should use the MIT-licensed
-alternatives (Demucs, ViperX, or ZFTurbo Roformer weights).
+model author (the HuggingFace repo explicitly shows "License: unknown"). The repo
+describes itself as a re-host of community-made checkpoints. Under copyright law,
+absence of a license means **all rights are reserved** by the copyright holder and
+no rights are granted to use, modify, or distribute the work.
+
+StemForge gates access to this model behind an explicit user acknowledgment in the
+UI. **Users who proceed do so at their own legal risk.** Users requiring clear
+licensing should use the MIT-licensed alternatives (Demucs, ViperX, or ZFTurbo
+Roformer weights).
 
 ### Other notes
 

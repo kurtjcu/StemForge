@@ -140,12 +140,15 @@ def recommend_separator() -> dict:
     profile = profile_audio(audio_path)
     rec = _recommend(profile)
 
-    return {
+    result = {
         "engine": rec.engine,
         "model_id": rec.model_id,
         "reason": rec.reason,
         "confidence": rec.confidence,
     }
+    if rec.license_warning:
+        result["license_warning"] = rec.license_warning
+    return result
 
 
 # ─── Batch separation ────────────────────────────────────────────────────

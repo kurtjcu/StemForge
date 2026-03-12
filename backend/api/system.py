@@ -40,7 +40,7 @@ def list_models() -> dict:
     )
 
     def _serialize(spec) -> dict:
-        return {
+        d = {
             "model_id": spec.model_id,
             "display_name": spec.display_name,
             "description": spec.description,
@@ -48,6 +48,9 @@ def list_models() -> dict:
             "sample_rate": spec.sample_rate,
             "available_stems": list(getattr(spec, "available_stems", [])),
         }
+        if spec.license_warning:
+            d["license_warning"] = spec.license_warning
+        return d
 
     return {
         "demucs": [_serialize(s) for s in list_specs(DemucsSpec)],

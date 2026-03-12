@@ -129,6 +129,9 @@ class ModelSpec:
     preprocessing: str
     postprocessing: str
 
+    # License
+    license_warning: str = ""
+
     @property
     def cache_dir(self) -> pathlib.Path:
         """Absolute path to this model's weight cache directory."""
@@ -755,6 +758,13 @@ ROFORMER_JARREDOU_6STEM = _register(RoformerSpec(
     capabilities=_ROFORMER_CAPS,
     cache_subdir="roformer",
     description="separates six stems including guitar and piano — useful for mixed-instrument tracks, though guitar/piano quality varies by material",
+    license_warning=(
+        "These model weights have no license specified by the author. "
+        "Under copyright law, absence of a license means all rights are reserved "
+        "and no rights are granted to use, modify, or distribute the work. "
+        "You use these weights at your own legal risk. "
+        "MIT-licensed alternatives exist (Demucs, ViperX, ZFTurbo)."
+    ),
     preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
     postprocessing="Write per-stem WAV files (bass, drums, other, vocals, guitar, piano).",
     architecture="bs_roformer",

@@ -69,10 +69,11 @@ class AudioProfile:
 @dataclass(frozen=True, slots=True)
 class Recommendation:
     """Separator recommendation produced by recommend_separator()."""
-    engine:     str  # "Demucs" or "BS-Roformer"
-    model_id:   str  # registry ID, e.g. "htdemucs", "roformer-viperx-vocals"
-    reason:     str  # Human-readable explanation shown to the user
-    confidence: str  # "high", "moderate", or "low"
+    engine:          str       # "Demucs" or "BS-Roformer"
+    model_id:        str       # registry ID, e.g. "htdemucs", "roformer-viperx-vocals"
+    reason:          str       # Human-readable explanation shown to the user
+    confidence:      str       # "high", "moderate", or "low"
+    license_warning: str = ""  # Non-empty if recommended model has licensing concerns
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +320,10 @@ def recommend_separator(profile: AudioProfile) -> Recommendation:
         return Recommendation(
             engine="BS-Roformer", model_id="roformer-jarredou-6stem",
             reason=reason, confidence=_cap(conf),
+            license_warning=(
+                "This model's weights have no license specified — "
+                "use at your own legal risk."
+            ),
         )
 
     # ── Roformer C: Organic / natural baseline, low drum risk ─────────────────
