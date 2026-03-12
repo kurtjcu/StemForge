@@ -2,7 +2,23 @@
 
 StemForge uses a hybrid licensing model designed to support hobbyists, researchers, indie developers, and commercial teams. Non‑commercial use is free under the PolyForm Noncommercial License 1.0.0 (see LICENSE). Commercial and enterprise use require a paid license as described below.
 
-**Important:** This document covers only StemForge's own source code, tooling, and proprietary components. StemForge integrates third‑party model weights and libraries (e.g. Demucs, BS‑Roformer, BasicPitch, Stable Audio Open, AceStep, faster‑whisper) that are distributed under their own upstream licenses. Users must independently review and comply with those upstream licenses regardless of which StemForge license tier they hold. No StemForge license grants any rights to third‑party intellectual property.
+**Important:** This document covers only StemForge's own source code, tooling, and proprietary components. StemForge integrates third‑party model weights and libraries that are distributed under their own upstream licenses. Users must independently review and comply with those upstream licenses regardless of which StemForge license tier they hold. No StemForge license grants any rights to third‑party intellectual property.
+
+### Third‑Party Model Licenses
+
+| Component | License | Notes |
+|---|---|---|
+| Demucs | MIT | Meta / Facebook Research |
+| BS‑Roformer weights | Various | Per‑model; check each model card |
+| BasicPitch | Apache 2.0 | Spotify |
+| Stable Audio Open | Stability Community | Non‑commercial by default; commercial use requires separate agreement with Stability AI |
+| AceStep | Apache 2.0 | ACE‑Step project |
+| faster‑whisper | MIT | Whisper weights are MIT (OpenAI) |
+| CREPE (torchcrepe) | MIT | |
+| FluidSynth | LGPL 2.1 | Linked dynamically |
+| python‑audio‑separator | MIT | Vendored fork |
+
+This table is provided for convenience and may not be exhaustive. Licensee is responsible for verifying current license terms of all dependencies.
 
 ---
 
@@ -51,6 +67,8 @@ Everything in Commercial, plus:
 - Internal redistribution across teams
 - Optional custom terms
 
+All Commercial restrictions apply, including: third‑party model weights remain subject to their own upstream licenses.
+
 ---
 
 ### OEM / Custom Licensing — $25,000+
@@ -62,6 +80,8 @@ Includes:
 - Dedicated support
 - Custom SLAs
 - Long‑term licensing options
+
+Third‑party model weights remain subject to their own upstream licenses. Redistribution of third‑party components requires separate authorization from their respective rights holders.
 
 Contact: **tsondo@gmail.com**
 
@@ -105,6 +125,8 @@ _____________________________________________________________
 **Signature (Licensee):** ____________________________________
 **Date:** ___________________
 
+**Licensor Name:** ___________________________________________
+
 **Signature (Licensor):** ____________________________________
 **Date:** ___________________
 
@@ -112,7 +134,7 @@ _____________________________________________________________
 
 # StemForge Commercial License Agreement
 
-This Commercial License Agreement (“Agreement”) is entered into between **the StemForge project owner identified in the Order Form** (“Licensor”) and the entity or individual identified in the Order Form (“Licensee”).
+This Commercial License Agreement (“Agreement”) is entered into between the Licensor named in the Order Form (“Licensor”) and the entity or individual identified in the Order Form (“Licensee”).
 
 This Agreement covers only StemForge's own source code, tooling, and proprietary components. It does not grant any rights to third‑party model weights, libraries, or other upstream dependencies integrated by StemForge. Licensee is solely responsible for reviewing and complying with the licenses of all third‑party components used in or alongside StemForge.
 
@@ -153,6 +175,8 @@ Licensee may not:
 - Remove copyright notices
 - Use StemForge to build a directly competing product
 - Exceed the scope of the selected license tier
+
+Licensee must independently comply with all third‑party model and library licenses for any components used in or alongside StemForge. This Agreement does not grant Licensee any rights to third‑party intellectual property.
 
 ## 6. Intellectual Property
 StemForge's own source code, tooling, and proprietary components remain the sole property of Licensor. No ownership rights are transferred. Third‑party model weights, libraries, and other upstream dependencies integrated by StemForge are the property of their respective owners and are subject to their own licenses.
