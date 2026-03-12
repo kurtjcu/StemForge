@@ -111,7 +111,7 @@ StemForge/
 │
 ├── pipelines/                      # All pipeline logic
 │   ├── enhance_pipeline.py         # UVR denoise/dereverb via audio-separator
-│   ├── autotune_pipeline.py        # CREPE pitch detection + Praat PSOLA resynthesis
+│   ├── autotune_pipeline.py        # CREPE pitch detection + WORLD/STFT resynthesis
 │   ├── demucs_pipeline.py
 │   ├── roformer_pipeline.py
 │   ├── midi_pipeline.py
@@ -255,7 +255,7 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | POST | /api/enhance/batch | job | Batch enhancement — same preset across multiple files |
 | POST | /api/enhance/batch/save-all | sync | Zip batch enhancement results for download |
 | GET | /api/enhance/autotune-options | sync | Available keys and scales for auto-tune |
-| POST | /api/enhance/autotune | job | Start auto-tune (CREPE + PSOLA pitch correction) |
+| POST | /api/enhance/autotune | job | Start auto-tune (CREPE + WORLD/STFT pitch correction) |
 | POST | /api/export | job | Start export |
 | POST | /api/export/download-zip | sync | Zip download |
 

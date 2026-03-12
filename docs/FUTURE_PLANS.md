@@ -187,9 +187,56 @@ Batch mode supported.
 ### Phase 3 — Auto-Tune — IMPLEMENTED
 
 Pitch correction for vocal stems using CREPE neural pitch detection
-(`torchcrepe`) + WORLD vocoder resynthesis (`pyworld`). Controls:
-key, scale (chromatic/major/minor/pentatonic/blues), correction strength,
-and humanization. Formant-preserving — no metallic artifacts.
+(`torchcrepe`) with two user-selectable resynthesis methods:
+
+- **WORLD Vocoder** (`pyworld`, MIT + Modified-BSD) — decomposes audio into
+  F0, spectral envelope, and aperiodicity; modifies F0 and resynthesises.
+  Formant-preserving by design. CPU-only. Best on lossless audio (WAV/FLAC).
+- **Phase Vocoder (STFT)** (`stftpitchshift`, MIT) — spectral-domain pitch
+  shifting with cepstral formant preservation. CPU-only. More robust on
+  compressed audio (MP3/OGG) than WORLD.
+
+Controls: key, scale (chromatic/major/minor/pentatonic/blues), correction
+strength, humanization, and synthesis method dropdown.
+
+#### Planned: Neural Vocoder (GPU) — third synthesis method
+
+Add a GPU-accelerated neural vocoder as a third option in the method dropdown
+for higher-fidelity resynthesis, especially on compressed or noisy audio where
+WORLD and STFT show artifacts.
+
+**Best candidate: SiFi-GAN**
+- **License**: MIT — compatible with PolyForm NC + commercial dual-license
+- **Architecture**: F0-conditioned source-filter neural vocoder. Takes F0
+  contour + mel spectrogram as input, generates waveform. The F0 conditioning
+  makes it a natural fit: feed CREPE's corrected F0 directly, no ratio mapping.
+- **Pretrained**: 24 kHz model available. Would need to resample input down
+  from 44.1 kHz, run inference, resample back up.
+- **Repo**: `https://github.com/chomeyama/SiFiGAN`
+- **Quality**: Produces natural-sounding speech/singing with fewer artifacts
+  than traditional vocoders on degraded input, because the neural network
+  learns to reconstruct clean waveforms from spectral features.
+
+**Integration plan:**
+1. Add `sifi-gan` as third entry in `AUTOTUNE_METHODS` tuple
+2. New `utils/sifigan_shift.py` — download pretrained checkpoint on first use
+   (via `huggingface_hub`), resample to 24 kHz, extract mel spectrogram,
+   run SiFi-GAN inference on GPU, resample result back to original SR
+3. Model weights cached at `~/.cache/stemforge/sifigan/` (~50 MB)
+4. Requires GPU — method greyed out in dropdown when `torch.cuda.is_available()`
+   is False, with tooltip explaining GPU requirement
+5. Pipeline manager GPU lock ensures mutual exclusion with other GPU pipelines
+
+**Dependencies to add:**
+- `parallel-wavegan` (MIT) — contains SiFi-GAN model definitions and
+  pretrained checkpoint loading utilities
+- Or vendor the ~500-line model definition directly to avoid the full
+  parallel-wavegan dependency tree
+
+**Performance estimate (RTX 5080):**
+- 3-minute vocal at 24 kHz ≈ 4.3 M samples
+- SiFi-GAN inference: ~2–5 seconds (real-time factor ~30–50x on modern GPU)
+- Resampling overhead: negligible (~100 ms each way via soxr)
 
 ### Phase 4 — Region Edit — planned
 
