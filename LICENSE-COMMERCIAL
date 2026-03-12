@@ -1,6 +1,8 @@
 # StemForge Licensing & Pricing
 
-StemForge uses a hybrid licensing model designed to support hobbyists, researchers, indie developers, and commercial teams. Non‑commercial use is free. Commercial and enterprise use require a paid license.
+StemForge uses a hybrid licensing model designed to support hobbyists, researchers, indie developers, and commercial teams. Non‑commercial use is free under the PolyForm Noncommercial License 1.0.0 (see LICENSE). Commercial and enterprise use require a paid license as described below.
+
+**Important:** This document covers only StemForge's own source code, tooling, and proprietary components. StemForge integrates third‑party model weights and libraries (e.g. Demucs, BS‑Roformer, BasicPitch, Stable Audio Open, AceStep, faster‑whisper) that are distributed under their own upstream licenses. Users must independently review and comply with those upstream licenses regardless of which StemForge license tier they hold. No StemForge license grants any rights to third‑party intellectual property.
 
 ---
 
@@ -17,6 +19,7 @@ Rights included:
 Restrictions:
 - No commercial distribution
 - No integration into paid products or services
+- Third‑party model weights remain subject to their own upstream licenses
 
 ---
 
@@ -32,8 +35,9 @@ Rights included:
 
 Restrictions:
 - No sublicensing
-- No redistribution of the standalone model or weights
+- No redistribution of StemForge source code or proprietary components
 - No competing products built on top of StemForge
+- Third‑party model weights remain subject to their own upstream licenses
 
 ---
 
@@ -108,7 +112,9 @@ _____________________________________________________________
 
 # StemForge Commercial License Agreement
 
-This Commercial License Agreement (“Agreement”) is entered into between **[LICENSOR NAME]** (“Licensor”) and the entity or individual identified in the Order Form (“Licensee”).
+This Commercial License Agreement (“Agreement”) is entered into between **the StemForge project owner identified in the Order Form** (“Licensor”) and the entity or individual identified in the Order Form (“Licensee”).
+
+This Agreement covers only StemForge's own source code, tooling, and proprietary components. It does not grant any rights to third‑party model weights, libraries, or other upstream dependencies integrated by StemForge. Licensee is solely responsible for reviewing and complying with the licenses of all third‑party components used in or alongside StemForge.
 
 ## 1. Grant of License
 Upon payment of applicable fees, Licensor grants Licensee a **non‑exclusive**, **worldwide**, **non‑transferable**, **non‑sublicensable** license to:
@@ -143,13 +149,13 @@ This Agreement begins on the Effective Date and continues for **one (1) year**, 
 Licensee may not:
 
 - Sublicense or resell StemForge
-- Redistribute the standalone model, weights, or source code
+- Redistribute StemForge source code or proprietary components
 - Remove copyright notices
 - Use StemForge to build a directly competing product
 - Exceed the scope of the selected license tier
 
 ## 6. Intellectual Property
-StemForge remains the sole property of Licensor. No ownership rights are transferred.
+StemForge's own source code, tooling, and proprietary components remain the sole property of Licensor. No ownership rights are transferred. Third‑party model weights, libraries, and other upstream dependencies integrated by StemForge are the property of their respective owners and are subject to their own licenses.
 
 ## 7. Termination
 Licensor may terminate this Agreement if Licensee:
