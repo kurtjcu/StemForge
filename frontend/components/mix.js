@@ -433,41 +433,55 @@ async function refreshTracks() {
         const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id };
         _players.push(player);
 
+        function ensureWaveform() {
+          if (ws) return;
+          ws = createWaveform(waveContainer, { height: 40, color: 'midi' });
+          player.ws = ws;
+          ws.setVolume(track.volume);
+
+          ws.on('timeupdate', (time) => {
+            const dur = ws.getDuration();
+            timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+          });
+          ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+          ws.on('error', () => {
+            playBtn.textContent = '\u25B6 Play';
+            playBtn.disabled = false;
+          });
+        }
+
         async function renderMidiTrack(autoplay) {
           playBtn.disabled = true;
           playBtn.textContent = 'Rendering...';
           try {
-            const res = await api(`/mix/render-track/${track.track_id}`, { method: 'POST' });
+            const resp = await fetch(`/api/mix/render-track/${track.track_id}`, { method: 'POST' });
+            if (!resp.ok) {
+              const body = await resp.json().catch(() => ({}));
+              throw new Error(body.detail || `HTTP ${resp.status}`);
+            }
+            const res = await resp.json();
             renderedUrl = `/api/audio/stream?path=${encodeURIComponent(res.audio_path)}`;
             renderHint.classList.add('hidden');
 
-            if (!ws) {
-              ws = createWaveform(waveContainer, { height: 40, color: 'midi' });
-              player.ws = ws;
-              ws.setVolume(track.volume);
-
-              ws.on('timeupdate', (time) => {
-                const dur = ws.getDuration();
-                timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-              });
-              ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
-            }
-
+            ensureWaveform();
             ws.load(renderedUrl);
 
             if (autoplay) {
               ws.once('ready', () => {
+                playBtn.disabled = false;
                 _stopOtherPlayers(ws);
                 ws.play();
                 playBtn.textContent = '\u23F8 Pause';
               });
             } else {
-              ws.once('ready', () => { playBtn.textContent = '\u25B6 Play'; });
+              ws.once('ready', () => {
+                playBtn.disabled = false;
+                playBtn.textContent = '\u25B6 Play';
+              });
             }
           } catch (err) {
             console.error('MIDI render failed:', err);
             playBtn.textContent = '\u25B6 Play';
-          } finally {
             playBtn.disabled = false;
           }
         }

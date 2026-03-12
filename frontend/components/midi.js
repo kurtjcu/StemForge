@@ -382,6 +382,28 @@ function buildMidiCard(label, info) {
   let renderedUrl = null;
   let lastProgram = instrumentSelect.value;
 
+  /** Ensure wavesurfer instance exists. */
+  function ensureWaveform() {
+    if (ws) return;
+    ws = createWaveform(waveContainer, { height: 50, color: 'midi' });
+    midiPlayers.push({ ws, playBtn });
+
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+      transportStop();
+    });
+
+    ws.on('error', () => {
+      playBtn.textContent = '\u25B6 Play';
+      playBtn.disabled = false;
+    });
+  }
+
   /** Render MIDI to audio with current instrument, then load into waveform. */
   async function renderAndLoad(autoplay) {
     const val = instrumentSelect.value;
@@ -402,26 +424,12 @@ function buildMidiCard(label, info) {
       // Hide hint
       renderHint.classList.add('hidden');
 
-      // Create or reload waveform
-      if (!ws) {
-        ws = createWaveform(waveContainer, { height: 50, color: 'midi' });
-        midiPlayers.push({ ws, playBtn });
-
-        ws.on('timeupdate', (time) => {
-          const dur = ws.getDuration();
-          timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-        });
-
-        ws.on('finish', () => {
-          playBtn.textContent = '\u25B6 Play';
-          transportStop();
-        });
-      }
-
+      ensureWaveform();
       ws.load(renderedUrl);
 
       if (autoplay) {
         ws.once('ready', () => {
+          playBtn.disabled = false;
           stopOtherPlayers(ws);
           ws.play();
           playBtn.textContent = '\u23F8 Pause';
@@ -429,13 +437,13 @@ function buildMidiCard(label, info) {
         });
       } else {
         ws.once('ready', () => {
+          playBtn.disabled = false;
           playBtn.textContent = '\u25B6 Play';
         });
       }
     } catch (err) {
       alert(`Render failed: ${err.message}`);
       playBtn.textContent = '\u25B6 Play';
-    } finally {
       playBtn.disabled = false;
     }
   }
@@ -494,6 +502,9 @@ function buildMidiCard(label, info) {
       renderAndLoad(false);
     }
   });
+
+  // Auto-render waveform on card creation (no autoplay)
+  renderAndLoad(false);
 }
 
 /** Get the default GM program for a stem label. */
