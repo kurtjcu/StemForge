@@ -46,7 +46,7 @@ class AutotuneRequest(BaseModel):
     scale: str = "auto"              # "auto" for auto-detection
     correction_strength: float = 0.8  # 0.0–1.0
     humanize: float = 0.15            # 0.0–1.0
-    method: str = "world"            # "world" or "stft"
+    method: str = "world_fast"       # "world_fast", "world", or "stft"
 
 
 @router.get("/presets")

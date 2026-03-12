@@ -119,8 +119,9 @@ def _snap_to_scale(midi_note: float, scale_notes: set[int]) -> float:
 # Config / Result
 # ---------------------------------------------------------------------------
 
-AUTOTUNE_METHODS = ("world", "stft")
+AUTOTUNE_METHODS = ("world_fast", "world", "stft")
 AUTOTUNE_METHOD_LABELS = {
+    "world_fast": "WORLD (Fast)",
     "world": "WORLD Vocoder",
     "stft": "Phase Vocoder (STFT)",
 }
@@ -134,7 +135,7 @@ class AutotuneConfig:
     scale: str = "auto"               # key into SCALES, or "auto" for detection
     correction_strength: float = 0.8   # 0.0 = no correction, 1.0 = full snap
     humanize: float = 0.15             # random detuning amount (0.0–1.0)
-    method: str = "world"              # "world" or "stft"
+    method: str = "world_fast"          # "world_fast", "world", or "stft"
     output_dir: pathlib.Path = ENHANCE_DIR
 
 
@@ -271,9 +272,12 @@ class AutotunePipeline:
         if method == "stft":
             from utils.stft_shift import stft_pitch_shift
             shift_fn = stft_pitch_shift
-        else:
+        elif method == "world":
             from utils.world_shift import world_pitch_shift
             shift_fn = world_pitch_shift
+        else:  # "world_fast" (default)
+            from utils.world_shift_fast import world_pitch_shift_fast
+            shift_fn = world_pitch_shift_fast
 
         if progress_cb:
             progress_cb(0.55, f"Analysing with {method_label}...")
