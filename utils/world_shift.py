@@ -22,7 +22,7 @@ def world_pitch_shift(
     """Pitch-shift *audio* from *source_f0* to *target_f0* using WORLD vocoder.
 
     Uses CREPE-detected pitch (source_f0/target_f0) for the correction curve,
-    but WORLD's own DIO+StoneMask for analysis pitch marks and
+    but WORLD's own Harvest+StoneMask for robust F0 analysis and
     CheapTrick+D4C for spectral envelope and aperiodicity.  Only the F0
     parameter is replaced before resynthesis.
 
@@ -49,19 +49,34 @@ def world_pitch_shift(
     audio64 = audio.astype(np.float64)
     n = len(audio64)
 
+    # Normalize to ~0.9 peak for consistent WORLD analysis (helps compressed audio)
+    peak = np.max(np.abs(audio64))
+    if peak > 1e-6:
+        gain = 0.9 / peak
+        audio64 = audio64 * gain
+    else:
+        gain = 1.0
+
     # --- WORLD analysis ---
-    # Use DIO for F0 (fast), refine with StoneMask
-    world_f0, world_t = pw.dio(audio64, sr)
+    # Harvest is slower than DIO but far more robust on compressed/noisy audio
+    world_f0, world_t = pw.harvest(
+        audio64, sr,
+        f0_floor=50.0,
+        f0_ceil=1100.0,
+        frame_period=5.0,
+    )
     world_f0 = pw.stonemask(audio64, world_f0, world_t, sr)
 
-    # Spectral envelope and aperiodicity
-    sp = pw.cheaptrick(audio64, world_f0, world_t, sr)
-    ap = pw.d4c(audio64, world_f0, world_t, sr)
+    # Use consistent FFT size for CheapTrick and D4C
+    fft_size = pw.get_cheaptrick_fft_size(sr, f0_floor=50.0)
+    sp = pw.cheaptrick(audio64, world_f0, world_t, sr, fft_size=fft_size)
+
+    # D4C with threshold=0.0: trust CREPE's voicing decisions, don't let
+    # WORLD reclassify voiced frames as unvoiced (fixes spurious dropouts
+    # on compressed audio where aperiodicity estimates are noisy)
+    ap = pw.d4c(audio64, world_f0, world_t, sr, threshold=0.0, fft_size=fft_size)
 
     # --- Map CREPE correction ratio onto WORLD's F0 grid ---
-    n_world = len(world_f0)
-    world_hop_ms = (world_t[1] - world_t[0]) * 1000.0 if n_world > 1 else 5.0
-
     # Build per-CREPE-frame pitch ratio (target / source)
     ratio_crepe = np.ones(len(source_f0), dtype=np.float64)
     voiced_mask = source_f0 > 0
@@ -75,14 +90,17 @@ def world_pitch_shift(
 
     # Apply ratio to WORLD's own F0 (preserving WORLD's voicing decisions)
     new_f0 = world_f0.copy()
-    for i in range(n_world):
-        if world_f0[i] > 0:
-            new_f0[i] = world_f0[i] * ratio_world[i]
-            # Clamp to reasonable vocal range
-            new_f0[i] = np.clip(new_f0[i], 50.0, 1100.0)
+    voiced_world = world_f0 > 0
+    new_f0[voiced_world] = np.clip(
+        world_f0[voiced_world] * ratio_world[voiced_world],
+        50.0, 1100.0,
+    )
 
     # --- WORLD synthesis ---
     result = pw.synthesize(new_f0, sp, ap, sr)
+
+    # Undo normalization gain
+    result = result / gain
 
     # Match input length
     if len(result) > n:

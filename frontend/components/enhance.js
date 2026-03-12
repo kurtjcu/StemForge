@@ -224,6 +224,7 @@ export function initEnhance() {
 
   const atKeySelect = el('select', { id: 'enhance-at-key', className: 'select' });
   const atScaleSelect = el('select', { id: 'enhance-at-scale', className: 'select' });
+  const atMethodSelect = el('select', { id: 'enhance-at-method', className: 'select' });
 
   const atStrengthSlider = el('input', {
     type: 'range', id: 'enhance-at-strength', min: '0', max: '100', value: '80',
@@ -256,6 +257,8 @@ export function initEnhance() {
         el('label', { className: 'field-label' }, 'Key'), atKeySelect),
       el('div', { className: 'field-group', style: { flex: '1' } },
         el('label', { className: 'field-label' }, 'Scale'), atScaleSelect),
+      el('div', { className: 'field-group', style: { flex: '1' } },
+        el('label', { className: 'field-label' }, 'Method'), atMethodSelect),
     ),
     el('div', { style: { display: 'flex', gap: '12px' } },
       el('div', { className: 'field-group', style: { flex: '1' } },
@@ -535,6 +538,7 @@ async function loadAutotuneOptions() {
     const data = await api('/enhance/autotune-options');
     const keySelect = document.getElementById('enhance-at-key');
     const scaleSelect = document.getElementById('enhance-at-scale');
+    const methodSelect = document.getElementById('enhance-at-method');
 
     clearChildren(keySelect);
     keySelect.appendChild(el('option', { value: 'Auto' }, 'Auto-detect'));
@@ -546,6 +550,11 @@ async function loadAutotuneOptions() {
     scaleSelect.appendChild(el('option', { value: 'auto' }, 'Auto-detect'));
     for (const s of data.scales || []) {
       scaleSelect.appendChild(el('option', { value: s.key }, s.label));
+    }
+
+    clearChildren(methodSelect);
+    for (const m of data.methods || []) {
+      methodSelect.appendChild(el('option', { value: m.key }, m.label));
     }
   } catch (err) {
     console.error('Failed to load autotune options:', err);
@@ -714,6 +723,7 @@ async function startAutotune() {
 
   const key = document.getElementById('enhance-at-key').value;
   const scale = document.getElementById('enhance-at-scale').value;
+  const method = document.getElementById('enhance-at-method').value || 'world';
   const strength = parseInt(document.getElementById('enhance-at-strength').value, 10) / 100;
   const humanize = parseInt(document.getElementById('enhance-at-humanize').value, 10) / 100;
 
@@ -728,7 +738,7 @@ async function startAutotune() {
     const { job_id } = await api('/enhance/autotune', {
       method: 'POST',
       body: JSON.stringify({
-        stem_path: stemPath, key, scale,
+        stem_path: stemPath, key, scale, method,
         correction_strength: strength, humanize,
       }),
     });

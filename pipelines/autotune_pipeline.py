@@ -119,6 +119,13 @@ def _snap_to_scale(midi_note: float, scale_notes: set[int]) -> float:
 # Config / Result
 # ---------------------------------------------------------------------------
 
+AUTOTUNE_METHODS = ("world", "stft")
+AUTOTUNE_METHOD_LABELS = {
+    "world": "WORLD Vocoder",
+    "stft": "Phase Vocoder (STFT)",
+}
+
+
 @dataclass
 class AutotuneConfig:
     """Per-run configuration for :class:`AutotunePipeline`."""
@@ -127,6 +134,7 @@ class AutotuneConfig:
     scale: str = "auto"               # key into SCALES, or "auto" for detection
     correction_strength: float = 0.8   # 0.0 = no correction, 1.0 = full snap
     humanize: float = 0.15             # random detuning amount (0.0–1.0)
+    method: str = "world"              # "world" or "stft"
     output_dir: pathlib.Path = ENHANCE_DIR
 
 
@@ -168,8 +176,6 @@ class AutotunePipeline:
         import soundfile as sf
         import torch
         import torchcrepe
-
-        from utils.world_shift import world_pitch_shift
 
         cfg = self._config or AutotuneConfig()
         audio_path = pathlib.Path(audio_path)
@@ -258,20 +264,30 @@ class AutotunePipeline:
             blended_midi = midi_note * (1 - cfg.correction_strength) + target_midi * cfg.correction_strength
             corrected_f0[i] = 440.0 * 2 ** ((blended_midi - 69.0) / 12.0)
 
-        if progress_cb:
-            progress_cb(0.55, "Analysing with WORLD vocoder...")
+        # --- Select resynthesis method ---
+        method = cfg.method
+        method_label = AUTOTUNE_METHOD_LABELS.get(method, method)
 
-        # --- Resynthesis via WORLD vocoder ---
+        if method == "stft":
+            from utils.stft_shift import stft_pitch_shift
+            shift_fn = stft_pitch_shift
+        else:
+            from utils.world_shift import world_pitch_shift
+            shift_fn = world_pitch_shift
+
+        if progress_cb:
+            progress_cb(0.55, f"Analysing with {method_label}...")
+
         if progress_cb:
             progress_cb(0.70, "Resynthesising audio...")
 
-        result_audio = world_pitch_shift(mono, sr, f0, corrected_f0, hop_size=hop_size)
+        result_audio = shift_fn(mono, sr, f0, corrected_f0, hop_size=hop_size)
 
         if progress_cb:
             progress_cb(0.90, "Writing output...")
 
         if audio.ndim == 2:
-            result_audio_r = world_pitch_shift(
+            result_audio_r = shift_fn(
                 audio[:, 1], sr, f0, corrected_f0, hop_size=hop_size,
             )
             min_len = min(len(result_audio), len(result_audio_r))

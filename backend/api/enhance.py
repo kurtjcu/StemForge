@@ -17,6 +17,7 @@ from backend.services import pipeline_manager
 from pipelines.enhance_pipeline import PRESETS, EnhanceConfig
 from pipelines.autotune_pipeline import (
     NOTE_NAMES, SCALES, SCALE_LABELS, AutotuneConfig,
+    AUTOTUNE_METHODS, AUTOTUNE_METHOD_LABELS,
 )
 from utils.paths import ENHANCE_DIR, STEMS_DIR
 
@@ -45,6 +46,7 @@ class AutotuneRequest(BaseModel):
     scale: str = "auto"              # "auto" for auto-detection
     correction_strength: float = 0.8  # 0.0–1.0
     humanize: float = 0.15            # 0.0–1.0
+    method: str = "world"            # "world" or "stft"
 
 
 @router.get("/presets")
@@ -243,18 +245,23 @@ def batch_save_all(req: BatchSaveAllRequest):
 
 @router.get("/autotune-options")
 def get_autotune_options() -> dict:
-    """Return available keys and scales for auto-tune."""
+    """Return available keys, scales, and synthesis methods for auto-tune."""
     return {
         "keys": NOTE_NAMES,
         "scales": [
             {"key": k, "label": SCALE_LABELS.get(k, k)}
             for k in SCALES
         ],
+        "methods": [
+            {"key": m, "label": AUTOTUNE_METHOD_LABELS[m]}
+            for m in AUTOTUNE_METHODS
+        ],
     }
 
 
 def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
-                  correction_strength: float, humanize: float) -> dict:
+                  correction_strength: float, humanize: float,
+                  method: str = "world") -> dict:
     """Background job: run auto-tune pipeline."""
     progress_cb = job_manager.make_progress_callback(job_id)
 
@@ -268,6 +275,7 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
         scale=scale,
         correction_strength=correction_strength,
         humanize=humanize,
+        method=method,
         output_dir=ENHANCE_DIR,
     ))
 
@@ -312,6 +320,8 @@ def start_autotune(req: AutotuneRequest) -> dict:
         raise HTTPException(400, f"Unknown key: {req.key}")
     if req.scale != "auto" and req.scale not in SCALES:
         raise HTTPException(400, f"Unknown scale: {req.scale}")
+    if req.method not in AUTOTUNE_METHODS:
+        raise HTTPException(400, f"Unknown method: {req.method}")
 
     path = pathlib.Path(req.stem_path)
     if not path.exists():
@@ -329,5 +339,6 @@ def start_autotune(req: AutotuneRequest) -> dict:
     job_manager.run_job(
         job_id, _run_autotune, job_id, req.stem_path,
         req.key, req.scale, req.correction_strength, req.humanize,
+        req.method,
     )
     return {"job_id": job_id}
