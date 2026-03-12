@@ -36,7 +36,7 @@ automatically on first use and cached locally.
 | BS-Roformer ViperX vocals | ViperX / TRvlvr | MIT | Yes | [github.com/TRvlvr/model_repo](https://github.com/TRvlvr/model_repo) |
 | BS-Roformer ZFTurbo 4-stem | ZFTurbo | MIT | Yes | [github.com/ZFTurbo/Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training) |
 | BS-Roformer KimberleyJensen vocals | KimberleyJensen | GPL-3.0 | Copyleft | [huggingface.co/KimberleyJSN/melbandroformer](https://huggingface.co/KimberleyJSN/melbandroformer) |
-| BS-Roformer jarredou 6-stem | jarredou | Unknown | Unknown | [huggingface.co/jarredou/BS-ROFO-SW-Fixed](https://huggingface.co/jarredou/BS-ROFO-SW-Fixed) |
+| BS-Roformer jarredou 6-stem | jarredou | **No license specified** | **Unknown — see warning below** | [huggingface.co/jarredou/BS-ROFO-SW-Fixed](https://huggingface.co/jarredou/BS-ROFO-SW-Fixed) |
 | Stable Audio Open 1.0 | Stability AI | Stability AI Community License | < $1 M revenue: Yes; otherwise: requires Enterprise license | [huggingface.co/stabilityai/stable-audio-open-1.0](https://huggingface.co/stabilityai/stable-audio-open-1.0) |
 | ACE-Step 1.5 | ACE Studio & StepFun | MIT | Yes | [github.com/ace-step/ACE-Step-1.5](https://github.com/ace-step/ACE-Step-1.5) |
 | Whisper (tiny, base, small, medium) | OpenAI | MIT | Yes | [github.com/openai/whisper](https://github.com/openai/whisper) |
@@ -58,7 +58,7 @@ full dependency tree.
 | basic-pitch | Apache 2.0 | Spotify |
 | faster-whisper | MIT | SYSTRAN |
 | torchcrepe | MIT | Max Morrison |
-| parselmouth (Praat) | GPL-3.0 | Praat is GPL; parselmouth Python bindings are GPL-3.0 |
+| parselmouth (Praat) | GPL-3.0 | Praat is GPL; parselmouth Python bindings are GPL-3.0 — **see GPL notice below** |
 | FluidSynth (pyfluidsynth) | LGPL-2.1 | Dynamically linked |
 | wavesurfer.js | BSD-3-Clause | Frontend audio visualization |
 | FastAPI | MIT | Backend framework |
@@ -70,7 +70,35 @@ full dependency tree.
 
 ---
 
-## Notes
+## Important License Notices
+
+### GPL-3.0 dependency: parselmouth (Praat)
+
+StemForge imports `parselmouth`, a Python wrapper for Praat, which is licensed under
+GPL-3.0. The Free Software Foundation's position is that importing a GPL library into
+a program creates a combined work subject to GPL-3.0 obligations, regardless of
+whether the library is dynamically linked, statically linked, or imported at the
+language level.
+
+StemForge's Auto-Tune feature uses parselmouth for pitch correction. Users who
+distribute StemForge (or derivative works) should be aware that the inclusion of
+parselmouth may impose GPL-3.0 obligations on the combined work. Commercial licensees
+should evaluate whether their use case requires GPL-3.0 compliance or whether an
+alternative pitch-correction approach is preferable.
+
+The StemForge project is evaluating options to make parselmouth an optional dependency
+in a future release to mitigate this concern.
+
+### Unlicensed model weights: jarredou BS-Roformer
+
+The jarredou 6-stem BS-Roformer model weights have **no license specified** by the
+model author. Under copyright law, absence of a license means no rights are granted
+to use, modify, or distribute the work. StemForge provides the ability to download
+and use these weights as a convenience, but **users do so at their own legal risk**.
+Users requiring clear licensing for their use case should use the MIT-licensed
+alternatives (Demucs, ViperX, or ZFTurbo Roformer weights).
+
+### Other notes
 
 - **Stable Audio Open 1.0** requires HuggingFace authentication and acceptance of
   the Stability AI Community License before download. Commercial use is free for
@@ -79,9 +107,6 @@ full dependency tree.
 
 - **audiocraft** is imported as a library dependency (MIT-licensed code). StemForge
   does **not** load MusicGen or AudioGen model weights (which are CC-BY-NC 4.0).
-
-- **parselmouth** wraps Praat under GPL-3.0. It is a pip-installed dependency, not
-  vendored or statically linked.
 
 - This document is provided for informational purposes and may not be exhaustive.
   License terms may change upstream. Users are responsible for verifying current
