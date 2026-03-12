@@ -1804,18 +1804,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pedalboard"
-version = "0.9.22"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", marker = "sys_platform == 'linux'" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b0/83/e07bcdb221f2b4c9c7cd98d035aaa5a0cdc088cab498763147f59284325a/pedalboard-0.9.22-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:02d6c566088a0bea2dfce438e768c2cdac34a739511d8ede2267f38552b86e9f", size = 4841908, upload-time = "2026-02-02T18:30:49.354Z" },
-    { url = "https://files.pythonhosted.org/packages/64/a7/a779f606a698e1da5083ac3ad010b839bc329aea0a4d1c6d97620905de3c/pedalboard-0.9.22-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7f6065672ebe8423b4c4bd7becd69514ced2eb2ed65023e719c928162812e69d", size = 5040914, upload-time = "2026-02-02T18:30:50.789Z" },
-]
-
-[[package]]
 name = "peft"
 version = "0.18.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1907,21 +1895,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/47/39/307071593ea93f08e6bf8cd346109e45867ec52ec35b7b1f39b2a87c9649/pope_pytorch-0.0.15.tar.gz", hash = "sha256:77b62f7ced9ca16386d9dbe920c7f8415df8a0c19d84a8377bf345fe7c94543a", size = 214771, upload-time = "2026-01-27T16:27:34.975Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/0e/3552c4133b042799cea4bf7482ab856d502e90bf084ccf56eb79c5b2452f/pope_pytorch-0.0.15-py3-none-any.whl", hash = "sha256:1223a2fca83c5c1001d8540d0afebbe46497bfd2af04efc815a9bdb88c9c261d", size = 15020, upload-time = "2026-01-27T16:27:33.587Z" },
-]
-
-[[package]]
-name = "praat-parselmouth"
-version = "0.4.7"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", marker = "sys_platform == 'linux'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/28/2c1204fe3e7aeb6942051ff6776e31da52c7ab5b7df2ca438f371bd60d8a/praat_parselmouth-0.4.7.tar.gz", hash = "sha256:6dd81d246ce1eef5fd93d8cbdaf1bef61ca40ef1d2fc12aa23996a28071181e6", size = 22526491, upload-time = "2025-11-27T20:08:58.276Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/03/17/7cd5fe8f24dd5477cdeea708ebbd4e4fc1e555e6eba147643f1737c977f9/praat_parselmouth-0.4.7-cp311-cp311-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:dc4812928cb05e63de0f291fcbd787a0e831b06bcdf74bd9df34500cdfd6edbc", size = 10717365, upload-time = "2025-11-27T20:01:55.919Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/73/4475dcc95fc51b6cd6968c2e20df576ba4bba78ebca024034a333be70e5f/praat_parselmouth-0.4.7-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:618310c98b5bb0de5ea3a6f365332bbffb4dc0a7c3c5442a5041bf93d5409036", size = 10753885, upload-time = "2025-11-27T20:01:59.611Z" },
-    { url = "https://files.pythonhosted.org/packages/fc/a4/df400fc823ab6ba29a7a6efe2288f0df5d83c92b526a9d32c4483af84a08/praat_parselmouth-0.4.7-pp311-pypy311_pp73-manylinux2014_i686.manylinux_2_17_i686.whl", hash = "sha256:a5b0adb5b60bc7006f76afbcea4c806f23c3e0a571e80fb1028a007c2029f0d2", size = 10716355, upload-time = "2025-11-27T20:06:29.758Z" },
-    { url = "https://files.pythonhosted.org/packages/30/a3/ecb1c08018de89c5f4ece53b80fd28b5ddf3446907b74d04aefaa489803e/praat_parselmouth-0.4.7-pp311-pypy311_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:70dfa96c18a3423eaf805c6326218ec7777d2f9e0e21a1c31fdd176eb9770118", size = 10757499, upload-time = "2025-11-27T20:06:34.538Z" },
 ]
 
 [[package]]
@@ -2468,8 +2441,6 @@ dependencies = [
     { name = "numpy", marker = "sys_platform == 'linux'" },
     { name = "nvidia-cuda-runtime-cu12", marker = "sys_platform == 'linux'" },
     { name = "openunmix", marker = "sys_platform == 'linux'" },
-    { name = "pedalboard", marker = "sys_platform == 'linux'" },
-    { name = "praat-parselmouth", marker = "sys_platform == 'linux'" },
     { name = "pretty-midi", marker = "sys_platform == 'linux'" },
     { name = "pydub", marker = "sys_platform == 'linux'" },
     { name = "pyfluidsynth", marker = "sys_platform == 'linux'" },
@@ -2537,8 +2508,6 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "nvidia-cuda-runtime-cu12" },
     { name = "openunmix", specifier = "==1.3.0" },
-    { name = "pedalboard", specifier = ">=0.9.0" },
-    { name = "praat-parselmouth", specifier = ">=0.4.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7.0" },
     { name = "pretty-midi", specifier = "==0.2.11" },
     { name = "pydub", specifier = "==0.25.1" },

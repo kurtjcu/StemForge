@@ -1,8 +1,8 @@
-"""Auto-tune pipeline — pitch correction via torchcrepe + parselmouth PSOLA.
+"""Auto-tune pipeline — pitch correction via torchcrepe + custom TD-PSOLA.
 
 Detects pitch with CREPE (neural F0 estimation), snaps to the nearest note
-in a user-chosen musical scale, then resynthesises with Praat's PSOLA to
-preserve formants and natural vocal quality.
+in a user-chosen musical scale, then resynthesises with TD-PSOLA (numpy/scipy)
+to preserve formants and natural vocal quality.
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ class AutotuneResult:
 # ---------------------------------------------------------------------------
 
 class AutotunePipeline:
-    """Pitch correction via CREPE detection + Praat PSOLA resynthesis."""
+    """Pitch correction via CREPE detection + custom TD-PSOLA resynthesis."""
 
     def __init__(self) -> None:
         self._config: AutotuneConfig | None = None
@@ -156,7 +156,7 @@ class AutotunePipeline:
         self._config = config
 
     def load_model(self) -> None:
-        """No-op — torchcrepe loads lazily, parselmouth is header-only."""
+        """No-op — torchcrepe loads lazily, PSOLA is pure numpy."""
         pass
 
     def run(
@@ -168,8 +168,8 @@ class AutotunePipeline:
         import soundfile as sf
         import torch
         import torchcrepe
-        import parselmouth
-        from parselmouth.praat import call as praat_call
+
+        from utils.psola import psola_pitch_shift
 
         cfg = self._config or AutotuneConfig()
         audio_path = pathlib.Path(audio_path)
@@ -261,57 +261,24 @@ class AutotunePipeline:
         if progress_cb:
             progress_cb(0.55, "Applying PSOLA pitch correction...")
 
-        # --- Resynthesis via parselmouth PSOLA ---
-        sound = parselmouth.Sound(mono, sampling_frequency=sr)
-        duration = sound.get_total_duration()
-        n_frames = len(corrected_f0)
-        time_step = duration / n_frames if n_frames > 0 else hop_size / sr
-
-        # Create a PitchTier with corrected pitch values
-        pitch_tier = praat_call("Create PitchTier", "corrected", 0.0, duration)
-
-        for i in range(n_frames):
-            t = (i + 0.5) * time_step
-            if t > duration:
-                break
-            if corrected_f0[i] > 0:
-                praat_call(pitch_tier, "Add point", t, float(corrected_f0[i]))
-
+        # --- Resynthesis via custom TD-PSOLA ---
         if progress_cb:
             progress_cb(0.70, "Resynthesising audio...")
 
-        # Extract the manipulation object for PSOLA
-        manipulation = praat_call(sound, "To Manipulation", time_step, 50.0, 1100.0)
-
-        # Replace the pitch tier
-        praat_call([manipulation, pitch_tier], "Replace pitch tier")
-
-        # Resynthesize using PSOLA (overlap-add)
-        result_sound = praat_call(manipulation, "Get resynthesis (overlap-add)")
+        result_audio = psola_pitch_shift(mono, sr, f0, corrected_f0, hop_size=hop_size)
 
         if progress_cb:
             progress_cb(0.90, "Writing output...")
 
-        # Extract result as numpy array
-        result_audio = result_sound.values[0]
-
-        # If original was stereo, apply the same pitch shift to both channels
-        # by computing the ratio and applying it
         if audio.ndim == 2:
-            # Process right channel separately
-            sound_r = parselmouth.Sound(audio[:, 1], sampling_frequency=sr)
-            manip_r = praat_call(sound_r, "To Manipulation", time_step, 50.0, 1100.0)
-            praat_call([manip_r, pitch_tier], "Replace pitch tier")
-            result_r = praat_call(manip_r, "Get resynthesis (overlap-add)")
-            result_audio_r = result_r.values[0]
-
-            # Combine channels — ensure same length
+            result_audio_r = psola_pitch_shift(
+                audio[:, 1], sr, f0, corrected_f0, hop_size=hop_size,
+            )
             min_len = min(len(result_audio), len(result_audio_r))
-            result_stereo = np.column_stack([
+            output_audio = np.column_stack([
                 result_audio[:min_len],
                 result_audio_r[:min_len],
             ])
-            output_audio = result_stereo
         else:
             output_audio = result_audio
 

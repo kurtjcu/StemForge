@@ -18,7 +18,7 @@ AI-powered audio processing web application with six core pipelines:
 Additional systems:
 - **Enhance** — three-mode vocal enhancement tab:
   - **Clean Up** — UVR denoise, dereverb, debleed via vendored `python-audio-separator` fork (8 curated presets across Roformer/MDXC/VR architectures)
-  - **Tune** — auto-tune via CREPE neural pitch detection (`torchcrepe`) + Praat TD-PSOLA resynthesis (`parselmouth`); scale snapping with correction strength and humanization controls
+  - **Tune** — auto-tune via CREPE neural pitch detection (`torchcrepe`) + custom TD-PSOLA resynthesis (numpy/scipy); scale snapping with correction strength and humanization controls
   - **Effects** — stub for future scipy.signal DSP effects chain (Phase 2)
 - **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file

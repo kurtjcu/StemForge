@@ -58,7 +58,6 @@ full dependency tree.
 | basic-pitch | Apache 2.0 | Spotify |
 | faster-whisper | MIT | SYSTRAN |
 | torchcrepe | MIT | Max Morrison |
-| parselmouth (Praat) | GPL-3.0 | Praat is GPL; parselmouth Python bindings are GPL-3.0 — **see GPL notice below** |
 | FluidSynth (pyfluidsynth) | LGPL-2.1 | Dynamically linked |
 | wavesurfer.js | BSD-3-Clause | Frontend audio visualization |
 | FastAPI | MIT | Backend framework |
@@ -71,23 +70,6 @@ full dependency tree.
 ---
 
 ## Important License Notices
-
-### GPL-3.0 dependency: parselmouth (Praat)
-
-StemForge imports `parselmouth`, a Python wrapper for Praat, which is licensed under
-GPL-3.0. The Free Software Foundation's position is that importing a GPL library into
-a program creates a combined work subject to GPL-3.0 obligations, regardless of
-whether the library is dynamically linked, statically linked, or imported at the
-language level.
-
-StemForge's Auto-Tune feature uses parselmouth for pitch correction. Users who
-distribute StemForge (or derivative works) should be aware that the inclusion of
-parselmouth may impose GPL-3.0 obligations on the combined work. Commercial licensees
-should evaluate whether their use case requires GPL-3.0 compliance or whether an
-alternative pitch-correction approach is preferable.
-
-The StemForge project is evaluating options to make parselmouth an optional dependency
-in a future release to mitigate this concern.
 
 ### Unlicensed model weights: jarredou BS-Roformer
 

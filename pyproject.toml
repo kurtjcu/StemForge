@@ -114,9 +114,6 @@ dependencies = [
     # Audio enhancement — UVR denoise/dereverb (vendored fork)
     "audio-separator",
 
-    # Auto-tune — PSOLA pitch correction via Praat
-    "praat-parselmouth>=0.4.0",
-
     # Audio playback / MIDI render
     "pyfluidsynth>=1.3.4",
 
