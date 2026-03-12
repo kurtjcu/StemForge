@@ -4,6 +4,7 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
+import { transportLoad, transportStop } from './audio-player.js';
 
 /** GM program names — loaded from backend on init. */
 let _gmPrograms = [];
@@ -72,11 +73,13 @@ function createMixPlayer(label, url, audioPath) {
       _stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
+      transportLoad(url, label, false, 'Mix');
     }
   });
 
   stopBtn.addEventListener('click', () => {
     ws.stop();
+    transportStop();
     playBtn.textContent = '\u25B6 Play';
   });
 
@@ -86,7 +89,7 @@ function createMixPlayer(label, url, audioPath) {
     const dur = ws.getDuration();
     timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
   });
-  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
 
   return { card, ws };
 }
@@ -379,7 +382,7 @@ async function refreshTracks() {
         const ws = createWaveform(waveContainer, { height: 40 });
         ws.load(url);
 
-        const player = { ws, playBtn, enableInput, _isTrack: true, _trackId: track.track_id };
+        const player = { ws, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label };
         _players.push(player);
 
         // Set initial playback volume from track state
@@ -393,11 +396,13 @@ async function refreshTracks() {
             _stopOtherPlayers(ws);
             ws.play();
             playBtn.textContent = '\u23F8 Pause';
+            transportLoad(url, track.label, false, 'Mix');
           }
         });
 
         stopBtn.addEventListener('click', () => {
           ws.stop();
+          transportStop();
           playBtn.textContent = '\u25B6 Play';
         });
 
@@ -407,7 +412,7 @@ async function refreshTracks() {
           const dur = ws.getDuration();
           timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
         });
-        ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+        ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
       }
 
       // ─── Waveform player for MIDI tracks (render on demand) ───
@@ -430,7 +435,7 @@ async function refreshTracks() {
         let ws = null;
         let renderedUrl = null;
 
-        const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id };
+        const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label };
         _players.push(player);
 
         function ensureWaveform() {
@@ -472,6 +477,7 @@ async function refreshTracks() {
                 _stopOtherPlayers(ws);
                 ws.play();
                 playBtn.textContent = '\u23F8 Pause';
+                transportLoad(renderedUrl, track.label, false, 'Mix');
               });
             } else {
               ws.once('ready', () => {
@@ -498,11 +504,12 @@ async function refreshTracks() {
             _stopOtherPlayers(ws);
             ws.play();
             playBtn.textContent = '\u23F8 Pause';
+            transportLoad(renderedUrl, track.label, false, 'Mix');
           }
         });
 
         stopBtn.addEventListener('click', () => {
-          if (ws) { ws.stop(); playBtn.textContent = '\u25B6 Play'; }
+          if (ws) { ws.stop(); transportStop(); playBtn.textContent = '\u25B6 Play'; }
         });
 
         rewindBtn.addEventListener('click', () => {
@@ -555,11 +562,14 @@ function togglePreview() {
   stopBtn.style.display = '';
 
   // Sync all enabled track players to start from the beginning
+  const trackNames = [];
   for (const p of enabled) {
     p.ws.setTime(0);
     p.ws.play();
     p.playBtn.textContent = '\u23F8 Pause';
+    if (p._trackLabel) trackNames.push(p._trackLabel);
   }
+  transportLoad('', trackNames.length ? `${trackNames.length} tracks` : 'Mix Preview', false, 'Mix \u203A Preview');
 
   // When the longest track finishes, end the preview
   let finishCount = 0;
@@ -580,6 +590,7 @@ function stopPreview() {
       p.playBtn.textContent = '\u25B6 Play';
     }
   }
+  transportStop();
   const btn = document.getElementById('mix-preview');
   const stopBtn = document.getElementById('mix-preview-stop');
   btn.textContent = '\u25B6 Preview';
@@ -648,6 +659,9 @@ function showMixResult(result) {
   const player = _players[_players.length - 1];
   player._isMaster = true;
 
-  // Auto-play the result
-  ws.once('ready', () => ws.play());
+  // Auto-play the result and load into transport
+  ws.once('ready', () => {
+    ws.play();
+    transportLoad(url, 'Master Mix', false, 'Mix');
+  });
 }

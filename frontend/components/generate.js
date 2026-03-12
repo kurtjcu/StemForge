@@ -8,6 +8,7 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
+import { transportLoad, transportStop } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -108,6 +109,8 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
   const player = { ws, playBtn };
   _players.push(player);
 
+  const _getLabel = () => typeof label === 'string' ? label : 'Synth';
+
   playBtn.addEventListener('click', () => {
     if (ws.isPlaying()) {
       ws.pause();
@@ -116,11 +119,14 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
       _stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
+      const currentUrl = getUrl ? getUrl() : url;
+      transportLoad(currentUrl, _getLabel(), false, 'Synth');
     }
   });
 
   stopBtn.addEventListener('click', () => {
     ws.stop();
+    transportStop();
     playBtn.textContent = '\u25B6 Play';
   });
 
@@ -130,7 +136,7 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
     const dur = ws.getDuration();
     timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
   });
-  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
 
   saveBtn.addEventListener('click', () => {
     const currentLabel = saveLabel || url || '';
