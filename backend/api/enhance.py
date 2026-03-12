@@ -246,16 +246,24 @@ def batch_save_all(req: BatchSaveAllRequest):
 @router.get("/autotune-options")
 def get_autotune_options() -> dict:
     """Return available keys, scales, and synthesis methods for auto-tune."""
+    import torch
+    has_gpu = torch.cuda.is_available()
+
+    methods = []
+    for m in AUTOTUNE_METHODS:
+        entry = {"key": m, "label": AUTOTUNE_METHOD_LABELS[m]}
+        if m == "neural":
+            entry["requires_gpu"] = True
+            entry["disabled"] = not has_gpu
+        methods.append(entry)
+
     return {
         "keys": NOTE_NAMES,
         "scales": [
             {"key": k, "label": SCALE_LABELS.get(k, k)}
             for k in SCALES
         ],
-        "methods": [
-            {"key": m, "label": AUTOTUNE_METHOD_LABELS[m]}
-            for m in AUTOTUNE_METHODS
-        ],
+        "methods": methods,
     }
 
 

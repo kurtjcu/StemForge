@@ -59,6 +59,7 @@ full dependency tree.
 | faster-whisper | MIT | SYSTRAN |
 | torchcrepe | MIT | Max Morrison |
 | pyworld (WORLD vocoder) | MIT (wrapper) + Modified-BSD (C++ lib) | Pitch-corrected resynthesis |
+| NSF-HiFiGAN (openvpi/vocoders) | MIT (code, DDSP-SVC) / CC BY-NC-SA 4.0 (pretrained weights) | Neural vocoder for pitch correction; weights auto-downloaded on first use |
 | FluidSynth (pyfluidsynth) | LGPL-2.1 | Dynamically linked |
 | wavesurfer.js | BSD-3-Clause | Frontend audio visualization |
 | FastAPI | MIT | Backend framework |
@@ -84,6 +85,24 @@ StemForge gates access to this model behind an explicit user acknowledgment in t
 UI. **Users who proceed do so at their own legal risk.** Users requiring clear
 licensing should use the MIT-licensed alternatives (Demucs, ViperX, or ZFTurbo
 Roformer weights).
+
+### NSF-HiFiGAN pretrained weights (CC BY-NC-SA 4.0)
+
+The NSF-HiFiGAN neural vocoder model weights (from openvpi/vocoders) are licensed
+under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International**.
+The vendored inference code (from DDSP-SVC) is MIT-licensed.
+
+This means:
+- **NonCommercial**: The pretrained weights may only be used for non-commercial
+  purposes, which is compatible with StemForge's PolyForm Noncommercial license.
+- **ShareAlike**: Derivative works using these weights must be shared under the
+  same or a compatible license.
+- **Commercial license holders** seeking to use the Neural Vocoder method for
+  commercial purposes must obtain separately licensed vocoder weights or train
+  their own.
+
+The weights (~55 MB) are automatically downloaded on first use of the
+"Neural Vocoder (GPU)" method in the Tune tab.
 
 ### Other notes
 

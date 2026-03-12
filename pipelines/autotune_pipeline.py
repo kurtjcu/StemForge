@@ -119,11 +119,12 @@ def _snap_to_scale(midi_note: float, scale_notes: set[int]) -> float:
 # Config / Result
 # ---------------------------------------------------------------------------
 
-AUTOTUNE_METHODS = ("world_fast", "world", "stft")
+AUTOTUNE_METHODS = ("world_fast", "world", "stft", "neural")
 AUTOTUNE_METHOD_LABELS = {
     "world_fast": "WORLD (Fast)",
     "world": "WORLD Vocoder",
     "stft": "Phase Vocoder (STFT)",
+    "neural": "Neural Vocoder (GPU)",
 }
 
 
@@ -135,7 +136,7 @@ class AutotuneConfig:
     scale: str = "auto"               # key into SCALES, or "auto" for detection
     correction_strength: float = 0.8   # 0.0 = no correction, 1.0 = full snap
     humanize: float = 0.15             # random detuning amount (0.0–1.0)
-    method: str = "world_fast"          # "world_fast", "world", or "stft"
+    method: str = "world_fast"          # "world_fast", "world", "stft", or "neural"
     output_dir: pathlib.Path = ENHANCE_DIR
 
 
@@ -269,7 +270,10 @@ class AutotunePipeline:
         method = cfg.method
         method_label = AUTOTUNE_METHOD_LABELS.get(method, method)
 
-        if method == "stft":
+        if method == "neural":
+            from utils.nsf_shift import nsf_pitch_shift
+            shift_fn = nsf_pitch_shift
+        elif method == "stft":
             from utils.stft_shift import stft_pitch_shift
             shift_fn = stft_pitch_shift
         elif method == "world":

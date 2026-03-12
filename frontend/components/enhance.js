@@ -554,7 +554,10 @@ async function loadAutotuneOptions() {
 
     clearChildren(methodSelect);
     for (const m of data.methods || []) {
-      methodSelect.appendChild(el('option', { value: m.key }, m.label));
+      const label = m.disabled ? `${m.label} (unavailable)` : m.label;
+      const opt = el('option', { value: m.key }, label);
+      if (m.disabled) opt.disabled = true;
+      methodSelect.appendChild(opt);
     }
   } catch (err) {
     console.error('Failed to load autotune options:', err);
