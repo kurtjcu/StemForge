@@ -14,19 +14,22 @@ import traceback
 import numpy as np
 import soundfile as sf
 import noisereduce as nr
-from pedalboard import (
-    Pedalboard,
-    Chorus,
-    Distortion,
-    Reverb,
-    PitchShift,
-    Limiter,
-    Gain,
-    Bitcrush,
-    Clipping,
-    Compressor,
-    Delay,
-)
+try:
+    from pedalboard import (
+        Pedalboard,
+        Chorus,
+        Distortion,
+        Reverb,
+        PitchShift,
+        Limiter,
+        Gain,
+        Bitcrush,
+        Clipping,
+        Compressor,
+        Delay,
+    )
+except ImportError:
+    Pedalboard = None  # post_process_audio is unused in StemForge
 
 from vendor.rvc.infer.pipeline import Pipeline as VC
 from vendor.rvc.lib.utils import load_audio_infer, load_embedding

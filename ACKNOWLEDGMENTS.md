@@ -209,7 +209,7 @@ Blazing-fast Python package manager and resolver used for deterministic environm
 StemForge also relies on many other excellent open-source libraries including
 NumPy, SciPy, soundfile, mido, pretty_midi, einops, safetensors, accelerate,
 pydub, soxr, ai-edge-litert (TFLite runtime), torchcrepe, torchfcpe,
-noisereduce, pedalboard, and stftpitchshift. Thank you to all their
+noisereduce and stftpitchshift. Thank you to all their
 maintainers and contributors.
 
 ---

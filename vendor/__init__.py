@@ -4,14 +4,16 @@
 # here to pin specific versions or apply local patches. See
 # THIRD-PARTY-NOTICES.md for full license details.
 #
-# Vendored components:
+# Vendored source code:
 #
 #   vendor/rvc/
 #     Source: Applio (https://github.com/IAHispano/Applio)
 #     License: MIT
 #     Copyright: 2023 IAHispano
 #
-#   vendor/python-audio-separator/  (git submodule)
+# Git submodules (managed via .gitmodules):
+#
+#   vendor/python-audio-separator/
 #     Source: python-audio-separator (https://github.com/nomadkaraoke/python-audio-separator)
 #     License: MIT
 #     Copyright: 2023 karaokenerds / Andrew Beveridge

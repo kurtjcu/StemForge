@@ -50,7 +50,7 @@ Known issues / technical debt:
 
 On the horizon
 
-Phase 2 Effects Chain: Pedalboard-powered audio effects (EQ, compression, reverb, delay) — stubbed in the Enhance tab mode bar as "Effects".
+Phase 2 Effects Chain: Custom DSP effects (parametric EQ, compression, convolution reverb, delay) via scipy.signal — stubbed in the Enhance tab mode bar as "Effects".
 RVC voice model training: Train custom voice models from audio samples within StemForge. Architecture evaluated, ~15–22 hours implementation. See FUTURE_PLANS.md.
 DAW connectivity: Options ranging from drag-and-drop export to REST bridge plugins.
 macOS support: MPS acceleration works via `pyproject.toml.MAC`. Further polish needed.

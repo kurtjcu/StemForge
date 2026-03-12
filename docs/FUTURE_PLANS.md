@@ -208,11 +208,30 @@ conversion or mixing. New **Edit** mode in the Enhance tab mode bar
   artifacts that don't voice-swap well, attenuate bleed in specific
   sections, manual cleanup that automated presets can't target.
 
-### Phase 2 — Effects Chain (Pedalboard) — planned
+### Phase 2 — Effects Chain (scipy.signal DSP) — planned
 
-Apply audio effects (EQ, compression, limiting, chorus, delay) via
-Spotify's Pedalboard library. Non-destructive chain with drag-to-reorder
+Apply audio effects via custom DSP built on `scipy.signal` (BSD-licensed,
+already a transitive dependency). Non-destructive chain with drag-to-reorder
 and per-effect bypass. Stubbed as "Effects" in the Enhance tab mode bar.
+
+Planned effects (all implementable with scipy + numpy):
+
+- **Parametric EQ** — biquad filters via `scipy.signal.sosfilt`.
+  Configurable bands (low shelf, peaking, high shelf) with
+  frequency/gain/Q controls. Standard audio cookbook coefficients.
+- **Compressor** — envelope follower (peak or RMS) + gain reduction
+  with threshold, ratio, attack, release, and makeup gain. Implemented
+  as sample-by-sample envelope tracking with numpy vectorization.
+- **Limiter** — brickwall peak limiter (compressor variant with
+  ∞:1 ratio and fast attack).
+- **Convolution reverb** — `scipy.signal.fftconvolve` with bundled
+  impulse responses (IR files). Dry/wet mix control. Optionally load
+  custom IR WAVs.
+- **Delay** — circular buffer with feedback, mix, and tempo-sync
+  option. Simple numpy array indexing.
+- **Chorus** — modulated delay line with LFO (sine/triangle),
+  depth, rate, and mix controls.
+- **Gain** — simple amplitude scaling with dB control.
 
 - **Draggable effect panels** — slidable panels for reordering effects in
   the chain via pointer events (smoother than HTML5 drag-and-drop for
@@ -225,7 +244,7 @@ and per-effect bypass. Stubbed as "Effects" in the Enhance tab mode bar.
 - **Draggable clip placement** — replace the current click-to-position
   workflow with direct drag-along-the-timeline via pointer events. Clips
   slide smoothly to new positions with visual snap feedback. Same
-  interaction pattern as the Pedalboard effect panels — pointer events
+  interaction pattern as the Effects chain panels — pointer events
   with manual hit-testing for smooth sub-pixel control.
 - **Drag-to-resize** — grab clip edges to adjust fade in/out duration
   visually on the timeline.

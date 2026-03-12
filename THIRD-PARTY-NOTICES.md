@@ -14,7 +14,6 @@ Source code included directly in the StemForge repository.
 | Path | Project | License | Copyright |
 |------|---------|---------|-----------|
 | `vendor/rvc/` | [Applio](https://github.com/IAHispano/Applio) (RVC inference) | MIT | Copyright 2023 IAHispano |
-| `vendor/python-audio-separator/` | [python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator) | MIT | Copyright 2023 karaokenerds / Andrew Beveridge |
 
 ### Git Submodules
 
@@ -22,6 +21,7 @@ Source code included directly in the StemForge repository.
 |------|---------|---------|-----------|
 | `Ace-Step-Wrangler/` | [Ace-Step-Wrangler](https://github.com/tsondo/Ace-Step-Wrangler) | MIT | Copyright 2025 Todd Green |
 | `Ace-Step-Wrangler/vendor/ACE-Step-1.5/` | [ACE-Step 1.5](https://github.com/ace-step/ACE-Step-1.5) | MIT | Copyright 2024 ACE Studio & StepFun |
+| `vendor/python-audio-separator/` | [python-audio-separator](https://github.com/nomadkaraoke/python-audio-separator) | MIT | Copyright 2023 karaokenerds / Andrew Beveridge |
 
 ---
 

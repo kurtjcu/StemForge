@@ -95,7 +95,7 @@ Pitch-correct vocals using CREPE neural pitch detection and Praat TD-PSOLA resyn
 
 ### Effects (coming soon)
 
-Placeholder for Phase 2 — Pedalboard-powered effects chain (EQ, compression, reverb, delay, etc.).
+Placeholder for Phase 2 — custom DSP effects chain (parametric EQ, compression, convolution reverb, delay) built on scipy.signal.
 
 ---
 
