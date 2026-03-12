@@ -700,6 +700,9 @@ async function startEnhance() {
         processBtn.disabled = false;
         showResult(result, 'cleanup');
         appState.emit('enhanceReady', result);
+        // Auto-load into transport bar
+        const url = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
+        transportLoad(url, `Enhanced: ${result.label}`, false, 'Enhance \u203A Clean Up');
       },
       onError(msg) {
         progressCard.classList.add('hidden');
@@ -752,6 +755,9 @@ async function startAutotune() {
         processBtn.disabled = false;
         showResult(result, 'tune');
         appState.emit('enhanceReady', result);
+        // Auto-load into transport bar
+        const url = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
+        transportLoad(url, `Enhanced: ${result.label}`, false, 'Enhance \u203A Tune');
       },
       onError(msg) {
         progressCard.classList.add('hidden');
