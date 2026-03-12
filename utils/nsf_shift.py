@@ -108,12 +108,12 @@ def _load_model(device: str):
         n_mels=h.num_mels,
         n_fft=h.n_fft,
         win_size=h.win_size,
-        hop_length=h.hop_length,
+        hop_length=h.hop_size,
         fmin=h.fmin,
         fmax=h.fmax,
     )
     log.info("NSF-HiFiGAN loaded (sr=%d, hop=%d, mels=%d)",
-             h.sampling_rate, h.hop_length, h.num_mels)
+             h.sampling_rate, h.hop_size, h.num_mels)
 
 
 def nsf_pitch_shift(
@@ -162,7 +162,7 @@ def nsf_pitch_shift(
 
     n_orig = len(audio)
     model_sr = _config.sampling_rate  # 44100
-    model_hop = _config.hop_length    # 512
+    model_hop = _config.hop_size    # 512
 
     # --- Resample to model SR if needed ---
     if sr != model_sr:
