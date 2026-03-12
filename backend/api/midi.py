@@ -17,6 +17,96 @@ from utils.paths import MIDI_DIR
 
 router = APIRouter(prefix="/api/midi", tags=["midi"])
 
+# ─── General MIDI program names (0-127) ──────────────────────────────────
+GM_PROGRAMS: list[str] = [
+    # Piano (0-7)
+    "Acoustic Grand Piano", "Bright Acoustic Piano", "Electric Grand Piano",
+    "Honky-tonk Piano", "Electric Piano 1", "Electric Piano 2", "Harpsichord", "Clavinet",
+    # Chromatic Percussion (8-15)
+    "Celesta", "Glockenspiel", "Music Box", "Vibraphone",
+    "Marimba", "Xylophone", "Tubular Bells", "Dulcimer",
+    # Organ (16-23)
+    "Drawbar Organ", "Percussive Organ", "Rock Organ", "Church Organ",
+    "Reed Organ", "Accordion", "Harmonica", "Tango Accordion",
+    # Guitar (24-31)
+    "Acoustic Guitar (nylon)", "Acoustic Guitar (steel)", "Electric Guitar (jazz)",
+    "Electric Guitar (clean)", "Electric Guitar (muted)", "Overdriven Guitar",
+    "Distortion Guitar", "Guitar Harmonics",
+    # Bass (32-39)
+    "Acoustic Bass", "Electric Bass (finger)", "Electric Bass (pick)", "Fretless Bass",
+    "Slap Bass 1", "Slap Bass 2", "Synth Bass 1", "Synth Bass 2",
+    # Strings (40-47)
+    "Violin", "Viola", "Cello", "Contrabass",
+    "Tremolo Strings", "Pizzicato Strings", "Orchestral Harp", "Timpani",
+    # Ensemble (48-55)
+    "String Ensemble 1", "String Ensemble 2", "Synth Strings 1", "Synth Strings 2",
+    "Choir Aahs", "Voice Oohs", "Synth Choir", "Orchestra Hit",
+    # Brass (56-63)
+    "Trumpet", "Trombone", "Tuba", "Muted Trumpet",
+    "French Horn", "Brass Section", "Synth Brass 1", "Synth Brass 2",
+    # Reed (64-71)
+    "Soprano Sax", "Alto Sax", "Tenor Sax", "Baritone Sax",
+    "Oboe", "English Horn", "Bassoon", "Clarinet",
+    # Pipe (72-79)
+    "Piccolo", "Flute", "Recorder", "Pan Flute",
+    "Blown Bottle", "Shakuhachi", "Whistle", "Ocarina",
+    # Synth Lead (80-87)
+    "Lead 1 (square)", "Lead 2 (sawtooth)", "Lead 3 (calliope)", "Lead 4 (chiff)",
+    "Lead 5 (charang)", "Lead 6 (voice)", "Lead 7 (fifths)", "Lead 8 (bass + lead)",
+    # Synth Pad (88-95)
+    "Pad 1 (new age)", "Pad 2 (warm)", "Pad 3 (polysynth)", "Pad 4 (choir)",
+    "Pad 5 (bowed)", "Pad 6 (metallic)", "Pad 7 (halo)", "Pad 8 (sweep)",
+    # Synth Effects (96-103)
+    "FX 1 (rain)", "FX 2 (soundtrack)", "FX 3 (crystal)", "FX 4 (atmosphere)",
+    "FX 5 (brightness)", "FX 6 (goblins)", "FX 7 (echoes)", "FX 8 (sci-fi)",
+    # Ethnic (104-111)
+    "Sitar", "Banjo", "Shamisen", "Koto", "Kalimba", "Bagpipe", "Fiddle", "Shanai",
+    # Percussive (112-119)
+    "Tinkle Bell", "Agogo", "Steel Drums", "Woodblock",
+    "Taiko Drum", "Melodic Tom", "Synth Drum", "Reverse Cymbal",
+    # Sound Effects (120-127)
+    "Guitar Fret Noise", "Breath Noise", "Seashore", "Bird Tweet",
+    "Telephone Ring", "Helicopter", "Applause", "Gunshot",
+]
+
+# Smart defaults by stem label
+STEM_DEFAULT_PROGRAM: dict[str, int] = {
+    "vocals": 52,       # Voice Oohs
+    "drums": 0,         # (is_drum=True overrides)
+    "bass": 33,         # Electric Bass (finger)
+    "guitar": 25,       # Acoustic Guitar (steel)
+    "piano": 0,         # Acoustic Grand Piano
+    "keyboard": 0,      # Acoustic Grand Piano
+    "other": 48,        # String Ensemble 1
+}
+
+STEM_IS_DRUM: dict[str, bool] = {
+    "drums": True,
+    "Drums & percussion": True,
+}
+
+# ─── SoundFont discovery & state ─────────────────────────────────────────
+
+_SF2_SEARCH_PATHS = [
+    "/usr/share/soundfonts/FluidR3_GM.sf2",       # Fedora
+    "/usr/share/soundfonts/FluidR3_GM2-2.sf2",    # Fedora alt
+    "/usr/share/sounds/sf2/FluidR3_GM.sf2",       # Ubuntu
+    "/usr/share/sounds/sf2/default-GM.sf2",       # Ubuntu alt
+    "/usr/share/soundfonts/default.sf2",          # Arch
+]
+
+
+def _find_system_soundfont() -> str | None:
+    """Return the first GM soundfont found on the system, or None."""
+    for p in _SF2_SEARCH_PATHS:
+        if pathlib.Path(p).is_file():
+            return p
+    return None
+
+
+# Active soundfont path (None = let pretty_midi auto-discover)
+_active_soundfont: str | None = _find_system_soundfont()
+
 
 class ExtractRequest(BaseModel):
     stems: list[str]
@@ -130,8 +220,9 @@ def render_midi_to_audio(req: RenderRequest) -> dict:
         inst.program = req.program
         inst.is_drum = req.is_drum
 
-    # Render via FluidSynth
-    audio = midi_data.fluidsynth(fs=44100)
+    # Render via FluidSynth (with active soundfont if set)
+    sf2_kwargs = {"sf2_path": _active_soundfont} if _active_soundfont else {}
+    audio = midi_data.fluidsynth(fs=44100, **sf2_kwargs)
     if audio is None or len(audio) == 0:
         raise HTTPException(500, "FluidSynth render produced no audio")
 
@@ -186,3 +277,41 @@ def get_midi_stems() -> dict:
         note_count = sum(len(inst.notes) for inst in midi_data.instruments)
         stem_info[label] = {"note_count": note_count}
     return {"labels": labels, "stem_info": stem_info}
+
+
+@router.get("/gm-programs")
+def get_gm_programs() -> dict:
+    """Return list of all 128 GM program names and smart defaults per stem label."""
+    return {
+        "programs": GM_PROGRAMS,
+        "defaults": STEM_DEFAULT_PROGRAM,
+        "drum_stems": STEM_IS_DRUM,
+    }
+
+
+@router.get("/soundfont")
+def get_soundfont() -> dict:
+    """Return the currently active soundfont path."""
+    return {"path": _active_soundfont or ""}
+
+
+class SoundfontRequest(BaseModel):
+    path: str
+
+
+@router.post("/soundfont")
+def set_soundfont(req: SoundfontRequest) -> dict:
+    """Set the active soundfont path. Empty string resets to auto-discovery."""
+    global _active_soundfont
+    if not req.path:
+        _active_soundfont = _find_system_soundfont()
+        return {"path": _active_soundfont or "", "status": "reset"}
+
+    p = pathlib.Path(req.path)
+    if not p.is_file():
+        raise HTTPException(404, f"SoundFont file not found: {req.path}")
+    if not p.suffix.lower() in (".sf2", ".sf3"):
+        raise HTTPException(422, "File must be .sf2 or .sf3")
+
+    _active_soundfont = str(p)
+    return {"path": _active_soundfont, "status": "ok"}

@@ -1,12 +1,31 @@
 /**
- * MIDI tab — stem selection, extraction, preview, save.
+ * MIDI tab — stem selection, extraction, per-stem playback with waveform,
+ * GM instrument selector, soundfont picker, preview/save.
  */
 
-import { appState, api, pollJob, el } from '../app.js';
-import { transportLoad } from './audio-player.js';
+import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
+import { createWaveform } from './waveform.js';
+import { transportLoad, transportStop } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
+}
+
+/** GM program names (populated from backend on init). */
+let gmPrograms = [];
+let stemDefaults = {};
+let drumStems = {};
+
+/** All active MIDI card players — for exclusive playback. */
+const midiPlayers = [];
+
+function stopOtherPlayers(except) {
+  for (const p of midiPlayers) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
 }
 
 export function initMidi() {
@@ -64,11 +83,21 @@ export function initMidi() {
     ),
   );
 
+  // ─── SoundFont selector ───
+  const sf2Group = el('div', { className: 'form-group' },
+    el('label', {}, 'SoundFont'),
+    el('div', { className: 'sf2-row' },
+      el('input', { type: 'text', id: 'midi-sf2-path', readonly: 'true', placeholder: 'System default' }),
+      el('button', { className: 'btn btn-sm', id: 'midi-sf2-browse', title: 'Browse for .sf2 file' }, 'Browse'),
+      el('button', { className: 'btn btn-sm', id: 'midi-sf2-reset', title: 'Reset to system default' }, 'Reset'),
+    ),
+  );
+
   const extractBtn = el('button', { className: 'btn btn-primary', id: 'midi-start', disabled: 'true' },
     'Extract MIDI',
   );
 
-  left.append(stemSection, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, extractBtn);
+  left.append(stemSection, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn);
 
   // ─── Right: results ───
   const right = el('div', { className: 'col-right' });
@@ -91,6 +120,10 @@ export function initMidi() {
   layout.append(left, right);
   panel.appendChild(layout);
 
+  // Hidden file input for SF2 browsing
+  const sf2Input = el('input', { type: 'file', id: 'midi-sf2-input', accept: '.sf2,.sf3', style: { display: 'none' } });
+  panel.appendChild(sf2Input);
+
   // ─── Wire events ───
   document.getElementById('midi-onset').addEventListener('input', (e) => {
     document.getElementById('midi-onset-val').textContent = parseFloat(e.target.value).toFixed(2);
@@ -100,10 +133,83 @@ export function initMidi() {
   });
   document.getElementById('midi-start').addEventListener('click', startExtraction);
 
+  // SoundFont controls
+  document.getElementById('midi-sf2-browse').addEventListener('click', () => {
+    document.getElementById('midi-sf2-input').click();
+  });
+  document.getElementById('midi-sf2-input').addEventListener('change', handleSf2Browse);
+  document.getElementById('midi-sf2-reset').addEventListener('click', resetSoundfont);
+
   appState.on('stemsReady', (stemPaths) => {
     populateStemCheckboxes(stemPaths);
     document.getElementById('midi-start').disabled = false;
   });
+
+  // Load GM programs and current soundfont on init
+  loadGmPrograms();
+  loadCurrentSoundfont();
+}
+
+async function loadGmPrograms() {
+  try {
+    const data = await api('/midi/gm-programs');
+    gmPrograms = data.programs || [];
+    stemDefaults = data.defaults || {};
+    drumStems = data.drum_stems || {};
+  } catch { /* fail silently, will use defaults */ }
+}
+
+async function loadCurrentSoundfont() {
+  try {
+    const data = await api('/midi/soundfont');
+    const input = document.getElementById('midi-sf2-path');
+    if (data.path) {
+      input.value = data.path;
+    } else {
+      input.value = '';
+      input.placeholder = 'System default';
+    }
+  } catch { /* ignore */ }
+}
+
+async function handleSf2Browse() {
+  const fileInput = document.getElementById('midi-sf2-input');
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  // We need the user to provide a server-side path, not upload the file.
+  // The file input gives us the filename; prompt for the full path.
+  const path = prompt(
+    'Enter the full server path to the SoundFont file:\n\n' +
+    `(Selected: ${file.name})`,
+    `/usr/share/soundfonts/${file.name}`,
+  );
+  fileInput.value = '';
+  if (!path) return;
+
+  try {
+    const res = await api('/midi/soundfont', {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    });
+    document.getElementById('midi-sf2-path').value = res.path;
+  } catch (err) {
+    alert(`SoundFont error: ${err.message}`);
+  }
+}
+
+async function resetSoundfont() {
+  try {
+    const res = await api('/midi/soundfont', {
+      method: 'POST',
+      body: JSON.stringify({ path: '' }),
+    });
+    const input = document.getElementById('midi-sf2-path');
+    input.value = res.path || '';
+    if (!res.path) input.placeholder = 'System default';
+  } catch (err) {
+    alert(`Reset failed: ${err.message}`);
+  }
 }
 
 function populateStemCheckboxes(stemPaths) {
@@ -128,6 +234,7 @@ async function startExtraction() {
   const resultsContainer = document.getElementById('midi-results');
   progressCard.classList.remove('hidden');
   clearChildren(resultsContainer);
+  midiPlayers.length = 0;
   document.getElementById('midi-start').disabled = true;
 
   try {
@@ -173,6 +280,7 @@ async function startExtraction() {
 
 function showMidiResults(result) {
   const container = document.getElementById('midi-results');
+  midiPlayers.length = 0;
 
   appState.midiLabels = result.labels || [];
   appState.emit('midiReady', result);
@@ -197,45 +305,197 @@ function showMidiResults(result) {
     );
   }
 
-  // Per-stem results
+  // Per-stem result cards with full playback
   for (const [label, info] of Object.entries(result.stem_info || {})) {
-    const card = el('div', { className: 'stem-card' },
-      el('div', { className: 'stem-card-header' },
-        el('span', { className: 'stem-label' }, `${label} (${info.note_count} notes)`),
-        el('div', { className: 'stem-actions' },
-          el('button', {
-            className: 'btn btn-sm',
-            onClick: () => renderAndPlay(label),
-          }, '\u25B6 Preview'),
-          el('button', {
-            className: 'btn btn-sm',
-            onClick: async () => {
-              try {
-                const res = await api('/midi/save', {
-                  method: 'POST',
-                  body: JSON.stringify({ label }),
-                });
-                alert(`Saved: ${res.path}`);
-              } catch (err) {
-                alert(`Save failed: ${err.message}`);
-              }
-            },
-          }, 'Save'),
-        ),
-      ),
-    );
-    container.appendChild(card);
+    buildMidiCard(label, info);
   }
 }
 
-async function renderAndPlay(label) {
-  try {
-    const res = await api('/midi/render', {
-      method: 'POST',
-      body: JSON.stringify({ stem_label: label }),
-    });
-    transportLoad(`/api/audio/stream?path=${encodeURIComponent(res.audio_path)}`, label, true, 'MIDI');
-  } catch (err) {
-    alert(`Render failed: ${err.message}`);
+/**
+ * Build a MIDI result card with waveform, playback controls, and instrument selector.
+ * Mirrors the stem cards in the Separate tab.
+ */
+function buildMidiCard(label, info) {
+  const container = document.getElementById('midi-results');
+  const card = el('div', { className: 'stem-card' });
+
+  // ─── Instrument selector ───
+  const defaultProgram = getDefaultProgram(label);
+  const defaultIsDrum = isDrumStem(label);
+
+  const instrumentSelect = el('select', { className: 'midi-instrument-select' });
+  // Add drum kit option at top
+  instrumentSelect.appendChild(el('option', { value: 'drum' }, 'Drum Kit'));
+  for (let i = 0; i < gmPrograms.length; i++) {
+    instrumentSelect.appendChild(el('option', { value: String(i) }, `${i}: ${gmPrograms[i]}`));
   }
+  // Set default
+  if (defaultIsDrum) {
+    instrumentSelect.value = 'drum';
+  } else {
+    instrumentSelect.value = String(defaultProgram);
+  }
+
+  // ─── Transport buttons ───
+  const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+  const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+  const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+  const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+  const saveBtn = el('button', {
+    className: 'btn btn-sm',
+    onClick: async () => {
+      try {
+        const res = await api('/midi/save', {
+          method: 'POST',
+          body: JSON.stringify({ label }),
+        });
+        alert(`Saved: ${res.path}`);
+      } catch (err) {
+        alert(`Save failed: ${err.message}`);
+      }
+    },
+  }, '\u2193 Save');
+
+  const header = el('div', { className: 'stem-card-header' },
+    el('span', { className: 'stem-label' }, `${label} (${info.note_count} notes)`),
+    el('div', { className: 'stem-actions' },
+      playBtn, stopBtn, rewindBtn, timeLabel, saveBtn,
+    ),
+  );
+
+  // Instrument row
+  const instrumentRow = el('div', { className: 'midi-instrument-row' },
+    el('label', { className: 'text-dim' }, 'Instrument:'),
+    instrumentSelect,
+  );
+
+  // Waveform container (initially empty — populated on first render)
+  const waveContainer = el('div', { className: 'stem-waveform' });
+  const renderHint = el('div', { className: 'midi-render-hint text-dim' }, 'Press Play to render audio preview');
+
+  card.append(header, instrumentRow, waveContainer, renderHint);
+  container.appendChild(card);
+
+  // State for this card
+  let ws = null;
+  let renderedUrl = null;
+  let lastProgram = instrumentSelect.value;
+
+  /** Render MIDI to audio with current instrument, then load into waveform. */
+  async function renderAndLoad(autoplay) {
+    const val = instrumentSelect.value;
+    const isDrum = val === 'drum';
+    const program = isDrum ? 0 : parseInt(val, 10);
+
+    playBtn.disabled = true;
+    playBtn.textContent = 'Rendering...';
+
+    try {
+      const res = await api('/midi/render', {
+        method: 'POST',
+        body: JSON.stringify({ stem_label: label, program, is_drum: isDrum }),
+      });
+      renderedUrl = `/api/audio/stream?path=${encodeURIComponent(res.audio_path)}`;
+      lastProgram = val;
+
+      // Hide hint
+      renderHint.classList.add('hidden');
+
+      // Create or reload waveform
+      if (!ws) {
+        ws = createWaveform(waveContainer, { height: 50, color: 'midi' });
+        midiPlayers.push({ ws, playBtn });
+
+        ws.on('timeupdate', (time) => {
+          const dur = ws.getDuration();
+          timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+        });
+
+        ws.on('finish', () => {
+          playBtn.textContent = '\u25B6 Play';
+          transportStop();
+        });
+      }
+
+      ws.load(renderedUrl);
+
+      if (autoplay) {
+        ws.once('ready', () => {
+          stopOtherPlayers(ws);
+          ws.play();
+          playBtn.textContent = '\u23F8 Pause';
+          transportLoad(renderedUrl, label, false, 'MIDI');
+        });
+      } else {
+        ws.once('ready', () => {
+          playBtn.textContent = '\u25B6 Play';
+        });
+      }
+    } catch (err) {
+      alert(`Render failed: ${err.message}`);
+      playBtn.textContent = '\u25B6 Play';
+    } finally {
+      playBtn.disabled = false;
+    }
+  }
+
+  // Play button — render on first press or instrument change, then toggle play/pause
+  playBtn.addEventListener('click', () => {
+    const needsRender = !renderedUrl || instrumentSelect.value !== lastProgram;
+
+    if (needsRender) {
+      renderAndLoad(true);
+      return;
+    }
+
+    if (ws && ws.isPlaying()) {
+      ws.pause();
+      playBtn.textContent = '\u25B6 Play';
+    } else if (ws) {
+      stopOtherPlayers(ws);
+      ws.play();
+      playBtn.textContent = '\u23F8 Pause';
+      transportLoad(renderedUrl, label, false, 'MIDI');
+    }
+  });
+
+  // Stop
+  stopBtn.addEventListener('click', () => {
+    if (ws) {
+      ws.stop();
+      transportStop();
+      playBtn.textContent = '\u25B6 Play';
+    }
+  });
+
+  // Rewind
+  rewindBtn.addEventListener('click', () => {
+    if (ws) ws.setTime(0);
+  });
+
+  // Re-render when instrument changes and audio was already rendered
+  instrumentSelect.addEventListener('change', () => {
+    if (renderedUrl) {
+      renderAndLoad(false);
+    }
+  });
+}
+
+/** Get the default GM program for a stem label. */
+function getDefaultProgram(label) {
+  const lower = label.toLowerCase();
+  for (const [key, prog] of Object.entries(stemDefaults)) {
+    if (lower.includes(key)) return prog;
+  }
+  return 0;
+}
+
+/** Check if a stem label should default to drum kit. */
+function isDrumStem(label) {
+  const lower = label.toLowerCase();
+  for (const key of Object.keys(drumStems)) {
+    if (lower.includes(key.toLowerCase())) return true;
+  }
+  return false;
 }

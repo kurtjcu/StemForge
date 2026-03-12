@@ -540,6 +540,54 @@ input[type="range"]::-moz-range-track {
   background: var(--surface-raised);
 }
 
+/* ─── MIDI card extras ───────────────────────────────────────────────── */
+
+.midi-instrument-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.midi-instrument-row label {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.midi-instrument-select {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.midi-render-hint {
+  font-size: 11px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+.sf2-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sf2-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--surface-raised);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
 /* ─── Track Rows (Mix tab) ───────────────────────────────────────────── */
 
 .mix-track-card {
