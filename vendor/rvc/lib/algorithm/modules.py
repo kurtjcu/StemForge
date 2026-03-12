@@ -1,3 +1,8 @@
+# Vendored from Applio (https://github.com/IAHispano/Applio)
+# Copyright 2023 IAHispano
+# Licensed under the MIT License
+# https://opensource.org/licenses/MIT
+
 import torch
 from vendor.rvc.lib.algorithm.commons import fused_add_tanh_sigmoid_multiply
 

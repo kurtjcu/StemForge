@@ -251,7 +251,7 @@ wheels = [
 [[package]]
 name = "audio-separator"
 version = "0.41.1"
-source = { directory = "../python-audio-separator" }
+source = { directory = "vendor/python-audio-separator" }
 dependencies = [
     { name = "beartype", marker = "sys_platform == 'linux'" },
     { name = "diffq", marker = "sys_platform == 'linux'" },
@@ -736,8 +736,8 @@ name = "flash-attn"
 version = "2.8.3+cu128torch2.10"
 source = { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.12/flash_attn-2.8.3+cu128torch2.10-cp311-cp311-linux_x86_64.whl" }
 dependencies = [
-    { name = "einops", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
-    { name = "torch", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
+    { name = "einops", marker = "platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'" },
+    { name = "torch", marker = "platform_machine != 'aarch64' and platform_machine != 's390x' and sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://github.com/mjun0812/flash-attention-prebuild-wheels/releases/download/v0.7.12/flash_attn-2.8.3+cu128torch2.10-cp311-cp311-linux_x86_64.whl", hash = "sha256:fa848ca9b2039a70810547e9fd9a007cf5d14f0c6e09acad51afa0b5c3b50196" },
@@ -2513,7 +2513,7 @@ requires-dist = [
     { name = "accelerate", specifier = ">=0.30.0" },
     { name = "ace-step", editable = "Ace-Step-Wrangler/vendor/ACE-Step-1.5" },
     { name = "ai-edge-litert", specifier = ">=1.1.0" },
-    { name = "audio-separator", directory = "../python-audio-separator" },
+    { name = "audio-separator", directory = "vendor/python-audio-separator" },
     { name = "bs-roformer", specifier = ">=0.3.2" },
     { name = "demucs", git = "https://github.com/facebookresearch/demucs.git?rev=v4.0.1" },
     { name = "diffq", specifier = "==0.2.4" },

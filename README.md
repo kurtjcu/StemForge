@@ -4,7 +4,7 @@
 
 # StemForge
 
-**Open-source, GPU-accelerated AI audio workstation for stem separation, MIDI extraction, audio generation, and song composition — running locally in your browser.**
+**Source-available, GPU-accelerated AI audio workstation for stem separation, MIDI extraction, audio generation, and song composition — running locally in your browser.**
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![CUDA](https://img.shields.io/badge/CUDA-13.0-blue)
@@ -20,7 +20,7 @@ StemForge is a local, GPU-accelerated web application that chains multiple AI mu
 
 ## Why StemForge?
 
-Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, transform any vocal with AI voice conversion, or generate literally any sound effect with Stable Audio, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, transform, and remix — not just separate.
+Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, transform any vocal with AI voice conversion, or generate literally any sound effect with Stable Audio, then mix and export the result. It is a source-available alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, transform, and remix — not just separate.
 
 StemForge runs entirely on your local machine with no internet connection required after initial model downloads. Your audio never leaves your computer.
 
@@ -505,7 +505,7 @@ You need HuggingFace authentication — see the HuggingFace Authentication secti
 
 ## Acknowledgments
 
-StemForge is built on many outstanding open-source projects — Demucs, BS-Roformer,
+StemForge is built on many outstanding projects — Demucs, BS-Roformer,
 Basic Pitch, Whisper, Stable Audio Open, ACE-Step, Applio/RVC, wavesurfer.js, and more.
 See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for the full list with links and references.
 
@@ -518,3 +518,19 @@ Free for personal, educational, research, and other noncommercial use.
 
 **Commercial use requires a paid commercial license.**
 Contact [tsondo@gmail.com](mailto:tsondo@gmail.com) to discuss terms.
+See [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL) for details.
+
+### Third-party model licenses
+
+StemForge integrates third-party AI models that have their own upstream licenses.
+Some models have restrictions on commercial use:
+
+- **Stable Audio Open 1.0** — Stability AI Community License (commercial use
+  free below $1 M annual revenue; otherwise requires a Stability AI Enterprise license)
+- **KimberleyJensen MelBandRoformer** — GPL-3.0 (copyleft)
+- **jarredou 6-stem BS-Roformer** — license unknown
+
+Most other models (Demucs, AceStep, Whisper, BasicPitch, ViperX/ZFTurbo Roformer
+weights) are MIT or Apache 2.0 licensed.
+
+See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the complete list.

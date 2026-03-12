@@ -1,5 +1,5 @@
 Purpose & context
-Tsondo is the developer and owner of StemForge, an open-source, GPU-accelerated local web application for AI-powered music production. The project chains multiple ML pipelines into a single workflow covering stem separation, MIDI extraction, audio generation, song composition, mixing, and export. It is hosted at github.com/tsondo/StemForge and has reached a v1.0.0 release with a substantially developed codebase.
+Tsondo is the developer and owner of StemForge, a source-available, GPU-accelerated local web application for AI-powered music production. The project chains multiple ML pipelines into a single workflow covering stem separation, MIDI extraction, audio generation, song composition, mixing, and export. It is hosted at github.com/tsondo/StemForge and has reached a v1.0.0 release with a substantially developed codebase.
 Pipeline stack:
 
 Demucs – stem separation (4 models)
