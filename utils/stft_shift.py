@@ -1,8 +1,8 @@
 """Pitch shifting via STFT phase vocoder with cepstral formant preservation.
 
 Uses stftpitchshift (MIT) to apply pitch correction in the frequency domain.
-Operates on overlapping voiced phrases, each with a locally-averaged pitch
-ratio, to approximate per-phrase variable pitch correction.
+Processes each voiced phrase with its median pitch ratio and cepstral formant
+preservation for natural-sounding correction.
 
 Works better than WORLD on compressed audio (MP3) because it operates in the
 spectral domain and doesn't rely on time-domain periodicity analysis.
@@ -22,7 +22,7 @@ def stft_pitch_shift(
 ) -> np.ndarray:
     """Pitch-shift *audio* using STFT phase vocoder with formant preservation.
 
-    Identifies voiced phrases from the F0 contour, computes the average pitch
+    Identifies voiced phrases from the F0 contour, computes the median pitch
     ratio per phrase, and applies stftpitchshift with cepstral formant
     preservation to each phrase independently.
 
@@ -55,7 +55,7 @@ def stft_pitch_shift(
     voiced = source_f0 > 0
     ratio[voiced] = target_f0[voiced] / source_f0[voiced]
 
-    if np.allclose(ratio[voiced], 1.0, atol=1e-4) if np.any(voiced) else True:
+    if not np.any(voiced) or np.allclose(ratio[voiced], 1.0, atol=1e-4):
         return audio.copy()
 
     # STFT parameters
@@ -65,15 +65,13 @@ def stft_pitch_shift(
 
     pitchshifter = StftPitchShift(frame_size, stft_hop, sr)
 
-    # Find voiced phrases (contiguous runs of voiced frames)
-    # and extend each by a margin for smooth overlap
+    # Find voiced phrases (contiguous runs, merging small gaps)
     margin_frames = max(1, int(0.05 * sr / hop_size))  # 50ms margin
     phrases = _find_phrases(voiced, n_frames, margin_frames)
 
     result = audio32.copy()
 
     for phrase_start, phrase_end in phrases:
-        # Average ratio for this phrase (voiced frames only)
         seg_voiced = voiced[phrase_start:phrase_end]
         seg_ratio = ratio[phrase_start:phrase_end]
         if not np.any(seg_voiced):
@@ -82,7 +80,7 @@ def stft_pitch_shift(
         if abs(avg_ratio - 1.0) < 1e-4:
             continue
 
-        # Convert frame range to sample range with margin
+        # Convert frame range to sample range with margin for STFT context
         samp_start = max(0, phrase_start * hop_size - frame_size)
         samp_end = min(n, phrase_end * hop_size + frame_size)
         seg_audio = audio32[samp_start:samp_end]
@@ -109,7 +107,6 @@ def stft_pitch_shift(
             fade_in = np.linspace(0, 1, fade_len, dtype=np.float32)
             fade_out = np.linspace(1, 0, fade_len, dtype=np.float32)
 
-            # Blend at boundaries
             shifted[:fade_len] = (
                 result[samp_start:samp_start + fade_len] * (1 - fade_in)
                 + shifted[:fade_len] * fade_in
@@ -121,7 +118,6 @@ def stft_pitch_shift(
 
         result[samp_start:samp_end] = shifted
 
-    # Match input length
     if len(result) > n:
         result = result[:n]
 
@@ -140,7 +136,6 @@ def _find_phrases(
             while i < n_frames and voiced[i]:
                 i += 1
             end = i
-            # Merge with previous phrase if gap is small
             if phrases and (start - phrases[-1][1]) <= margin * 2:
                 phrases[-1] = (phrases[-1][0], end)
             else:
