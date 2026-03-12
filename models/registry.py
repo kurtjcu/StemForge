@@ -25,7 +25,7 @@ Registry vs. pipeline Config
 from __future__ import annotations
 
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from utils.cache import get_model_cache_dir
@@ -129,8 +129,8 @@ class ModelSpec:
     preprocessing: str
     postprocessing: str
 
-    # License
-    license_warning: str = ""
+    # License (kw_only so subclass non-default fields are valid)
+    license_warning: str = field(default="", kw_only=True)
 
     @property
     def cache_dir(self) -> pathlib.Path:
