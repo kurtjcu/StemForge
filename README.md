@@ -516,8 +516,8 @@ See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for the full list with links and re
 StemForge is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 Free for personal, educational, research, and other noncommercial use.
 
-**Commercial use requires a paid commercial license.**
-Contact [tsondo@gmail.com](mailto:tsondo@gmail.com) to discuss terms.
+**Commercial use requires a separate commercial license.**
+Contact [tsondo@gmail.com](mailto:tsondo@gmail.com) to discuss terms and pricing.
 See [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL) for details.
 
 ### Third-party model licenses
@@ -528,7 +528,7 @@ Some models have restrictions on commercial use:
 - **Stable Audio Open 1.0** — Stability AI Community License (commercial use
   free below $1 M annual revenue; otherwise requires a Stability AI Enterprise license)
 - **KimberleyJensen MelBandRoformer** — GPL-3.0 (copyleft)
-- **jarredou 6-stem BS-Roformer** — license unknown
+- **jarredou 6-stem BS-Roformer** — no license specified; use at your own risk
 
 Most other models (Demucs, AceStep, Whisper, BasicPitch, ViperX/ZFTurbo Roformer
 weights) are MIT or Apache 2.0 licensed.
