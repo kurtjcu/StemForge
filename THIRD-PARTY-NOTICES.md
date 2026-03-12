@@ -58,6 +58,7 @@ full dependency tree.
 | basic-pitch | Apache 2.0 | Spotify |
 | faster-whisper | MIT | SYSTRAN |
 | torchcrepe | MIT | Max Morrison |
+| pyworld (WORLD vocoder) | MIT (wrapper) + Modified-BSD (C++ lib) | Pitch-corrected resynthesis |
 | FluidSynth (pyfluidsynth) | LGPL-2.1 | Dynamically linked |
 | wavesurfer.js | BSD-3-Clause | Frontend audio visualization |
 | FastAPI | MIT | Backend framework |

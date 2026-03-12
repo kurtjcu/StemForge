@@ -187,7 +187,7 @@ Batch mode supported.
 ### Phase 3 — Auto-Tune — IMPLEMENTED
 
 Pitch correction for vocal stems using CREPE neural pitch detection
-(`torchcrepe`) + custom TD-PSOLA resynthesis (numpy/scipy). Controls:
+(`torchcrepe`) + WORLD vocoder resynthesis (`pyworld`). Controls:
 key, scale (chromatic/major/minor/pentatonic/blues), correction strength,
 and humanization. Formant-preserving — no metallic artifacts.
 

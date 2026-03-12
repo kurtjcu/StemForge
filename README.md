@@ -288,7 +288,7 @@ After updating, run `uv sync` to pick up any dependency changes.
 AI-powered stem separation using Demucs and BS-Roformer. Upload any audio or video file, choose an engine and model, and split it into individual stems (vocals, drums, bass, other, guitar, piano). Automatic engine and model recommendation based on spectral analysis of your audio.
 
 ### Enhance
-Three-mode vocal enhancement. **Clean Up** applies UVR denoise, dereverb, or debleed via 8 curated presets across Roformer/MDXC/VR architectures. **Tune** applies auto-tune via CREPE neural pitch detection + custom TD-PSOLA resynthesis — choose key, scale, correction strength, and humanization. **Effects** is planned (custom DSP via scipy.signal). Batch mode supported for Clean Up.
+Three-mode vocal enhancement. **Clean Up** applies UVR denoise, dereverb, or debleed via 8 curated presets across Roformer/MDXC/VR architectures. **Tune** applies auto-tune via CREPE neural pitch detection + WORLD vocoder resynthesis — choose key, scale, correction strength, and humanization. **Effects** is planned (custom DSP via scipy.signal). Batch mode supported for Clean Up.
 
 ### MIDI
 Extract MIDI from separated stems. BasicPitch handles polyphonic instrument stems; faster-whisper + PYIN pitch tracking handles vocal melodies. Per-stem FluidSynth preview lets you audition MIDI renderings directly in the browser via wavesurfer.js.

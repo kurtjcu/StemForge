@@ -1,8 +1,8 @@
-"""Auto-tune pipeline — pitch correction via torchcrepe + custom TD-PSOLA.
+"""Auto-tune pipeline — pitch correction via torchcrepe + WORLD vocoder.
 
 Detects pitch with CREPE (neural F0 estimation), snaps to the nearest note
-in a user-chosen musical scale, then resynthesises with TD-PSOLA (numpy/scipy)
-to preserve formants and natural vocal quality.
+in a user-chosen musical scale, then resynthesises with the WORLD vocoder
+(pyworld) to preserve formants and natural vocal quality.
 """
 
 from __future__ import annotations
@@ -147,7 +147,7 @@ class AutotuneResult:
 # ---------------------------------------------------------------------------
 
 class AutotunePipeline:
-    """Pitch correction via CREPE detection + custom TD-PSOLA resynthesis."""
+    """Pitch correction via CREPE detection + WORLD vocoder resynthesis."""
 
     def __init__(self) -> None:
         self._config: AutotuneConfig | None = None
@@ -156,7 +156,7 @@ class AutotunePipeline:
         self._config = config
 
     def load_model(self) -> None:
-        """No-op — torchcrepe loads lazily, PSOLA is pure numpy."""
+        """No-op — torchcrepe and pyworld load lazily."""
         pass
 
     def run(
@@ -169,7 +169,7 @@ class AutotunePipeline:
         import torch
         import torchcrepe
 
-        from utils.psola import psola_pitch_shift
+        from utils.world_shift import world_pitch_shift
 
         cfg = self._config or AutotuneConfig()
         audio_path = pathlib.Path(audio_path)
@@ -259,19 +259,19 @@ class AutotunePipeline:
             corrected_f0[i] = 440.0 * 2 ** ((blended_midi - 69.0) / 12.0)
 
         if progress_cb:
-            progress_cb(0.55, "Applying PSOLA pitch correction...")
+            progress_cb(0.55, "Analysing with WORLD vocoder...")
 
-        # --- Resynthesis via custom TD-PSOLA ---
+        # --- Resynthesis via WORLD vocoder ---
         if progress_cb:
             progress_cb(0.70, "Resynthesising audio...")
 
-        result_audio = psola_pitch_shift(mono, sr, f0, corrected_f0, hop_size=hop_size)
+        result_audio = world_pitch_shift(mono, sr, f0, corrected_f0, hop_size=hop_size)
 
         if progress_cb:
             progress_cb(0.90, "Writing output...")
 
         if audio.ndim == 2:
-            result_audio_r = psola_pitch_shift(
+            result_audio_r = world_pitch_shift(
                 audio[:, 1], sr, f0, corrected_f0, hop_size=hop_size,
             )
             min_len = min(len(result_audio), len(result_audio_r))

@@ -90,7 +90,7 @@ Pitch-correct vocals using CREPE neural pitch detection and Praat TD-PSOLA resyn
 **Workflow:**
 1. Select a vocal stem from the dropdown.
 2. Set key, scale, correction strength, and humanize.
-3. Click **Process**. CREPE analyses the pitch contour, scale snapping is applied, and TD-PSOLA resynthesizes the corrected audio.
+3. Click **Process**. CREPE analyses the pitch contour, scale snapping is applied, and the WORLD vocoder resynthesizes the corrected audio.
 4. The tuned result appears as a playable waveform and is added to Mix and Export.
 
 ### Effects (coming soon)
