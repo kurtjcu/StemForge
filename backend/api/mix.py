@@ -99,6 +99,40 @@ async def add_midi_track(file: UploadFile = File(...)) -> dict:
     return {"track_id": track.track_id, "label": track.label}
 
 
+@router.post("/render-track/{track_id}")
+def render_track_preview(track_id: str) -> dict:
+    """Render a single MIDI track to audio for inline preview."""
+    track = session.get_track(track_id)
+    if not track:
+        raise HTTPException(404, f"Track '{track_id}' not found")
+    if track.source != "midi" or not track.midi_data:
+        raise HTTPException(400, "Track is not a MIDI track")
+
+    midi_data = copy.deepcopy(track.midi_data)
+    for inst in midi_data.instruments:
+        inst.program = track.program
+        inst.is_drum = track.is_drum
+
+    from backend.api.midi import _active_soundfont
+    sf2_kwargs = {"sf2_path": _active_soundfont} if _active_soundfont else {}
+    audio = midi_data.fluidsynth(fs=44100, **sf2_kwargs)
+    if audio is None or len(audio) == 0:
+        raise HTTPException(500, "FluidSynth render produced no audio")
+
+    from utils.audio_io import write_audio
+    _MIX_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = _MIX_UPLOAD_DIR / f"preview_{track_id}_{uuid.uuid4().hex[:6]}.wav"
+    waveform = audio.astype(np.float32)
+    if waveform.ndim == 1:
+        waveform = waveform[np.newaxis, :]
+    peak = np.abs(waveform).max()
+    if peak > 0:
+        waveform = waveform / peak * 0.9
+    write_audio(waveform, 44100, out_path)
+
+    return {"audio_path": str(out_path), "duration": len(audio) / 44100}
+
+
 def _run_mix_render(job_id: str) -> dict:
     """Render all enabled tracks to a single audio file."""
     progress_cb = job_manager.make_progress_callback(job_id)
@@ -133,7 +167,10 @@ def _run_mix_render(job_id: str) -> dict:
             for inst in midi_data.instruments:
                 inst.program = track.program
                 inst.is_drum = track.is_drum
-            audio = midi_data.fluidsynth(fs=sr)
+            # Use active soundfont from MIDI module if available
+            from backend.api.midi import _active_soundfont
+            sf2_kwargs = {"sf2_path": _active_soundfont} if _active_soundfont else {}
+            audio = midi_data.fluidsynth(fs=sr, **sf2_kwargs)
             if audio is not None and len(audio) > 0:
                 audio = audio.astype(np.float32)
                 peak = np.abs(audio).max()

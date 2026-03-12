@@ -474,8 +474,22 @@ function buildMidiCard(label, info) {
     if (ws) ws.setTime(0);
   });
 
-  // Re-render when instrument changes and audio was already rendered
+  // Re-render when instrument changes and audio was already rendered;
+  // also sync the instrument to the corresponding Mix track.
   instrumentSelect.addEventListener('change', () => {
+    const val = instrumentSelect.value;
+    const isDrum = val === 'drum';
+    const program = isDrum ? 0 : parseInt(val, 10);
+
+    // Update Mix track
+    const trackId = `midi-${label}`;
+    api('/mix/tracks', {
+      method: 'POST',
+      body: JSON.stringify({ track_id: trackId, program, is_drum: isDrum }),
+    }).then(() => {
+      appState.emit('midiInstrumentChanged', { label, program, is_drum: isDrum });
+    }).catch(() => { /* track may not exist yet */ });
+
     if (renderedUrl) {
       renderAndLoad(false);
     }

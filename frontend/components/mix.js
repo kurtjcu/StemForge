@@ -5,6 +5,11 @@
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
 
+/** GM program names — loaded from backend on init. */
+let _gmPrograms = [];
+let _gmDefaults = {};
+let _gmDrumStems = {};
+
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
@@ -201,6 +206,19 @@ export function initMix() {
   appState.on('sfxReady', () => refreshTracks());
   appState.on('transformReady', () => refreshTracks());
   appState.on('enhanceReady', () => refreshTracks());
+  appState.on('midiInstrumentChanged', () => refreshTracks());
+
+  // Load GM programs for instrument selectors
+  loadGmPrograms();
+}
+
+async function loadGmPrograms() {
+  try {
+    const data = await api('/midi/gm-programs');
+    _gmPrograms = data.programs || [];
+    _gmDefaults = data.defaults || {};
+    _gmDrumStems = data.drum_stems || {};
+  } catch { /* fail silently */ }
 }
 
 async function refreshTracks() {
@@ -307,6 +325,39 @@ async function refreshTracks() {
 
       container.appendChild(controlRow);
 
+      // ─── Instrument selector for MIDI tracks ───
+      if (track.source === 'midi' && _gmPrograms.length) {
+        const instrumentSelect = el('select', { className: 'midi-instrument-select' });
+        instrumentSelect.appendChild(el('option', { value: 'drum' }, 'Drum Kit'));
+        for (let i = 0; i < _gmPrograms.length; i++) {
+          instrumentSelect.appendChild(el('option', { value: String(i) }, `${i}: ${_gmPrograms[i]}`));
+        }
+        // Set current value from track state
+        if (track.is_drum) {
+          instrumentSelect.value = 'drum';
+        } else {
+          instrumentSelect.value = String(track.program);
+        }
+
+        const instrumentRow = el('div', { className: 'midi-instrument-row', style: { padding: '4px 12px' } },
+          el('label', { className: 'text-dim' }, 'Instrument:'),
+          instrumentSelect,
+        );
+        container.appendChild(instrumentRow);
+
+        instrumentSelect.addEventListener('change', async () => {
+          const val = instrumentSelect.value;
+          const isDrum = val === 'drum';
+          const program = isDrum ? 0 : parseInt(val, 10);
+          try {
+            await api('/mix/tracks', {
+              method: 'POST',
+              body: JSON.stringify({ track_id: track.track_id, program, is_drum: isDrum }),
+            });
+          } catch (err) { console.error('Failed to update instrument:', err); }
+        });
+      }
+
       // ─── Waveform player for audio/synth tracks ───
       if ((track.source === 'audio' || track.source === 'synth') && track.path) {
         const url = `/api/audio/stream?path=${encodeURIComponent(track.path)}`;
@@ -357,6 +408,92 @@ async function refreshTracks() {
           timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
         });
         ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+      }
+
+      // ─── Waveform player for MIDI tracks (render on demand) ───
+      if (track.source === 'midi') {
+        const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+        const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+        const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
+        const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+        const playerRow = el('div', { className: 'stem-card-header', style: { padding: '4px 12px 0', borderBottom: 'none' } },
+          el('div', { className: 'stem-actions' },
+            playBtn, stopBtn, rewindBtn, timeLabel,
+          ),
+        );
+
+        const waveContainer = el('div', { className: 'stem-waveform midi-waveform', style: { padding: '0 12px 8px' } });
+        const renderHint = el('div', { className: 'midi-render-hint text-dim' }, 'Press Play to render preview');
+        container.append(playerRow, waveContainer, renderHint);
+
+        let ws = null;
+        let renderedUrl = null;
+
+        const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id };
+        _players.push(player);
+
+        async function renderMidiTrack(autoplay) {
+          playBtn.disabled = true;
+          playBtn.textContent = 'Rendering...';
+          try {
+            const res = await api(`/mix/render-track/${track.track_id}`, { method: 'POST' });
+            renderedUrl = `/api/audio/stream?path=${encodeURIComponent(res.audio_path)}`;
+            renderHint.classList.add('hidden');
+
+            if (!ws) {
+              ws = createWaveform(waveContainer, { height: 40, color: 'midi' });
+              player.ws = ws;
+              ws.setVolume(track.volume);
+
+              ws.on('timeupdate', (time) => {
+                const dur = ws.getDuration();
+                timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+              });
+              ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
+            }
+
+            ws.load(renderedUrl);
+
+            if (autoplay) {
+              ws.once('ready', () => {
+                _stopOtherPlayers(ws);
+                ws.play();
+                playBtn.textContent = '\u23F8 Pause';
+              });
+            } else {
+              ws.once('ready', () => { playBtn.textContent = '\u25B6 Play'; });
+            }
+          } catch (err) {
+            console.error('MIDI render failed:', err);
+            playBtn.textContent = '\u25B6 Play';
+          } finally {
+            playBtn.disabled = false;
+          }
+        }
+
+        playBtn.addEventListener('click', () => {
+          if (!renderedUrl) {
+            renderMidiTrack(true);
+            return;
+          }
+          if (ws && ws.isPlaying()) {
+            ws.pause();
+            playBtn.textContent = '\u25B6 Play';
+          } else if (ws) {
+            _stopOtherPlayers(ws);
+            ws.play();
+            playBtn.textContent = '\u23F8 Pause';
+          }
+        });
+
+        stopBtn.addEventListener('click', () => {
+          if (ws) { ws.stop(); playBtn.textContent = '\u25B6 Play'; }
+        });
+
+        rewindBtn.addEventListener('click', () => {
+          if (ws) ws.setTime(0);
+        });
       }
 
       trackList.appendChild(container);

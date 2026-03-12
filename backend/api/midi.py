@@ -162,12 +162,21 @@ def _run_midi_extraction(
         stem_info[label] = {"note_count": note_count}
 
         track_id = f"midi-{label}"
+        lower = label.lower()
+        default_prog = next(
+            (v for k, v in STEM_DEFAULT_PROGRAM.items() if k in lower), 0
+        )
+        default_drum = any(
+            k.lower() in lower for k in STEM_IS_DRUM
+        )
         if not session.get_track(track_id):
             session.add_track(TrackState(
                 track_id=track_id,
                 label=f"{label.replace('_', ' ').title()} (MIDI)",
                 source="midi",
                 midi_data=midi_data,
+                program=default_prog,
+                is_drum=default_drum,
             ))
 
     return {
