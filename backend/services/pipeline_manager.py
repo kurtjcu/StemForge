@@ -56,6 +56,10 @@ def _get_or_create(name: str) -> Any:
             from pipelines.autotune_pipeline import AutotunePipeline
             _pipelines[name] = AutotunePipeline()
 
+        elif name == "effects":
+            from pipelines.effects_pipeline import EffectsPipeline
+            _pipelines[name] = EffectsPipeline()
+
         else:
             raise ValueError(f"Unknown pipeline: {name!r}")
 
@@ -88,6 +92,10 @@ def get_enhance() -> Any:
 
 def get_autotune() -> Any:
     return _get_or_create("autotune")
+
+
+def get_effects() -> Any:
+    return _get_or_create("effects")
 
 
 def evict(name: str) -> None:

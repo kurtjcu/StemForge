@@ -19,7 +19,7 @@ Additional systems:
 - **Enhance** — three-mode vocal enhancement tab:
   - **Clean Up** — UVR denoise, dereverb, debleed via vendored `python-audio-separator` fork (8 curated presets across Roformer/MDXC/VR architectures)
   - **Tune** — auto-tune via CREPE neural pitch detection (`torchcrepe`) + selectable resynthesis method: WORLD vocoder (`pyworld`, best on lossless audio) or STFT phase vocoder with formant preservation (`stftpitchshift`, better on compressed/MP3); scale snapping with correction strength and humanization controls
-  - **Effects** — stub for future scipy.signal DSP effects chain (Phase 2)
+  - **Effects** — per-stem channel strip with 4 effect types (EQ, Compressor, Noise Gate, Stereo Width), each offering DSP and/or ML methods: 3-band parametric EQ (`scipy.signal`), DSP/LA-2A neural compressor (`vendor/micro_tcn`, Apache 2.0), DSP/Spectral (`torchgating`)/DeepFilterNet(disabled, numpy<2.0 conflict) noise gate, Mid/Side stereo width
 - **Model registry** (`models/registry.py`) — frozen `ModelSpec` descriptors for all models; single source of truth for device rules, sample rates, capabilities, metadata, and pipeline defaults
 - **Audio profiler** (`utils/audio_profile.py`) — spectral analysis that recommends the best engine/model for a given audio file
 - **Mix engine** — multi-track mixer combining audio stems and MIDI-rendered tracks with per-track instrument, volume, and FLAC render
@@ -112,6 +112,7 @@ StemForge/
 ├── pipelines/                      # All pipeline logic
 │   ├── enhance_pipeline.py         # UVR denoise/dereverb via audio-separator
 │   ├── autotune_pipeline.py        # CREPE pitch detection + WORLD/STFT resynthesis
+│   ├── effects_pipeline.py        # Effects chain (EQ, compressor, gate, stereo width)
 │   ├── demucs_pipeline.py
 │   ├── roformer_pipeline.py
 │   ├── midi_pipeline.py
@@ -162,7 +163,7 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 |---|---|
 | `job_manager.py` | `JobManager` — background thread runner, UUID-based job store, progress callback bridge |
 | `session_store.py` | `SessionStore` — thread-safe singleton replacing old `AppState`; holds audio/stem/MIDI/mix/compose state |
-| `pipeline_manager.py` | Lazy-loaded pipeline singletons with GPU memory lock; `get_demucs()`, `get_roformer()`, etc. |
+| `pipeline_manager.py` | Lazy-loaded pipeline singletons with GPU memory lock; `get_demucs()`, `get_roformer()`, `get_effects()`, etc. |
 | `acestep_state.py` | Thread-safe AceStep subprocess status: disabled / starting / running / crashed |
 
 ### API Endpoints (`backend/api/`)
@@ -256,6 +257,8 @@ utils/  →  models/  →  pipelines/  →  backend/services/  →  backend/api/
 | POST | /api/enhance/batch/save-all | sync | Zip batch enhancement results for download |
 | GET | /api/enhance/autotune-options | sync | Available keys and scales for auto-tune |
 | POST | /api/enhance/autotune | job | Start auto-tune (CREPE + WORLD/STFT pitch correction) |
+| GET | /api/enhance/effects-options | sync | Effects chain schema (types, methods, params) |
+| POST | /api/enhance/effects | job | Start effects chain (EQ, compressor, gate, stereo width) |
 | POST | /api/export | job | Start export |
 | POST | /api/export/download-zip | sync | Zip download |
 

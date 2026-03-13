@@ -19,6 +19,7 @@ from pipelines.autotune_pipeline import (
     NOTE_NAMES, SCALES, SCALE_LABELS, AutotuneConfig,
     AUTOTUNE_METHODS, AUTOTUNE_METHOD_LABELS,
 )
+from pipelines.effects_pipeline import EffectsConfig, EffectSlot
 from utils.paths import ENHANCE_DIR, STEMS_DIR
 
 router = APIRouter(prefix="/api/enhance", tags=["enhance"])
@@ -47,6 +48,11 @@ class AutotuneRequest(BaseModel):
     correction_strength: float = 0.8  # 0.0–1.0
     humanize: float = 0.15            # 0.0–1.0
     method: str = "world_fast"       # "world_fast", "world", or "stft"
+
+
+class EffectsRequest(BaseModel):
+    stem_path: str
+    chain: list[dict]  # [{type, method, bypass, params}, ...]
 
 
 @router.get("/presets")
@@ -349,4 +355,178 @@ def start_autotune(req: AutotuneRequest) -> dict:
         req.key, req.scale, req.correction_strength, req.humanize,
         req.method,
     )
+    return {"job_id": job_id}
+
+
+# ─── Effects chain ─────────────────────────────────────────────────────
+
+_VALID_EFFECTS = {"eq", "compressor", "gate", "stereo_width"}
+_VALID_METHODS = {
+    "eq": {"dsp"},
+    "compressor": {"dsp", "la2a"},
+    "gate": {"dsp", "spectral", "deepfilter"},
+    "stereo_width": {"dsp"},
+}
+
+
+@router.get("/effects-options")
+def get_effects_options() -> dict:
+    """Return the full schema of effects, methods, and parameter ranges."""
+    import torch
+    has_gpu = torch.cuda.is_available()
+
+    # Check if deepfilternet is available
+    has_deepfilter = False
+    try:
+        import df  # noqa: F401
+        has_deepfilter = True
+    except ImportError:
+        pass
+
+    return {
+        "effects": [
+            {
+                "type": "eq",
+                "label": "Parametric EQ",
+                "methods": [{"key": "dsp", "label": "3-Band Parametric"}],
+                "params": {
+                    "low_gain": {"label": "Low Gain", "unit": "dB", "min": -12, "max": 12, "default": 0, "step": 0.5},
+                    "low_freq": {"label": "Low Freq", "unit": "Hz", "min": 20, "max": 500, "default": 100, "step": 10},
+                    "mid_gain": {"label": "Mid Gain", "unit": "dB", "min": -12, "max": 12, "default": 0, "step": 0.5},
+                    "mid_freq": {"label": "Mid Freq", "unit": "Hz", "min": 200, "max": 8000, "default": 1000, "step": 50},
+                    "mid_q": {"label": "Mid Q", "unit": "", "min": 0.1, "max": 10, "default": 1.0, "step": 0.1},
+                    "high_gain": {"label": "High Gain", "unit": "dB", "min": -12, "max": 12, "default": 0, "step": 0.5},
+                    "high_freq": {"label": "High Freq", "unit": "Hz", "min": 2000, "max": 20000, "default": 8000, "step": 100},
+                },
+            },
+            {
+                "type": "compressor",
+                "label": "Compressor",
+                "methods": [
+                    {"key": "dsp", "label": "DSP Compressor"},
+                    {"key": "la2a", "label": "LA-2A (Neural)"},
+                ],
+                "params_by_method": {
+                    "dsp": {
+                        "threshold_db": {"label": "Threshold", "unit": "dB", "min": -60, "max": 0, "default": -20, "step": 1},
+                        "ratio": {"label": "Ratio", "unit": ":1", "min": 1, "max": 20, "default": 4, "step": 0.5},
+                        "attack_ms": {"label": "Attack", "unit": "ms", "min": 0.1, "max": 100, "default": 10, "step": 0.5},
+                        "release_ms": {"label": "Release", "unit": "ms", "min": 10, "max": 1000, "default": 100, "step": 10},
+                        "makeup_db": {"label": "Makeup Gain", "unit": "dB", "min": 0, "max": 24, "default": 0, "step": 0.5},
+                    },
+                    "la2a": {
+                        "peak_reduction": {"label": "Peak Reduction", "unit": "%", "min": 0, "max": 100, "default": 50, "step": 1},
+                        "gain": {"label": "Gain", "unit": "%", "min": 0, "max": 100, "default": 50, "step": 1},
+                    },
+                },
+            },
+            {
+                "type": "gate",
+                "label": "Noise Gate",
+                "methods": [
+                    {"key": "dsp", "label": "Threshold Gate"},
+                    {"key": "spectral", "label": "Spectral Gate (GPU)", "requires_gpu": True, "disabled": not has_gpu},
+                    {"key": "deepfilter", "label": "DeepFilterNet (Vocals)", "vocals_only": True, "disabled": not has_deepfilter},
+                ],
+                "params_by_method": {
+                    "dsp": {
+                        "threshold_db": {"label": "Threshold", "unit": "dB", "min": -80, "max": 0, "default": -40, "step": 1},
+                        "attack_ms": {"label": "Attack", "unit": "ms", "min": 0.1, "max": 50, "default": 1, "step": 0.5},
+                        "hold_ms": {"label": "Hold", "unit": "ms", "min": 1, "max": 500, "default": 50, "step": 5},
+                        "release_ms": {"label": "Release", "unit": "ms", "min": 10, "max": 1000, "default": 100, "step": 10},
+                    },
+                    "spectral": {
+                        "stationary": {"label": "Stationary", "type": "bool", "default": True},
+                        "threshold_scale": {"label": "Threshold Scale", "unit": "", "min": 0.5, "max": 5.0, "default": 1.5, "step": 0.1},
+                    },
+                    "deepfilter": {
+                        "atten_lim_db": {"label": "Max Attenuation", "unit": "dB", "min": 0, "max": 100, "default": 100, "step": 5},
+                    },
+                },
+            },
+            {
+                "type": "stereo_width",
+                "label": "Stereo Width",
+                "methods": [{"key": "dsp", "label": "Mid/Side"}],
+                "params": {
+                    "width": {"label": "Width", "unit": "%", "min": 0, "max": 200, "default": 100, "step": 5},
+                },
+            },
+        ],
+    }
+
+
+def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict]) -> dict:
+    """Background job: run effects chain pipeline."""
+    progress_cb = job_manager.make_progress_callback(job_id)
+
+    path = pathlib.Path(stem_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Audio file not found: {stem_path}")
+
+    # Convert dicts to EffectSlot objects
+    chain = []
+    for d in chain_dicts:
+        chain.append(EffectSlot(
+            effect_type=d["type"],
+            method=d.get("method", "dsp"),
+            bypass=d.get("bypass", False),
+            params=d.get("params", {}),
+        ))
+
+    pipeline = pipeline_manager.get_effects()
+    pipeline.configure(EffectsConfig(chain=chain, output_dir=ENHANCE_DIR))
+
+    result = pipeline.run(path, progress_cb=progress_cb)
+
+    # Store in session
+    label = f"{path.stem} (FX: {result.chain_summary})"
+    session.add_enhance_path(label, result.output_path)
+
+    # Add as mix track
+    track = TrackState(
+        track_id=uuid.uuid4().hex[:8],
+        label=f"Enhanced: {label}",
+        source="audio",
+        path=result.output_path,
+    )
+    session.add_track(track)
+
+    return {
+        "output_path": str(result.output_path),
+        "label": label,
+        "chain_summary": result.chain_summary,
+        "stem_path": stem_path,
+    }
+
+
+@router.post("/effects")
+def start_effects(req: EffectsRequest) -> dict:
+    """Start an effects chain job."""
+    # Validate chain
+    if not req.chain:
+        raise HTTPException(400, "Empty effects chain")
+
+    for i, slot in enumerate(req.chain):
+        etype = slot.get("type")
+        if etype not in _VALID_EFFECTS:
+            raise HTTPException(400, f"Slot {i}: unknown effect type '{etype}'")
+        method = slot.get("method", "dsp")
+        if method not in _VALID_METHODS.get(etype, set()):
+            raise HTTPException(400, f"Slot {i}: invalid method '{method}' for effect '{etype}'")
+
+    # Validate path
+    path = pathlib.Path(req.stem_path)
+    if not path.exists():
+        raise HTTPException(404, f"Audio file not found: {req.stem_path}")
+
+    resolved = path.resolve()
+    allowed_roots = [STEMS_DIR.resolve(), ENHANCE_DIR.resolve()]
+    if session.audio_path:
+        allowed_roots.append(session.audio_path.resolve().parent)
+    if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+        raise HTTPException(403, "Path not within allowed directories")
+
+    job_id = job_manager.create_job("effects")
+    job_manager.run_job(job_id, _run_effects, job_id, req.stem_path, req.chain)
     return {"job_id": job_id}

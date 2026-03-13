@@ -287,11 +287,41 @@ export function initEnhance() {
   );
 
   // ═══════════════════════════════════════════════════════════════════
-  // EFFECTS mode elements (stub)
+  // EFFECTS mode elements
   // ═══════════════════════════════════════════════════════════════════
 
+  const fxStemLabel = el('label', { className: 'field-label' }, 'Source Audio');
+  const fxStemSelect = el('select', { id: 'enhance-stem-effects', className: 'select' });
+  const fxSingleFileInput = el('input', { type: 'file', accept: 'audio/*,.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' }, id: 'enhance-single-input-effects' });
+  const fxStemGroup = el('div', { className: 'field-group', style: { marginBottom: '12px' } },
+    fxStemLabel, fxStemSelect, fxSingleFileInput,
+  );
+
+  const fxProcessBtn = el('button', {
+    className: 'btn btn-primary',
+    id: 'enhance-process-effects',
+    disabled: 'true',
+  }, 'Process');
+
+  const fxControlRow = el('div', {
+    style: { display: 'flex', gap: '12px', alignItems: 'flex-start' },
+  },
+    el('div', { style: { flex: '1' } }, fxStemGroup),
+    el('div', { style: { paddingTop: '22px' } }, fxProcessBtn),
+  );
+
+  const fxChainContainer = el('div', { className: 'fx-chain', id: 'enhance-fx-chain' });
+
+  const fxProgress = _makeProgressCard('enhance-effects');
+
+  const fxOriginal = el('div', { id: 'enhance-original-effects', style: { display: 'none', marginTop: '16px' } },
+    el('div', { className: 'section-title', style: { fontSize: '13px', marginBottom: '6px' } }, 'Original'),
+  );
+
+  const fxResults = el('div', { id: 'enhance-results-effects', style: { marginTop: '16px' } });
+
   const effectsPanel = el('div', { id: 'enhance-panel-effects', style: { display: 'none' } },
-    el('div', { className: 'banner banner-info' }, 'Effects chain (EQ, compression, limiting, chorus, delay) \u2014 coming soon.'),
+    fxControlRow, fxChainContainer, fxProgress, fxOriginal, fxResults,
   );
 
   // ─── Assemble ───
@@ -301,6 +331,7 @@ export function initEnhance() {
   loadPresets();
   refreshStems();
   loadAutotuneOptions();
+  loadEffectsOptions();
 
   // ─── Wire Clean Up events ───
   cleanupProcessBtn.addEventListener('click', () => {
@@ -394,6 +425,35 @@ export function initEnhance() {
     atHumanizeLabel.textContent = `${atHumanizeSlider.value}%`;
   });
 
+  // ─── Wire Effects events ───
+  fxProcessBtn.addEventListener('click', startEffects);
+
+  fxStemSelect.addEventListener('change', () => {
+    if (fxStemSelect.value === '__browse__') {
+      fxSingleFileInput.click();
+      fxStemSelect.value = '';
+      return;
+    }
+    updateOriginalPreview('effects');
+    fxProcessBtn.disabled = !fxStemSelect.value;
+  });
+
+  fxSingleFileInput.addEventListener('change', async () => {
+    if (!fxSingleFileInput.files.length) return;
+    const file = fxSingleFileInput.files[0];
+    fxSingleFileInput.value = '';
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+      const data = await (await fetch('/api/upload', { method: 'POST', body: formData })).json();
+      if (data.path) {
+        await refreshStems();
+        fxStemSelect.value = data.path;
+        fxStemSelect.dispatchEvent(new Event('change'));
+      }
+    } catch { /* ignore */ }
+  });
+
   // ─── Listen for stems becoming available ───
   appState.on('stemsReady', () => refreshStems());
   appState.on('fileLoaded', () => refreshStems());
@@ -418,8 +478,8 @@ function switchEnhanceMode(mode) {
   document.getElementById('enhance-panel-tune').style.display = mode === 'tune' ? '' : 'none';
   document.getElementById('enhance-panel-effects').style.display = mode === 'effects' ? '' : 'none';
 
-  // Refresh stems when switching to Tune (picks up new Clean Up results)
-  if (mode === 'tune') refreshStems();
+  // Refresh stems when switching to Tune or Effects (picks up new Clean Up results)
+  if (mode === 'tune' || mode === 'effects') refreshStems();
 }
 
 // ─── Batch mode toggle ──────────────────────────────────────────────
@@ -572,7 +632,7 @@ async function refreshStems() {
     const stems = data.stems || [];
 
     // Populate both stem selects
-    for (const selectId of ['enhance-stem', 'enhance-stem-tune']) {
+    for (const selectId of ['enhance-stem', 'enhance-stem-tune', 'enhance-stem-effects']) {
       const select = document.getElementById(selectId);
       if (!select) continue;
       const prevValue = select.value;
@@ -621,23 +681,33 @@ async function refreshStems() {
       tuneBtn.disabled = !tuneStem.value || tuneStem.value === '__browse__';
     }
 
+    const fxBtn = document.getElementById('enhance-process-effects');
+    const fxStem = document.getElementById('enhance-stem-effects');
+    if (fxBtn) {
+      fxBtn.disabled = !fxStem.value || fxStem.value === '__browse__';
+    }
+
     // Update original preview for whichever mode is active
     if (_currentEnhanceMode === 'cleanup' && !_batchMode) {
       updateOriginalPreview('cleanup');
     } else if (_currentEnhanceMode === 'tune') {
       updateOriginalPreview('tune');
+    } else if (_currentEnhanceMode === 'effects') {
+      updateOriginalPreview('effects');
     }
   } catch { /* ignore */ }
 }
 
 // ─── Original preview (per-mode) ────────────────────────────────────
 
-const _originalPlayers = { cleanup: null, tune: null };
-const _originalPeaks = { cleanup: null, tune: null };
+const _originalPlayers = { cleanup: null, tune: null, effects: null };
+const _originalPeaks = { cleanup: null, tune: null, effects: null };
 
 function updateOriginalPreview(mode) {
-  const selectId = mode === 'tune' ? 'enhance-stem-tune' : 'enhance-stem';
-  const sectionId = mode === 'tune' ? 'enhance-original-tune' : 'enhance-original-cleanup';
+  const selectId = mode === 'effects' ? 'enhance-stem-effects'
+    : mode === 'tune' ? 'enhance-stem-tune' : 'enhance-stem';
+  const sectionId = mode === 'effects' ? 'enhance-original-effects'
+    : mode === 'tune' ? 'enhance-original-tune' : 'enhance-original-cleanup';
   const select = document.getElementById(selectId);
   const section = document.getElementById(sectionId);
   const stemPath = select?.value;
@@ -663,7 +733,8 @@ function updateOriginalPreview(mode) {
 
   const url = `/api/audio/stream?path=${encodeURIComponent(stemPath)}`;
   const label = select.options[select.selectedIndex]?.text || 'Original';
-  const source = mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
+  const source = mode === 'effects' ? 'Enhance \u203A Effects'
+    : mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
   const { card } = _createPlayer(`Original: ${label}`, url, stemPath, source);
   section.appendChild(card);
   _originalPlayers[mode] = _players[_players.length - 1];
@@ -810,11 +881,14 @@ function _ensureClearAllBtn(resultsSection, clearBtnId) {
 }
 
 async function showResult(result, mode) {
-  const resultsSectionId = mode === 'tune' ? 'enhance-results-tune' : 'enhance-results-cleanup';
-  const clearBtnId = mode === 'tune' ? 'enhance-clear-all-tune' : 'enhance-clear-all-cleanup';
+  const resultsSectionId = mode === 'effects' ? 'enhance-results-effects'
+    : mode === 'tune' ? 'enhance-results-tune' : 'enhance-results-cleanup';
+  const clearBtnId = mode === 'effects' ? 'enhance-clear-all-effects'
+    : mode === 'tune' ? 'enhance-clear-all-tune' : 'enhance-clear-all-cleanup';
   const resultsSection = document.getElementById(resultsSectionId);
   const outputUrl = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
-  const source = mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
+  const source = mode === 'effects' ? 'Enhance \u203A Effects'
+    : mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
 
   // Update appState for export tab
   appState.enhancePaths = appState.enhancePaths || {};
@@ -1070,4 +1144,219 @@ function _appendBatchCard(container, r) {
   if (actions) actions.appendChild(closeBtn);
 
   container.appendChild(card);
+}
+
+// ─── Effects chain UI ────────────────────────────────────────────────
+
+let _effectsSchema = null;
+
+async function loadEffectsOptions() {
+  try {
+    const data = await api('/enhance/effects-options');
+    _effectsSchema = data.effects || [];
+    buildEffectsChain();
+  } catch (err) {
+    console.error('Failed to load effects options:', err);
+  }
+}
+
+function buildEffectsChain() {
+  const container = document.getElementById('enhance-fx-chain');
+  if (!container || !_effectsSchema) return;
+  clearChildren(container);
+
+  for (const effectDef of _effectsSchema) {
+    container.appendChild(buildEffectCard(effectDef));
+  }
+}
+
+function buildEffectCard(effectDef) {
+  const card = el('div', { className: 'fx-card', 'data-effect-type': effectDef.type });
+
+  // Bypass checkbox
+  const bypassCb = el('input', { type: 'checkbox', className: 'fx-bypass', title: 'Enable' });
+  bypassCb.checked = true;  // enabled by default
+
+  // Method selector (if multiple methods)
+  const methods = effectDef.methods || [];
+  let methodSelect = null;
+  if (methods.length > 1) {
+    methodSelect = el('select', { className: 'select fx-method-select' });
+    for (const m of methods) {
+      const opt = el('option', { value: m.key }, m.label);
+      if (m.disabled) opt.disabled = true;
+      methodSelect.appendChild(opt);
+    }
+  }
+
+  // Collapse chevron
+  const chevron = el('span', { className: 'fx-chevron', title: 'Collapse' }, '\u25BC');
+
+  // Header
+  const headerLeft = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
+    bypassCb,
+    el('span', { className: 'fx-card-title' }, effectDef.label),
+  );
+  const headerRight = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+  if (methodSelect) headerRight.appendChild(methodSelect);
+  headerRight.appendChild(chevron);
+
+  const header = el('div', { className: 'fx-card-header' }, headerLeft, headerRight);
+
+  // Body — parameter sliders
+  const body = el('div', { className: 'fx-card-body' });
+  const currentMethod = methods.length > 0 ? methods[0].key : 'dsp';
+  rebuildParams(body, effectDef, currentMethod);
+
+  card.append(header, body);
+
+  // Events
+  bypassCb.addEventListener('change', () => {
+    card.classList.toggle('bypassed', !bypassCb.checked);
+  });
+
+  chevron.addEventListener('click', () => {
+    card.classList.toggle('collapsed');
+    chevron.textContent = card.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
+  });
+
+  if (methodSelect) {
+    methodSelect.addEventListener('change', () => {
+      rebuildParams(body, effectDef, methodSelect.value);
+    });
+  }
+
+  return card;
+}
+
+function rebuildParams(bodyEl, effectDef, method) {
+  clearChildren(bodyEl);
+
+  // Get params for this method
+  let params;
+  if (effectDef.params_by_method) {
+    params = effectDef.params_by_method[method] || {};
+  } else {
+    params = effectDef.params || {};
+  }
+
+  for (const [key, spec] of Object.entries(params)) {
+    if (spec.type === 'bool') {
+      // Boolean toggle
+      const cb = el('input', {
+        type: 'checkbox',
+        'data-param': key,
+      });
+      cb.checked = spec.default !== false;
+      const row = el('div', { className: 'fx-param-row' },
+        el('label', { className: 'fx-param-label' }, spec.label),
+        cb,
+      );
+      bodyEl.appendChild(row);
+    } else {
+      // Numeric slider
+      const slider = el('input', {
+        type: 'range',
+        'data-param': key,
+        min: String(spec.min),
+        max: String(spec.max),
+        value: String(spec.default),
+        step: String(spec.step),
+        style: { flex: '1' },
+      });
+      const valueDisplay = el('span', { className: 'fx-param-value' },
+        `${spec.default}${spec.unit || ''}`);
+
+      slider.addEventListener('input', () => {
+        valueDisplay.textContent = `${parseFloat(slider.value)}${spec.unit || ''}`;
+      });
+
+      const row = el('div', { className: 'fx-param-row' },
+        el('label', { className: 'fx-param-label' }, spec.label),
+        slider,
+        valueDisplay,
+      );
+      bodyEl.appendChild(row);
+    }
+  }
+}
+
+function collectChain() {
+  const container = document.getElementById('enhance-fx-chain');
+  if (!container) return [];
+
+  const chain = [];
+  for (const card of container.querySelectorAll('.fx-card')) {
+    const effectType = card.dataset.effectType;
+    const bypassCb = card.querySelector('.fx-bypass');
+    const methodSelect = card.querySelector('.fx-method-select');
+    const method = methodSelect ? methodSelect.value : 'dsp';
+    const bypass = bypassCb ? !bypassCb.checked : false;
+
+    const params = {};
+    for (const input of card.querySelectorAll('[data-param]')) {
+      const key = input.dataset.param;
+      if (input.type === 'checkbox') {
+        params[key] = input.checked;
+      } else {
+        params[key] = parseFloat(input.value);
+      }
+    }
+
+    chain.push({ type: effectType, method, bypass, params });
+  }
+  return chain;
+}
+
+async function startEffects() {
+  const stemPath = document.getElementById('enhance-stem-effects').value;
+  if (!stemPath) return;
+
+  const chain = collectChain();
+  const hasActive = chain.some(s => !s.bypass);
+  if (!hasActive) {
+    document.getElementById('enhance-results-effects').appendChild(
+      el('div', { className: 'banner banner-warn' }, 'All effects are bypassed. Enable at least one effect.'),
+    );
+    return;
+  }
+
+  const processBtn = document.getElementById('enhance-process-effects');
+  const progressCard = document.getElementById('enhance-effects-progress');
+
+  processBtn.disabled = true;
+  _resetProgress('enhance-effects');
+  progressCard.classList.remove('hidden');
+
+  try {
+    const { job_id } = await api('/enhance/effects', {
+      method: 'POST',
+      body: JSON.stringify({ stem_path: stemPath, chain }),
+    });
+
+    pollJob(job_id, {
+      onProgress(progress, stage) {
+        _updateProgress('enhance-effects', progress, stage);
+      },
+      onDone(result) {
+        progressCard.classList.add('hidden');
+        processBtn.disabled = false;
+        showResult(result, 'effects');
+        appState.emit('enhanceReady', result);
+        // Auto-load into transport bar
+        const url = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
+        transportLoad(url, `Enhanced: ${result.label}`, false, 'Enhance \u203A Effects');
+      },
+      onError(msg) {
+        progressCard.classList.add('hidden');
+        processBtn.disabled = false;
+        document.getElementById('enhance-results-effects').appendChild(
+          el('div', { className: 'banner banner-error' }, `Effects processing failed: ${msg}`),
+        );
+      },
+    });
+  } catch {
+    progressCard.classList.add('hidden');
+    processBtn.disabled = false;
+  }
 }

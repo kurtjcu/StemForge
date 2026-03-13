@@ -117,6 +117,12 @@ dependencies = [
     # Auto-tune — WORLD vocoder for pitch-corrected resynthesis
     "pyworld>=0.3.0",
 
+    # Effects chain — spectral noise gate
+    "torchgating>=0.1.3b0",
+    # NOTE: deepfilternet requires numpy<2.0 — incompatible with our numpy>=2.0.
+    # DeepFilterNet gate method is disabled at runtime; imported lazily with a
+    # clear error if the user tries to select it.
+
     # Audio playback / MIDI render
     "pyfluidsynth>=1.3.4",
 
