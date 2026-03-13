@@ -2264,7 +2264,9 @@ input[type="range"]::-moz-range-track {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  cursor: default;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
 }
 
 .fx-card-title {
@@ -2274,14 +2276,15 @@ input[type="range"]::-moz-range-track {
 }
 
 .fx-chevron {
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: 13px;
+  color: var(--accent-dim);
   user-select: none;
   transition: color 0.15s;
+  width: 20px;
+  text-align: center;
 }
-.fx-chevron:hover {
-  color: var(--text);
+.fx-card-header:hover .fx-chevron {
+  color: var(--accent);
 }
 
 .fx-bypass {
@@ -2305,22 +2308,112 @@ input[type="range"]::-moz-range-track {
 .fx-param-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  min-height: 32px;
 }
 
 .fx-param-label {
-  min-width: 120px;
+  min-width: 130px;
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text);
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.fx-slider-track {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fx-slider-track input[type="range"] {
+  flex: 1;
+}
+
+.fx-scale-label {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: #fbbf24;
+  min-width: 32px;
   flex-shrink: 0;
 }
 
-.fx-param-value {
-  min-width: 60px;
-  text-align: right;
+.fx-scale-label:first-child { text-align: right; }
+.fx-scale-label:last-child  { text-align: left; }
+
+.fx-lock-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.fx-lock-btn:hover { opacity: 0.8; }
+.fx-param-row.locked .fx-lock-btn { opacity: 1; }
+
+.fx-reset-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
   font-size: 12px;
-  font-family: var(--font-mono);
+  padding: 1px 4px;
+  line-height: 1;
+  color: var(--text-dim);
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.fx-reset-btn:hover {
   color: var(--text);
+  border-color: var(--text-dim);
+}
+.fx-param-row.locked .fx-reset-btn {
+  opacity: 0.2;
+  cursor: default;
+  pointer-events: none;
+}
+
+.fx-reset-all-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.fx-reset-all-btn:hover {
+  color: var(--text);
+  border-color: var(--text-dim);
+}
+
+.fx-param-row.locked {
+  opacity: 0.6;
+}
+.fx-param-row.locked .fx-param-label {
+  color: var(--text-dim);
+}
+.fx-param-row.locked input[type="range"] {
+  pointer-events: none;
+  filter: grayscale(1);
+}
+
+.fx-param-value {
+  min-width: 64px;
+  text-align: right;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: #fbbf24;
+  font-weight: 600;
 }
 
 .sfx-timeline-playhead {

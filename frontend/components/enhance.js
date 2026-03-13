@@ -1171,7 +1171,7 @@ function buildEffectsChain() {
 }
 
 function buildEffectCard(effectDef) {
-  const card = el('div', { className: 'fx-card', 'data-effect-type': effectDef.type });
+  const card = el('div', { className: 'fx-card collapsed', 'data-effect-type': effectDef.type });
 
   // Bypass checkbox
   const bypassCb = el('input', { type: 'checkbox', className: 'fx-bypass', title: 'Enable' });
@@ -1189,8 +1189,21 @@ function buildEffectCard(effectDef) {
     }
   }
 
-  // Collapse chevron
-  const chevron = el('span', { className: 'fx-chevron', title: 'Collapse' }, '\u25BC');
+  // Collapse chevron (starts collapsed)
+  const chevron = el('span', { className: 'fx-chevron', title: 'Expand' }, '\u25B6');
+
+  // Reset All button
+  const resetAllBtn = el('button', {
+    className: 'fx-reset-all-btn',
+    title: 'Reset all unlocked params to defaults',
+    onClick: (e) => {
+      e.stopPropagation();
+      for (const row of body.querySelectorAll('.fx-param-row:not(.locked)')) {
+        const resetBtn = row.querySelector('.fx-reset-btn');
+        if (resetBtn) resetBtn.click();
+      }
+    },
+  }, '\u21BA Reset');
 
   // Header
   const headerLeft = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
@@ -1198,6 +1211,7 @@ function buildEffectCard(effectDef) {
     el('span', { className: 'fx-card-title' }, effectDef.label),
   );
   const headerRight = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } });
+  headerRight.appendChild(resetAllBtn);
   if (methodSelect) headerRight.appendChild(methodSelect);
   headerRight.appendChild(chevron);
 
@@ -1215,7 +1229,9 @@ function buildEffectCard(effectDef) {
     card.classList.toggle('bypassed', !bypassCb.checked);
   });
 
-  chevron.addEventListener('click', () => {
+  // Clicking anywhere on the header toggles collapse, except interactive controls
+  header.addEventListener('click', (e) => {
+    if (e.target.closest('input, select, button')) return;
     card.classList.toggle('collapsed');
     chevron.textContent = card.classList.contains('collapsed') ? '\u25B6' : '\u25BC';
   });
@@ -1248,7 +1264,22 @@ function rebuildParams(bodyEl, effectDef, method) {
         'data-param': key,
       });
       cb.checked = spec.default !== false;
+
+      const resetBtn = el('button', { className: 'fx-reset-btn', title: 'Reset to default' }, '\u21BA');
+      resetBtn.addEventListener('click', () => {
+        if (row.classList.contains('locked')) return;
+        cb.checked = spec.default !== false;
+      });
+
+      const lockBtn = el('button', { className: 'fx-lock-btn', title: 'Lock value' }, '\uD83D\uDD13');
+      lockBtn.addEventListener('click', () => {
+        const locked = row.classList.toggle('locked');
+        lockBtn.textContent = locked ? '\uD83D\uDD12' : '\uD83D\uDD13';
+        cb.disabled = locked;
+      });
+
       const row = el('div', { className: 'fx-param-row' },
+        lockBtn, resetBtn,
         el('label', { className: 'fx-param-label' }, spec.label),
         cb,
       );
@@ -1262,7 +1293,6 @@ function rebuildParams(bodyEl, effectDef, method) {
         max: String(spec.max),
         value: String(spec.default),
         step: String(spec.step),
-        style: { flex: '1' },
       });
       const valueDisplay = el('span', { className: 'fx-param-value' },
         `${spec.default}${spec.unit || ''}`);
@@ -1271,9 +1301,29 @@ function rebuildParams(bodyEl, effectDef, method) {
         valueDisplay.textContent = `${parseFloat(slider.value)}${spec.unit || ''}`;
       });
 
+      const minLabel = el('span', { className: 'fx-scale-label' }, String(spec.min));
+      const maxLabel = el('span', { className: 'fx-scale-label' }, String(spec.max));
+
+      const resetBtn = el('button', { className: 'fx-reset-btn', title: 'Reset to default' }, '\u21BA');
+      resetBtn.addEventListener('click', () => {
+        if (row.classList.contains('locked')) return;
+        slider.value = spec.default;
+        valueDisplay.textContent = `${spec.default}${spec.unit || ''}`;
+      });
+
+      const lockBtn = el('button', { className: 'fx-lock-btn', title: 'Lock value' }, '\uD83D\uDD13');
+      lockBtn.addEventListener('click', () => {
+        const locked = row.classList.toggle('locked');
+        lockBtn.textContent = locked ? '\uD83D\uDD12' : '\uD83D\uDD13';
+        slider.disabled = locked;
+      });
+
       const row = el('div', { className: 'fx-param-row' },
+        lockBtn, resetBtn,
         el('label', { className: 'fx-param-label' }, spec.label),
-        slider,
+        el('div', { className: 'fx-slider-track' },
+          minLabel, slider, maxLabel,
+        ),
         valueDisplay,
       );
       bodyEl.appendChild(row);
