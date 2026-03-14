@@ -2047,6 +2047,26 @@ input[type="range"]::-moz-range-track {
   height: 100%;
 }
 
+/* ─── Understand Results Grid ────────────────────────────────────────── */
+
+.compose-understand-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.compose-understand-grid .compose-input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text);
+  font-size: 13px;
+  padding: 6px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
 /* ─── Voice Mode — Pitch Slider Center Indicator ────────────────────── */
 
 .voice-pitch-slider {

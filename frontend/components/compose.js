@@ -22,17 +22,17 @@ function clearChildren(elem) {
 
 // ─── Module state ────────────────────────────────────────────────────
 
-let _mode = 'create';          // 'create' | 'rework' | 'lego' | 'complete' | 'voice' | 'train'
+let _mode = 'create';          // 'create' | 'rework' | 'analyze' | 'voice' | 'train'
+let _analyzeMode = 'extract';  // 'extract' | 'lego' | 'complete' | 'understand'
 let _createTab = 'my-lyrics';  // 'my-lyrics' | 'ai-lyrics' | 'instrumental'
 let _approach = 'cover';       // 'cover' | 'repaint'
 let _uploadedPath = null;
 let _uploadedDuration = null;
-let _legoUploadedPath = null;
-let _legoUploadedDuration = null;
-let _completeUploadedPath = null;
-let _completeUploadedDuration = null;
-let _selectedLegoTrack = 'vocals';
-let _selectedCompleteTracks = [];
+// Unified analyze state (shared across extract/lego/complete/understand sub-modes)
+let _analyzeUploadedPath = null;
+let _analyzeUploadedDuration = null;
+let _selectedAnalyzeTrack = 'vocals';   // extract & lego
+let _selectedAnalyzeTracks = [];        // complete multi-select
 
 // Voice mode state
 let _voiceSourcePath = null;
@@ -52,9 +52,8 @@ const ACE_TRACKS = [
   'strings', 'brass', 'woodwinds', 'synth', 'percussion', 'fx',
 ];
 
-// Per-bar peaks cached from source uploads (for diff visualization)
-let _legoSourcePeaks = null;
-let _completeSourcePeaks = null;
+// Per-bar peaks cached from analyze source upload (for diff visualization)
+let _analyzeSourcePeaks = null;
 let _autoOn = false;
 let _aceStepRunning = false;
 let _pollTimer = null;
@@ -122,8 +121,10 @@ async function _renderResultWaveform(resultAudioUrl, containerId, canvasId, sour
 
 function _modeLabel() {
   if (_mode === 'rework') return _approach === 'cover' ? '\u25B6 Reimagine' : '\u25B6 Fix & Blend';
-  if (_mode === 'lego') return '\u25B6 Replace Track';
-  if (_mode === 'complete') return '\u25B6 Complete';
+  if (_mode === 'analyze') {
+    const labels = { extract: '\u25B6 Extract', lego: '\u25B6 Replace Track', complete: '\u25B6 Complete', understand: '\u25B6 Analyze Track' };
+    return labels[_analyzeMode] || '\u25B6 Analyze';
+  }
   if (_mode === 'voice') return '\u25B6 Transform Voice';
   return '\u25B6 Generate';
 }
@@ -182,8 +183,7 @@ function buildUI(panel) {
     el('div', { className: 'compose-mode-selector' },
       el('button', { className: 'compose-mode-btn active', 'data-mode': 'create', onClick: () => switchMode('create') }, 'Create'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'rework', onClick: () => switchMode('rework') }, 'Rework'),
-      el('button', { className: 'compose-mode-btn', 'data-mode': 'lego', onClick: () => switchMode('lego') }, 'Lego'),
-      el('button', { className: 'compose-mode-btn', 'data-mode': 'complete', onClick: () => switchMode('complete') }, 'Complete'),
+      el('button', { className: 'compose-mode-btn', 'data-mode': 'analyze', onClick: () => switchMode('analyze') }, 'Analyze'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'voice', onClick: () => switchMode('voice') }, 'Voice'),
       el('button', { className: 'compose-mode-btn', 'data-mode': 'train', onClick: () => switchMode('train') }, 'Train'),
     ),
@@ -191,6 +191,12 @@ function buildUI(panel) {
       el('button', { className: 'compose-create-tab active', 'data-tab': 'my-lyrics', onClick: () => switchCreateTab('my-lyrics') }, 'My Lyrics'),
       el('button', { className: 'compose-create-tab', 'data-tab': 'ai-lyrics', onClick: () => switchCreateTab('ai-lyrics') }, 'AI Lyrics'),
       el('button', { className: 'compose-create-tab', 'data-tab': 'instrumental', onClick: () => switchCreateTab('instrumental') }, 'Instrumental'),
+    ),
+    el('div', { className: 'compose-create-tabs hidden', id: 'compose-analyze-tabs' },
+      el('button', { className: 'compose-create-tab active', 'data-analyze': 'extract', onClick: () => switchAnalyzeMode('extract') }, 'Extract'),
+      el('button', { className: 'compose-create-tab', 'data-analyze': 'lego', onClick: () => switchAnalyzeMode('lego') }, 'Lego'),
+      el('button', { className: 'compose-create-tab', 'data-analyze': 'complete', onClick: () => switchAnalyzeMode('complete') }, 'Complete'),
+      el('button', { className: 'compose-create-tab', 'data-analyze': 'understand', onClick: () => switchAnalyzeMode('understand') }, 'Understand'),
     ),
   );
 
@@ -423,151 +429,70 @@ function buildLeftColumn() {
   // Wire upload zone drag/drop
   setupUploadDragDrop(uploadZone);
 
-  // LEGO MODE panel
-  const legoPanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-lego-panel' });
+  // ANALYZE MODE panel (unified: Extract / Lego / Complete / Understand sub-modes)
+  const analyzePanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-analyze-panel' });
 
-  // Lego upload zone
-  const legoUploadZone = el('div', { className: 'compose-upload-zone', id: 'compose-lego-upload-zone' },
-    el('div', { id: 'compose-lego-upload-prompt' },
+  // Shared upload zone
+  const analyzeUploadZone = el('div', { className: 'compose-upload-zone', id: 'compose-analyze-upload-zone' },
+    el('div', { id: 'compose-analyze-upload-prompt' },
       el('span', {}, '\u266B Drop audio here or '),
-      el('button', { className: 'compose-ghost-btn', onClick: browseLegoAudio }, 'Browse'),
+      el('button', { className: 'compose-ghost-btn', onClick: browseAnalyzeAudio }, 'Browse'),
     ),
-    el('div', { className: 'hidden', id: 'compose-lego-upload-loaded' },
+    el('div', { className: 'hidden', id: 'compose-analyze-upload-loaded' },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-        el('span', { id: 'compose-lego-upload-filename', style: { fontWeight: '600', fontSize: '13px' } }),
-        el('span', { id: 'compose-lego-upload-duration', style: { fontSize: '12px', color: 'var(--text-dim)' } }),
+        el('span', { id: 'compose-analyze-upload-filename', style: { fontWeight: '600', fontSize: '13px' } }),
+        el('span', { id: 'compose-analyze-upload-duration', style: { fontSize: '12px', color: 'var(--text-dim)' } }),
       ),
-      el('button', { className: 'compose-ghost-btn', onClick: removeLegoUploadedAudio }, 'Remove'),
+      el('button', { className: 'compose-ghost-btn', onClick: removeAnalyzeAudio }, 'Remove'),
     ),
   );
 
-  // Lego track selector
-  const legoTrackSelect = el('select', { id: 'compose-lego-track', className: 'compose-select',
-    onChange: () => { _selectedLegoTrack = _id('compose-lego-track').value; } });
+  // Track dropdown (Extract / Lego sub-modes)
+  const analyzeTrackSelect = el('select', { id: 'compose-analyze-track', className: 'compose-select',
+    onChange: () => { _selectedAnalyzeTrack = _id('compose-analyze-track').value; updateAnalyzeTrackHint(); } });
   for (const t of ACE_TRACKS) {
-    legoTrackSelect.appendChild(el('option', { value: t }, t.replace('_', ' ')));
+    analyzeTrackSelect.appendChild(el('option', { value: t }, t.replace('_', ' ')));
   }
-
-  // Lego vocal hint
-  const legoVocalHint = el('div', { className: 'banner banner-info', id: 'compose-lego-vocal-hint',
-    style: { fontSize: '12px' } },
-    'Vocal tracks generate AI vocal elements (melodic, not sung lyrics).',
+  const analyzeTrackGroup = el('div', { className: 'compose-field-group', id: 'compose-analyze-track-group' },
+    el('label', { className: 'compose-field-label' }, 'Track'),
+    analyzeTrackSelect,
   );
 
-  // Lego style direction
-  const legoDirection = el('div', { className: 'compose-field-group' },
-    el('label', { className: 'compose-field-label' }, 'Style description'),
-    el('textarea', { id: 'compose-lego-direction', className: 'compose-textarea', rows: '3',
-      placeholder: 'Describe the replacement track\u2026 e.g. funky slap bass with groove' }),
+  // Track class multi-select grid (Complete sub-mode)
+  const analyzeTracksMulti = el('div', { className: 'compose-field-group hidden', id: 'compose-analyze-tracks-multi' },
+    el('label', { className: 'compose-field-label' }, 'Tracks to fill'),
   );
-
-  // Lego waveform sections (source + result diff)
-  const legoSourceWf = el('div', { className: 'analyze-wf-section hidden', id: 'lego-wf-source-section' },
-    el('span', { className: 'analyze-wf-label' }, 'Source'),
-    el('div', { className: 'analyze-wf-container', id: 'lego-wf-source' },
-      el('canvas', { className: 'analyze-wf-canvas', id: 'lego-wf-source-canvas' }),
-    ),
-  );
-  const legoResultWf = el('div', { className: 'analyze-wf-section hidden', id: 'lego-wf-result-section' },
-    el('span', { className: 'analyze-wf-label' }, 'Result'),
-    el('div', { className: 'analyze-wf-container', id: 'lego-wf-result' },
-      el('canvas', { className: 'analyze-wf-canvas', id: 'lego-wf-result-canvas' }),
-    ),
-  );
-
-  legoPanel.append(
-    legoUploadZone,
-    el('div', { className: 'compose-divider' }),
-    el('div', { className: 'compose-field-group' },
-      el('label', { className: 'compose-field-label' }, 'Track to replace'),
-      legoTrackSelect,
-    ),
-    legoVocalHint,
-    el('div', { className: 'compose-divider' }),
-    legoDirection,
-    el('div', { className: 'banner banner-info', style: { fontSize: '12px', marginTop: '8px' } },
-      'Requires base model. Duration locked to source audio.'),
-    legoSourceWf,
-    legoResultWf,
-  );
-
-  setupUploadDragDrop(legoUploadZone, handleLegoAudioUpload);
-
-  // Track select change: show/hide vocal hint
-  legoTrackSelect.addEventListener('change', () => {
-    _selectedLegoTrack = legoTrackSelect.value;
-    legoVocalHint.classList.toggle('hidden', !legoTrackSelect.value.includes('vocal'));
-  });
-
-  // COMPLETE MODE panel
-  const completePanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-complete-panel' });
-
-  // Complete upload zone
-  const completeUploadZone = el('div', { className: 'compose-upload-zone', id: 'compose-complete-upload-zone' },
-    el('div', { id: 'compose-complete-upload-prompt' },
-      el('span', {}, '\u266B Drop audio here or '),
-      el('button', { className: 'compose-ghost-btn', onClick: browseCompleteAudio }, 'Browse'),
-    ),
-    el('div', { className: 'hidden', id: 'compose-complete-upload-loaded' },
-      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-        el('span', { id: 'compose-complete-upload-filename', style: { fontWeight: '600', fontSize: '13px' } }),
-        el('span', { id: 'compose-complete-upload-duration', style: { fontSize: '12px', color: 'var(--text-dim)' } }),
-      ),
-      el('button', { className: 'compose-ghost-btn', onClick: removeCompleteUploadedAudio }, 'Remove'),
-    ),
-  );
-
-  // Complete track class multi-select grid
-  const completeTrackGrid = el('div', { className: 'compose-tag-grid', id: 'compose-complete-tracks' });
+  const analyzeTrackGrid = el('div', { className: 'compose-tag-grid', id: 'compose-analyze-track-tags' });
   for (const t of ACE_TRACKS) {
-    completeTrackGrid.appendChild(el('button', {
+    analyzeTrackGrid.appendChild(el('button', {
       className: 'compose-tag',
       'data-track': t,
       onClick: (e) => {
         e.target.classList.toggle('active');
-        _selectedCompleteTracks = [...document.querySelectorAll('#compose-complete-tracks .compose-tag.active')]
+        _selectedAnalyzeTracks = [...document.querySelectorAll('#compose-analyze-track-tags .compose-tag.active')]
           .map(b => b.dataset.track);
+        updateAnalyzeTrackHint();
       },
     }, t.replace('_', ' ')));
   }
+  analyzeTracksMulti.appendChild(analyzeTrackGrid);
 
-  // Complete style direction
-  const completeDirection = el('div', { className: 'compose-field-group' },
-    el('label', { className: 'compose-field-label' }, 'Style description'),
-    el('textarea', { id: 'compose-complete-direction', className: 'compose-textarea', rows: '3',
-      placeholder: 'Describe the sound\u2026 e.g. orchestral with warm strings and brass' }),
-  );
+  // Track hint
+  const analyzeTrackHint = el('p', { className: 'compose-hint', id: 'compose-analyze-track-hint',
+    style: { fontSize: '12px', marginTop: '4px' } },
+    'Isolates the selected stem from the mix');
 
-  // Complete waveform sections (source + result diff)
-  const completeSourceWf = el('div', { className: 'analyze-wf-section hidden', id: 'complete-wf-source-section' },
-    el('span', { className: 'analyze-wf-label' }, 'Source'),
-    el('div', { className: 'analyze-wf-container', id: 'complete-wf-source' },
-      el('canvas', { className: 'analyze-wf-canvas', id: 'complete-wf-source-canvas' }),
-    ),
-  );
-  const completeResultWf = el('div', { className: 'analyze-wf-section hidden', id: 'complete-wf-result-section' },
-    el('span', { className: 'analyze-wf-label' }, 'Result'),
-    el('div', { className: 'analyze-wf-container', id: 'complete-wf-result' },
-      el('canvas', { className: 'analyze-wf-canvas', id: 'complete-wf-result-canvas' }),
-    ),
-  );
-
-  completePanel.append(
-    completeUploadZone,
+  analyzePanel.append(
+    analyzeUploadZone,
     el('div', { className: 'compose-divider' }),
-    el('div', { className: 'compose-field-group' },
-      el('label', { className: 'compose-field-label' }, 'Tracks to generate'),
-      completeTrackGrid,
-    ),
-    el('div', { className: 'compose-divider' }),
-    completeDirection,
+    analyzeTrackGroup,
+    analyzeTracksMulti,
+    analyzeTrackHint,
     el('div', { className: 'banner banner-info', style: { fontSize: '12px', marginTop: '8px' } },
-      'Requires base model. Duration locked to source audio.'),
-    completeSourceWf,
-    completeResultWf,
+      'Requires base generation model. Duration locked to source audio.'),
   );
 
-  setupUploadDragDrop(completeUploadZone, handleCompleteAudioUpload);
+  setupUploadDragDrop(analyzeUploadZone, handleAnalyzeAudioUpload);
 
   // VOICE MODE panel
   const voicePanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-voice-panel' });
@@ -697,7 +622,7 @@ function buildLeftColumn() {
     voiceResultWf,
   );
 
-  col.append(createPanel, reworkPanel, legoPanel, completePanel, voicePanel);
+  col.append(createPanel, reworkPanel, analyzePanel, voicePanel);
   return col;
 }
 
@@ -754,7 +679,67 @@ function buildCenterColumn() {
     el('div', { id: 'compose-instrumental-results', className: 'compose-results-area hidden' }),
   );
 
-  col.append(myLyrics, aiLyrics, instrumental);
+  // Analyze tab (shown in center when Analyze mode active, hidden for Understand)
+  const analyzeTab = el('div', { className: 'compose-tab-content hidden', id: 'compose-tab-analyze' },
+    el('div', { className: 'compose-field-group' },
+      el('label', { className: 'compose-field-label' }, 'Style description'),
+      el('textarea', { id: 'compose-analyze-direction', className: 'compose-textarea', rows: '3',
+        placeholder: 'Describe the result you want\u2026' }),
+    ),
+    // Source waveform
+    el('div', { className: 'analyze-wf-section hidden', id: 'analyze-wf-source-section' },
+      el('span', { className: 'analyze-wf-label' }, 'Source'),
+      el('div', { className: 'analyze-wf-container', id: 'analyze-wf-source' },
+        el('canvas', { className: 'analyze-wf-canvas', id: 'analyze-wf-source-canvas' }),
+      ),
+    ),
+    // Result waveform (diff-colored)
+    el('div', { className: 'analyze-wf-section hidden', id: 'analyze-wf-result-section' },
+      el('span', { className: 'analyze-wf-label' }, 'Result'),
+      el('div', { className: 'analyze-wf-container', id: 'analyze-wf-result' },
+        el('canvas', { className: 'analyze-wf-canvas', id: 'analyze-wf-result-canvas' }),
+      ),
+    ),
+  );
+
+  // Understand results panel (replaces center column content in understand sub-mode)
+  const understandTab = el('div', { className: 'compose-tab-content hidden', id: 'compose-tab-understand' },
+    el('div', { className: 'compose-hint', id: 'compose-understand-status' }),
+    el('div', { className: 'hidden', id: 'compose-understand-results' },
+      el('div', { className: 'compose-understand-grid' },
+        el('div', { className: 'compose-field-group' },
+          el('label', { className: 'compose-field-label' }, 'BPM'),
+          el('input', { type: 'text', id: 'compose-understand-bpm', className: 'compose-input', readOnly: true }),
+        ),
+        el('div', { className: 'compose-field-group' },
+          el('label', { className: 'compose-field-label' }, 'Key'),
+          el('input', { type: 'text', id: 'compose-understand-key', className: 'compose-input', readOnly: true }),
+        ),
+        el('div', { className: 'compose-field-group' },
+          el('label', { className: 'compose-field-label' }, 'Time Sig'),
+          el('input', { type: 'text', id: 'compose-understand-timesig', className: 'compose-input', readOnly: true }),
+        ),
+        el('div', { className: 'compose-field-group' },
+          el('label', { className: 'compose-field-label' }, 'Language'),
+          el('input', { type: 'text', id: 'compose-understand-language', className: 'compose-input', readOnly: true }),
+        ),
+      ),
+      el('div', { className: 'compose-field-group' },
+        el('label', { className: 'compose-field-label' }, 'Style description'),
+        el('textarea', { id: 'compose-understand-caption', className: 'compose-textarea', rows: '3', readOnly: true }),
+      ),
+      el('div', { className: 'compose-field-group' },
+        el('label', { className: 'compose-field-label' }, 'Lyrics'),
+        el('textarea', { id: 'compose-understand-lyrics', className: 'compose-textarea compose-lyrics-area', readOnly: true }),
+      ),
+      el('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } },
+        el('button', { className: 'compose-ghost-btn', onClick: applyAnalysisToCreate }, 'Apply to Create'),
+        el('button', { className: 'compose-ghost-btn', onClick: applyAnalysisToRework }, 'Apply to Rework'),
+      ),
+    ),
+  );
+
+  col.append(myLyrics, aiLyrics, instrumental, analyzeTab, understandTab);
   return col;
 }
 
@@ -1231,6 +1216,7 @@ function _gatherProject() {
     cfgStart: (_id('compose-cfg-start') || {}).value || '0',
     cfgEnd: (_id('compose-cfg-end') || {}).value || '1',
     coverNoiseStrength: (_id('compose-cover-noise') || {}).value || '0',
+    analyzeMode: _analyzeMode,
     lastSeed: _lastSeed,
   };
 }
@@ -1306,6 +1292,12 @@ function _applyProject(proj) {
   const cfgStart = _id('compose-cfg-start'); if (cfgStart && proj.cfgStart != null) cfgStart.value = proj.cfgStart;
   const cfgEnd = _id('compose-cfg-end'); if (cfgEnd && proj.cfgEnd != null) cfgEnd.value = proj.cfgEnd;
   _setSliderValue('compose-cover-noise', proj.coverNoiseStrength);
+
+  // Mode & tabs
+  if (proj.mode) switchMode(proj.mode);
+  if (proj.createTab) switchCreateTab(proj.createTab);
+  if (proj.approach) switchApproach(proj.approach);
+  if (proj.analyzeMode) switchAnalyzeMode(proj.analyzeMode);
 
   // Last seed recall
   if (proj.lastSeed != null) {
@@ -2097,18 +2089,19 @@ function switchMode(mode) {
   document.querySelectorAll('#panel-compose .compose-mode-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.mode === mode));
   const isTrain = mode === 'train';
+  const isAnalyze = mode === 'analyze';
   const cp = _id('compose-create-panel');
   const rp = _id('compose-rework-panel');
-  const lp = _id('compose-lego-panel');
-  const mp = _id('compose-complete-panel');
+  const ap = _id('compose-analyze-panel');
   const vp = _id('compose-voice-panel');
-  const tabs = _id('compose-create-tabs');
+  const createTabs = _id('compose-create-tabs');
+  const analyzeTabs = _id('compose-analyze-tabs');
   if (cp) cp.classList.toggle('hidden', mode !== 'create');
   if (rp) rp.classList.toggle('hidden', mode !== 'rework');
-  if (lp) lp.classList.toggle('hidden', mode !== 'lego');
-  if (mp) mp.classList.toggle('hidden', mode !== 'complete');
+  if (ap) ap.classList.toggle('hidden', !isAnalyze);
   if (vp) vp.classList.toggle('hidden', mode !== 'voice');
-  if (tabs) tabs.classList.toggle('hidden', mode !== 'create');
+  if (createTabs) createTabs.classList.toggle('hidden', mode !== 'create');
+  if (analyzeTabs) analyzeTabs.classList.toggle('hidden', !isAnalyze);
 
   // Toggle between main grid and train grid
   const mainGrid = document.querySelector('#panel-compose > .compose-main:not(.compose-train-grid)');
@@ -2116,15 +2109,27 @@ function switchMode(mode) {
   if (mainGrid) mainGrid.classList.toggle('hidden', isTrain);
   if (trainGrid) trainGrid.classList.toggle('hidden', !isTrain);
 
-  // For lego/complete/voice, hide the center/right columns (original behavior)
+  // For analyze/voice, hide the center/right columns selectively
   const centerCol = document.querySelector('.compose-col-center');
   const rightCol = document.querySelector('.compose-col-right');
-  if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice');
+  // Analyze mode: center column shows analyze/understand content; voice hides both center+right
+  if (centerCol) centerCol.classList.toggle('hidden', mode === 'voice');
   if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice');
 
-  // Hide sound reference in train/lego/complete/voice modes (only relevant for create/rework)
+  // Toggle center column content for analyze mode
+  if (isAnalyze) {
+    _showAnalyzeCenterContent();
+  } else {
+    // Restore normal center column content
+    _id('compose-tab-analyze')?.classList.add('hidden');
+    _id('compose-tab-understand')?.classList.add('hidden');
+    // Show active create tab
+    if (mode === 'create') switchCreateTab(_createTab);
+  }
+
+  // Hide sound reference in train/analyze/voice modes (only relevant for create/rework)
   const refSection = _id('compose-reference-section');
-  if (refSection) refSection.classList.toggle('hidden', isTrain || mode === 'lego' || mode === 'complete' || mode === 'voice');
+  if (refSection) refSection.classList.toggle('hidden', isTrain || isAnalyze || mode === 'voice');
 
   // Start/stop train polling
   if (isTrain) { _startTrainStatusPoll(); _recoverPipelineState(); }
@@ -2134,7 +2139,6 @@ function switchMode(mode) {
   if (mode === 'voice') loadVoiceModels();
 
   // Lock gen_model to base for analyze modes (extract/lego/complete require it)
-  const isAnalyze = mode === 'lego' || mode === 'complete';
   const genModelSel = _id('compose-gen-model');
   if (genModelSel) {
     if (isAnalyze) {
@@ -2166,21 +2170,57 @@ function switchMode(mode) {
 
   const btn = _id('compose-generate-btn');
   if (btn && !btn.disabled) {
-    // Voice mode doesn't need AceStep — always show the action label
     if (mode === 'voice' || _aceStepRunning) {
       btn.textContent = _modeLabel();
     }
   }
 }
 
+function switchAnalyzeMode(mode) {
+  _analyzeMode = mode;
+  document.querySelectorAll('#compose-analyze-tabs .compose-create-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.analyze === mode));
+
+  const isUnderstand = mode === 'understand';
+
+  // Track selector visibility: dropdown for extract/lego, multi-select for complete, hidden for understand
+  _id('compose-analyze-track-group')?.classList.toggle('hidden', mode === 'complete' || isUnderstand);
+  _id('compose-analyze-tracks-multi')?.classList.toggle('hidden', mode !== 'complete');
+  _id('compose-analyze-track-hint')?.classList.toggle('hidden', isUnderstand);
+
+  // Center column: show analyze description or understand results
+  _showAnalyzeCenterContent();
+
+  if (!isUnderstand) updateAnalyzeTrackHint();
+
+  const btn = _id('compose-generate-btn');
+  if (btn && !btn.disabled && _aceStepRunning) {
+    btn.textContent = _modeLabel();
+  }
+}
+
+function _showAnalyzeCenterContent() {
+  const isUnderstand = _analyzeMode === 'understand';
+  // Hide all create tabs
+  ['my-lyrics', 'ai-lyrics', 'instrumental'].forEach(t => {
+    _id(`compose-tab-${t}`)?.classList.add('hidden');
+  });
+  // Show the correct analyze content
+  _id('compose-tab-analyze')?.classList.toggle('hidden', isUnderstand);
+  _id('compose-tab-understand')?.classList.toggle('hidden', !isUnderstand);
+}
+
 function switchCreateTab(tab) {
   _createTab = tab;
-  document.querySelectorAll('#panel-compose .compose-create-tab').forEach(b =>
+  document.querySelectorAll('#compose-create-tabs .compose-create-tab').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === tab));
   ['my-lyrics', 'ai-lyrics', 'instrumental'].forEach(t => {
     const el = _id(`compose-tab-${t}`);
     if (el) el.classList.toggle('hidden', t !== tab);
   });
+  // Ensure analyze tabs are hidden
+  _id('compose-tab-analyze')?.classList.add('hidden');
+  _id('compose-tab-understand')?.classList.add('hidden');
 }
 
 function switchApproach(approach) {
@@ -2498,23 +2538,23 @@ async function handleExtractFromSong() {
   }
 }
 
-// ─── Lego Audio Upload ─────────────────────────────────────────────
+// ─── Analyze Audio Upload (shared across Extract/Lego/Complete/Understand) ──
 
-function browseLegoAudio() {
+function browseAnalyzeAudio() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'audio/*';
-  input.addEventListener('change', () => { if (input.files[0]) handleLegoAudioUpload(input.files[0]); });
+  input.addEventListener('change', () => { if (input.files[0]) handleAnalyzeAudioUpload(input.files[0]); });
   input.click();
 }
 
-async function handleLegoAudioUpload(file) {
+async function handleAnalyzeAudioUpload(file) {
   if (!file || !file.type.startsWith('audio/')) return;
-  const fnEl = _id('compose-lego-upload-filename');
-  const durEl = _id('compose-lego-upload-duration');
+  const fnEl = _id('compose-analyze-upload-filename');
+  const durEl = _id('compose-analyze-upload-duration');
   if (fnEl) fnEl.textContent = file.name;
-  _id('compose-lego-upload-prompt')?.classList.add('hidden');
-  _id('compose-lego-upload-loaded')?.classList.remove('hidden');
+  _id('compose-analyze-upload-prompt')?.classList.add('hidden');
+  _id('compose-analyze-upload-loaded')?.classList.remove('hidden');
 
   const form = new FormData();
   form.append('file', file);
@@ -2522,82 +2562,136 @@ async function handleLegoAudioUpload(file) {
     const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
     if (!res.ok) throw new Error(res.statusText);
     const data = await res.json();
-    _legoUploadedPath = data.path;
+    _analyzeUploadedPath = data.path;
     const blobUrl = URL.createObjectURL(file);
     const audio = new Audio(blobUrl);
     audio.addEventListener('loadedmetadata', () => {
-      _legoUploadedDuration = audio.duration;
+      _analyzeUploadedDuration = audio.duration;
       if (durEl) durEl.textContent = _formatDuration(audio.duration);
     });
     // Render source waveform
-    _legoSourcePeaks = null;
-    _id('lego-wf-result-section')?.classList.add('hidden');
-    _renderSourceWaveform(blobUrl, 'lego-wf-source', 'lego-wf-source-canvas',
-      (peaks) => { _legoSourcePeaks = peaks; });
+    _analyzeSourcePeaks = null;
+    _id('analyze-wf-result-section')?.classList.add('hidden');
+    _renderSourceWaveform(blobUrl, 'analyze-wf-source', 'analyze-wf-source-canvas',
+      (peaks) => { _analyzeSourcePeaks = peaks; });
   } catch {
-    removeLegoUploadedAudio();
+    removeAnalyzeAudio();
   }
 }
 
-function removeLegoUploadedAudio() {
-  _legoUploadedPath = null;
-  _legoUploadedDuration = null;
-  _legoSourcePeaks = null;
-  _id('compose-lego-upload-prompt')?.classList.remove('hidden');
-  _id('compose-lego-upload-loaded')?.classList.add('hidden');
-  _id('lego-wf-source-section')?.classList.add('hidden');
-  _id('lego-wf-result-section')?.classList.add('hidden');
+function removeAnalyzeAudio() {
+  _analyzeUploadedPath = null;
+  _analyzeUploadedDuration = null;
+  _analyzeSourcePeaks = null;
+  _id('compose-analyze-upload-prompt')?.classList.remove('hidden');
+  _id('compose-analyze-upload-loaded')?.classList.add('hidden');
+  _id('analyze-wf-source-section')?.classList.add('hidden');
+  _id('analyze-wf-result-section')?.classList.add('hidden');
 }
 
-// ─── Complete Audio Upload ─────────────────────────────────────────
+// ─── Analyze Track Hint ─────────────────────────────────────────────
 
-function browseCompleteAudio() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = 'audio/*';
-  input.addEventListener('change', () => { if (input.files[0]) handleCompleteAudioUpload(input.files[0]); });
-  input.click();
+const _VOCAL_TRACKS = new Set(['vocals', 'backing_vocals']);
+
+function updateAnalyzeTrackHint() {
+  const hint = _id('compose-analyze-track-hint');
+  if (!hint) return;
+  if (_analyzeMode === 'extract') {
+    hint.textContent = 'Isolates the selected stem from the mix';
+  } else if (_analyzeMode === 'lego') {
+    const track = (_id('compose-analyze-track') || {}).value || 'vocals';
+    hint.textContent = _VOCAL_TRACKS.has(track)
+      ? 'Generates AI vocal elements to replace this track \u2014 melodic, not sung lyrics'
+      : 'Generates a new version of this track to fit the mix';
+  } else if (_analyzeMode === 'complete') {
+    const hasVocal = _selectedAnalyzeTracks.some(t => _VOCAL_TRACKS.has(t));
+    hint.textContent = hasVocal
+      ? 'Vocal tracks produce AI-generated melodic elements, not sung lyrics'
+      : _selectedAnalyzeTracks.length > 0
+        ? 'Generates the selected tracks to fill out the arrangement'
+        : 'Select tracks to add to the mix';
+  } else {
+    hint.textContent = '';
+  }
 }
 
-async function handleCompleteAudioUpload(file) {
-  if (!file || !file.type.startsWith('audio/')) return;
-  const fnEl = _id('compose-complete-upload-filename');
-  const durEl = _id('compose-complete-upload-duration');
-  if (fnEl) fnEl.textContent = file.name;
-  _id('compose-complete-upload-prompt')?.classList.add('hidden');
-  _id('compose-complete-upload-loaded')?.classList.remove('hidden');
+// ─── Understand Music (audio analysis via LM) ──────────────────────
 
-  const form = new FormData();
-  form.append('file', file);
+async function runAudioAnalysis(audioPath) {
+  if (!audioPath) return;
+  const statusEl = _id('compose-understand-status');
+  const resultsEl = _id('compose-understand-results');
+  const btn = _id('compose-generate-btn');
+  if (resultsEl) resultsEl.classList.add('hidden');
+  if (statusEl) statusEl.textContent = 'Analyzing audio\u2026';
+  if (btn) { btn.disabled = true; btn.textContent = 'Analyzing\u2026'; }
+
   try {
-    const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
-    if (!res.ok) throw new Error(res.statusText);
-    const data = await res.json();
-    _completeUploadedPath = data.path;
-    const blobUrl = URL.createObjectURL(file);
-    const audio = new Audio(blobUrl);
-    audio.addEventListener('loadedmetadata', () => {
-      _completeUploadedDuration = audio.duration;
-      if (durEl) durEl.textContent = _formatDuration(audio.duration);
+    const res = await fetch('/api/compose/analyze-audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio_path: audioPath }),
     });
-    // Render source waveform
-    _completeSourcePeaks = null;
-    _id('complete-wf-result-section')?.classList.add('hidden');
-    _renderSourceWaveform(blobUrl, 'complete-wf-source', 'complete-wf-source-canvas',
-      (peaks) => { _completeSourcePeaks = peaks; });
-  } catch {
-    removeCompleteUploadedAudio();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+
+    // Populate result fields
+    const set = (id, v) => { const e = _id(id); if (e) e.value = v || ''; };
+    set('compose-understand-bpm', data.bpm);
+    set('compose-understand-key', data.key_scale);
+    set('compose-understand-timesig', data.time_signature);
+    set('compose-understand-language', data.vocal_language);
+    set('compose-understand-caption', data.caption);
+    set('compose-understand-lyrics', data.lyrics);
+
+    if (statusEl) statusEl.textContent = '';
+    if (resultsEl) resultsEl.classList.remove('hidden');
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'Analysis failed: ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = _modeLabel(); }
   }
 }
 
-function removeCompleteUploadedAudio() {
-  _completeUploadedPath = null;
-  _completeUploadedDuration = null;
-  _completeSourcePeaks = null;
-  _id('compose-complete-upload-prompt')?.classList.remove('hidden');
-  _id('compose-complete-upload-loaded')?.classList.add('hidden');
-  _id('complete-wf-source-section')?.classList.add('hidden');
-  _id('complete-wf-result-section')?.classList.add('hidden');
+function applyAnalysisToCreate() {
+  const caption = (_id('compose-understand-caption') || {}).value?.trim() || '';
+  const lyrics = (_id('compose-understand-lyrics') || {}).value?.trim() || '';
+  const bpm = (_id('compose-understand-bpm') || {}).value?.trim() || '';
+  const key = (_id('compose-understand-key') || {}).value?.trim() || '';
+  const timeSig = (_id('compose-understand-timesig') || {}).value?.trim() || '';
+
+  if (caption) { const e = _id('compose-style-text'); if (e) e.value = caption; }
+  if (lyrics) { const e = _id('compose-lyrics-text'); if (e) e.value = lyrics; }
+  if (bpm) { const e = _id('compose-bpm'); if (e) e.value = bpm; }
+  if (key) {
+    const parts = key.split(/\s+/);
+    if (parts.length >= 2) {
+      const root = _id('compose-key-root'); if (root) root.value = parts[0];
+      const mode = _id('compose-key-mode'); if (mode) mode.value = parts.slice(1).join(' ');
+    } else if (parts.length === 1) {
+      const root = _id('compose-key-root'); if (root) root.value = parts[0];
+    }
+  }
+  if (timeSig) { const e = _id('compose-time-sig'); if (e) e.value = timeSig; }
+
+  switchMode('create');
+  switchCreateTab('my-lyrics');
+  updateStylePreview();
+  updateLyricsCount();
+  checkLyricsWarning();
+}
+
+function applyAnalysisToRework() {
+  const caption = (_id('compose-understand-caption') || {}).value?.trim() || '';
+  const lyrics = (_id('compose-understand-lyrics') || {}).value?.trim() || '';
+
+  if (caption) { const e = _id('compose-rework-direction'); if (e) e.value = caption; }
+  if (lyrics) { const e = _id('compose-lyrics-text'); if (e) e.value = lyrics; }
+
+  switchMode('rework');
 }
 
 function loadLyricsFile() {
@@ -2668,32 +2762,24 @@ function buildPayload() {
     return payload;
   }
 
-  if (_mode === 'lego') {
-    return {
+  if (_mode === 'analyze' && _analyzeMode !== 'understand') {
+    const payload = {
       ...shared,
-      style: (_id('compose-lego-direction') || {}).value?.trim() || '',
-      task_type: 'lego',
-      src_audio_path: _legoUploadedPath,
-      track_name: _selectedLegoTrack,
+      style: (_id('compose-analyze-direction') || {}).value?.trim() || '',
+      task_type: _analyzeMode,
+      src_audio_path: _analyzeUploadedPath,
       gen_model: 'base',
       lm_model: 'none',
-      duration: _legoUploadedDuration || shared.duration,
+      duration: _analyzeUploadedDuration || shared.duration,
       batch_size: 1,
     };
-  }
-
-  if (_mode === 'complete') {
-    return {
-      ...shared,
-      style: (_id('compose-complete-direction') || {}).value?.trim() || '',
-      task_type: 'complete',
-      src_audio_path: _completeUploadedPath,
-      track_classes: _selectedCompleteTracks,
-      gen_model: 'base',
-      lm_model: 'none',
-      duration: _completeUploadedDuration || shared.duration,
-      batch_size: 1,
-    };
+    if (_analyzeMode === 'extract' || _analyzeMode === 'lego') {
+      payload.track_name = _selectedAnalyzeTrack;
+    }
+    if (_analyzeMode === 'complete') {
+      payload.track_classes = _selectedAnalyzeTracks;
+    }
+    return payload;
   }
 
   // Create mode
@@ -2836,19 +2922,26 @@ async function handleGenerate() {
     if (hint) hint.textContent = 'Upload audio to get started.';
     return;
   }
-  if (_mode === 'lego' && !_legoUploadedPath) {
-    if (hint) hint.textContent = 'Upload source audio for Lego mode.';
+  if (_mode === 'analyze' && !_analyzeUploadedPath) {
+    if (hint) hint.textContent = 'Upload audio to get started.';
     return;
   }
-  if (_mode === 'complete' && !_completeUploadedPath) {
-    if (hint) hint.textContent = 'Upload source audio for Complete mode.';
-    return;
-  }
-  if (_mode === 'complete' && _selectedCompleteTracks.length === 0) {
+  if (_mode === 'analyze' && _analyzeMode === 'complete' && _selectedAnalyzeTracks.length === 0) {
     if (hint) hint.textContent = 'Select at least one track to generate.';
     return;
   }
   if (hint) hint.textContent = '';
+
+  // Understand mode → route to audio analysis instead of generation
+  if (_mode === 'analyze' && _analyzeMode === 'understand') {
+    runAudioAnalysis(_analyzeUploadedPath);
+    return;
+  }
+
+  // Hide stale result waveform when starting a new analyze generation
+  if (_mode === 'analyze') {
+    _id('analyze-wf-result-section')?.classList.add('hidden');
+  }
 
   const payload = buildPayload();
   const loraWasLoaded = _id('compose-lora-status')?.classList.contains('loaded');
@@ -2993,13 +3086,9 @@ function showResults(taskId, results, payload) {
   }
 
   // Render diff waveform for analyze modes (first result)
-  if ((_mode === 'lego' || _mode === 'complete') && results.length > 0 && results[0].audio_url) {
+  if (_mode === 'analyze' && _analyzeMode !== 'understand' && results.length > 0 && results[0].audio_url) {
     const resultUrl = `/api/compose/audio?path=${encodeURIComponent(results[0].audio_url)}`;
-    if (_mode === 'lego') {
-      _renderResultWaveform(resultUrl, 'lego-wf-result', 'lego-wf-result-canvas', _legoSourcePeaks);
-    } else {
-      _renderResultWaveform(resultUrl, 'complete-wf-result', 'complete-wf-result-canvas', _completeSourcePeaks);
-    }
+    _renderResultWaveform(resultUrl, 'analyze-wf-result', 'analyze-wf-result-canvas', _analyzeSourcePeaks);
   }
 }
 
