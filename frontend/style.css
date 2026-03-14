@@ -1088,8 +1088,11 @@ input[type="range"]::-moz-range-track {
   background: var(--surface);
 }
 
-/* Full disable for Understand mode — everything greyed out */
-.compose-col-right.compose-controls-disabled {
+/* Understand mode — grey out controls but keep generate button active */
+.compose-col-right.compose-controls-disabled .compose-control-group,
+.compose-col-right.compose-controls-disabled .compose-divider,
+.compose-col-right.compose-controls-disabled .compose-advanced,
+.compose-col-right.compose-controls-disabled .compose-project-row {
   opacity: 0.35;
   pointer-events: none;
 }
