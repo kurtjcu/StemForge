@@ -233,6 +233,9 @@ function buildUI(panel) {
   // Sync advanced sliders from friendly defaults
   syncAdvancedFromFriendly();
 
+  // Wire up rework waveform timeline interactions
+  _initWfInteraction();
+
   // Populate voice stem selector when stems become available
   appState.on('stemsReady', () => _populateVoiceStemSelect());
   // Also populate if stems already exist
@@ -2070,7 +2073,36 @@ async function _recoverPipelineState() {
 // ─── Output Panel ───────────────────────────────────────────────────
 
 function buildOutputPanel() {
+  // Rework waveform timeline (shown when rework audio loaded)
+  const wfTimeline = el('div', { className: 'compose-wf-timeline hidden', id: 'compose-wf-timeline' },
+    el('div', { className: 'compose-wf-timeline-container', id: 'compose-wf-timeline-container' },
+      el('div', { className: 'compose-wf-timeline-loading hidden', id: 'compose-wf-timeline-loading' },
+        el('div', { className: 'compose-spinner' }),
+        el('span', {}, 'Decoding audio\u2026'),
+      ),
+      el('canvas', { id: 'compose-wf-timeline-canvas' }),
+      el('div', { className: 'compose-wf-timeline-sections', id: 'compose-wf-timeline-sections' }),
+      el('div', { className: 'compose-wf-timeline-selection hidden', id: 'compose-wf-timeline-selection' },
+        el('div', { className: 'compose-wf-handle compose-wf-handle-left' }),
+        el('div', { className: 'compose-wf-handle compose-wf-handle-right' }),
+        el('span', { className: 'compose-wf-time-label compose-wf-time-start', id: 'compose-wf-time-start' }),
+        el('span', { className: 'compose-wf-time-label compose-wf-time-end', id: 'compose-wf-time-end' }),
+      ),
+      el('div', { className: 'compose-wf-playhead', id: 'compose-wf-playhead' }),
+    ),
+    el('div', { className: 'compose-wf-controls', id: 'compose-wf-controls' },
+      el('div', { className: 'compose-wf-time-inputs' },
+        el('label', { className: 'compose-wf-label' }, 'Start'),
+        el('input', { type: 'number', id: 'compose-wf-region-start', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
+        el('label', { className: 'compose-wf-label' }, 'End'),
+        el('input', { type: 'number', id: 'compose-wf-region-end', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
+      ),
+      el('span', { className: 'compose-wf-selection-info', id: 'compose-wf-selection-info' }),
+    ),
+  );
+
   return el('div', { className: 'compose-output', id: 'compose-output' },
+    wfTimeline,
     el('div', { className: 'compose-output-generating hidden', id: 'compose-generating' },
       el('div', { className: 'compose-spinner' }),
       el('span', {}, 'Generating\u2026 '),
@@ -2137,6 +2169,13 @@ function switchMode(mode) {
 
   // Load voice models when entering voice mode for the first time
   if (mode === 'voice') loadVoiceModels();
+
+  // Show/hide rework waveform timeline (visible when rework mode has audio loaded)
+  const wfTimeline = _id('compose-wf-timeline');
+  if (wfTimeline) {
+    const showWf = mode === 'rework' && _uploadedPath && _wfData;
+    wfTimeline.classList.toggle('hidden', !showWf);
+  }
 
   // Lock gen_model to base for analyze modes (extract/lego/complete require it)
   const genModelSel = _id('compose-gen-model');
@@ -2234,10 +2273,378 @@ function switchApproach(approach) {
   if (cng) cng.classList.toggle('hidden', approach !== 'cover');
   if (rg) rg.classList.toggle('hidden', approach !== 'repaint');
 
+  // Show/hide waveform controls row (region selection only in repaint mode)
+  const wfControls = _id('compose-wf-controls');
+  if (wfControls) wfControls.classList.toggle('hidden', approach !== 'repaint');
+  // Redraw waveform (selection highlight only in repaint mode)
+  _drawReworkWaveform();
+
   const btn = _id('compose-generate-btn');
   if (btn && !btn.disabled && _aceStepRunning) {
     btn.textContent = _modeLabel();
   }
+}
+
+// ─── Rework Waveform Timeline ────────────────────────────────────────
+
+let _wfData = null;          // Float32Array of downsampled peaks
+let _wfDuration = 0;         // audio duration in seconds
+let _wfSections = [];        // [{name, start, end}]
+let _wfAnimFrame = null;
+let _wfAudioElement = null;  // reference to the audio element for playhead tracking
+
+function _getColor(varName) {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+}
+
+function _formatTimecode(secs) {
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  const frac = Math.round((secs % 1) * 10);
+  return m + ':' + String(s).padStart(2, '0') + '.' + frac;
+}
+
+async function renderReworkWaveform(audioUrl) {
+  if (!audioUrl) return;
+  const loading = _id('compose-wf-timeline-loading');
+  if (loading) loading.classList.remove('hidden');
+
+  try {
+    const resp = await fetch(audioUrl);
+    if (!resp.ok) throw new Error(resp.statusText);
+    const arrayBuf = await resp.arrayBuffer();
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
+    audioCtx.close();
+
+    _wfDuration = audioBuf.duration;
+
+    // Mono mixdown
+    const channels = audioBuf.numberOfChannels;
+    const length = audioBuf.length;
+    const mono = new Float32Array(length);
+    for (let ch = 0; ch < channels; ch++) {
+      const data = audioBuf.getChannelData(ch);
+      for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
+    }
+
+    // Downsample to canvas width
+    _resizeWfCanvas();
+    const canvas = _id('compose-wf-timeline-canvas');
+    const dpr = window.devicePixelRatio || 1;
+    const barCount = Math.floor(canvas.width / (2 * dpr));
+    const samplesPerBar = Math.floor(length / barCount);
+    _wfData = new Float32Array(barCount);
+    for (let i = 0; i < barCount; i++) {
+      let peak = 0;
+      const offset = i * samplesPerBar;
+      for (let j = 0; j < samplesPerBar; j++) {
+        const abs = Math.abs(mono[offset + j] || 0);
+        if (abs > peak) peak = abs;
+      }
+      _wfData[i] = peak;
+    }
+
+    _drawReworkWaveform();
+
+    // Show timeline
+    _id('compose-wf-timeline')?.classList.remove('hidden');
+
+    // Fetch section labels
+    _fetchReworkSections();
+  } catch (err) {
+    console.error('Rework waveform error:', err);
+  } finally {
+    if (loading) loading.classList.add('hidden');
+  }
+}
+
+function _resizeWfCanvas() {
+  const canvas = _id('compose-wf-timeline-canvas');
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function _drawReworkWaveform() {
+  const canvas = _id('compose-wf-timeline-canvas');
+  if (!canvas || !_wfData) return;
+  const ctx = canvas.getContext('2d');
+
+  const w = canvas.parentElement.getBoundingClientRect().width;
+  const h = canvas.parentElement.getBoundingClientRect().height;
+  const barCount = _wfData.length;
+  if (barCount === 0) return;
+
+  const barWidth = w / barCount;
+  const selStart = Number((_id('compose-wf-region-start') || {}).value) || 0;
+  const selEnd = Number((_id('compose-wf-region-end') || {}).value) || 0;
+  const hasSelection = selEnd > selStart && _approach === 'repaint';
+
+  const mutedColor = _getColor('--text-muted');
+  const accentColor = _getColor('--accent');
+
+  ctx.clearRect(0, 0, w, h);
+
+  const midY = h / 2;
+  const maxBarH = h * 0.85;
+
+  for (let i = 0; i < barCount; i++) {
+    const x = i * barWidth;
+    const barH = Math.max(1, _wfData[i] * maxBarH);
+    const barSecs = (i / barCount) * _wfDuration;
+    const inSelection = hasSelection && barSecs >= selStart && barSecs <= selEnd;
+    ctx.fillStyle = inSelection ? accentColor : mutedColor;
+    ctx.fillRect(x, midY - barH / 2, Math.max(1, barWidth - 0.5), barH);
+  }
+}
+
+async function _fetchReworkSections() {
+  const lyrics = (_id('compose-lyrics-text') || {}).value || '';
+  if (!lyrics.trim() || !_wfDuration) return;
+
+  try {
+    const res = await fetch('/api/compose/estimate-sections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lyrics, duration: _wfDuration }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    _wfSections = data.sections || [];
+    _renderReworkSections();
+  } catch { /* non-critical */ }
+}
+
+function _renderReworkSections() {
+  const container = _id('compose-wf-timeline-sections');
+  if (!container) return;
+  clearChildren(container);
+  if (!_wfSections.length || !_wfDuration) return;
+
+  _wfSections.forEach((sec, i) => {
+    // Alternating stripe
+    const stripe = el('div', { className: 'compose-wf-section-stripe' });
+    stripe.style.left = (sec.start / _wfDuration * 100) + '%';
+    stripe.style.width = (((sec.end || _wfDuration) - sec.start) / _wfDuration * 100) + '%';
+    container.appendChild(stripe);
+
+    // Label pill
+    const label = el('div', { className: 'compose-wf-section-pill' }, sec.name);
+    label.style.left = (sec.start / _wfDuration * 100) + '%';
+    label.dataset.index = i;
+    label.addEventListener('click', (e) => {
+      if (_approach === 'cover') return;
+      if (e.shiftKey && _wfSections.length > 0) {
+        const curStart = Number((_id('compose-wf-region-start') || {}).value) || 0;
+        const curEnd = Number((_id('compose-wf-region-end') || {}).value) || 0;
+        _setWfRegion(Math.min(curStart, sec.start), Math.max(curEnd, sec.end || _wfDuration));
+      } else {
+        _setWfRegion(sec.start, sec.end || _wfDuration);
+      }
+    });
+    container.appendChild(label);
+  });
+}
+
+// Region selection
+function _setWfRegion(start, end) {
+  start = Math.max(0, Math.round(start * 10) / 10);
+  end = Math.min(_wfDuration, Math.round(end * 10) / 10);
+  if (end < start) end = start;
+
+  const startInput = _id('compose-wf-region-start');
+  const endInput = _id('compose-wf-region-end');
+  if (startInput) startInput.value = start.toFixed(1);
+  if (endInput) endInput.value = end.toFixed(1);
+
+  // Sync with rework panel region inputs (bidirectional)
+  const panelStart = _id('compose-region-start');
+  const panelEnd = _id('compose-region-end');
+  if (panelStart) panelStart.value = start.toFixed(1);
+  if (panelEnd) panelEnd.value = end.toFixed(1);
+
+  _updateWfVisuals();
+}
+
+function _updateWfVisuals() {
+  const start = Number((_id('compose-wf-region-start') || {}).value) || 0;
+  const end = Number((_id('compose-wf-region-end') || {}).value) || 0;
+  const selection = _id('compose-wf-timeline-selection');
+  const timeStart = _id('compose-wf-time-start');
+  const timeEnd = _id('compose-wf-time-end');
+  const info = _id('compose-wf-selection-info');
+
+  if (end > start && _wfDuration > 0) {
+    const leftPct = (start / _wfDuration) * 100;
+    const widthPct = ((end - start) / _wfDuration) * 100;
+    if (selection) {
+      selection.style.left = leftPct + '%';
+      selection.style.width = widthPct + '%';
+      selection.classList.remove('hidden');
+    }
+    if (timeStart) timeStart.textContent = _formatTimecode(start);
+    if (timeEnd) timeEnd.textContent = _formatTimecode(end);
+
+    // Selection info text
+    const durSecs = end - start;
+    const sectionNames = _wfSections
+      .filter(s => s.start >= start - 0.5 && (s.end || _wfDuration) <= end + 0.5)
+      .map(s => s.name);
+    const secLabel = sectionNames.length ? sectionNames.join(' + ') + ' \u00b7 ' : '';
+    if (info) info.textContent = secLabel + _formatTimecode(start) + ' \u2013 ' + _formatTimecode(end) + ' (' + durSecs.toFixed(1) + 's)';
+  } else {
+    if (selection) selection.classList.add('hidden');
+    if (timeStart) timeStart.textContent = '';
+    if (timeEnd) timeEnd.textContent = '';
+    if (info) info.textContent = '';
+  }
+
+  _drawReworkWaveform();
+}
+
+// Drag interaction on waveform container
+let _wfDragging = false;
+let _wfDragFraction = 0;
+let _wfDragStartSecs = 0;
+let _wfDragMoved = false;
+let _wfMouseDownX = 0;
+let _wfHandleDrag = null;  // 'left' | 'right' | null
+
+function _initWfInteraction() {
+  const container = _id('compose-wf-timeline-container');
+  if (!container) return;
+
+  container.addEventListener('mousedown', (e) => {
+    if (_approach === 'cover') return;
+
+    const target = e.target;
+    if (target.classList.contains('compose-wf-handle-left')) {
+      _wfHandleDrag = 'left';
+      e.preventDefault();
+      return;
+    }
+    if (target.classList.contains('compose-wf-handle-right')) {
+      _wfHandleDrag = 'right';
+      e.preventDefault();
+      return;
+    }
+    if (target.classList.contains('compose-wf-section-pill')) return;
+
+    _wfDragging = true;
+    _wfDragMoved = false;
+    _wfMouseDownX = e.clientX;
+    const canvas = _id('compose-wf-timeline-canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    _wfDragFraction = rect.width > 0 ? x / rect.width : 0;
+    _wfDragStartSecs = _wfDragFraction * _wfDuration;
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!_wfDragging && !_wfHandleDrag) return;
+    const canvas = _id('compose-wf-timeline-canvas');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const secs = (x / rect.width) * _wfDuration;
+
+    if (_wfHandleDrag === 'left') {
+      const end = Number((_id('compose-wf-region-end') || {}).value) || 0;
+      _setWfRegion(Math.min(secs, end), end);
+    } else if (_wfHandleDrag === 'right') {
+      const start = Number((_id('compose-wf-region-start') || {}).value) || 0;
+      _setWfRegion(start, Math.max(secs, start));
+    } else if (_wfDragging) {
+      if (!_wfDragMoved && Math.abs(e.clientX - _wfMouseDownX) > 4) {
+        _wfDragMoved = true;
+        _setWfRegion(_wfDragStartSecs, _wfDragStartSecs);
+      }
+      if (_wfDragMoved) {
+        _setWfRegion(Math.min(_wfDragStartSecs, secs), Math.max(_wfDragStartSecs, secs));
+      }
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    _wfDragging = false;
+    _wfHandleDrag = null;
+    _wfDragMoved = false;
+  });
+
+  // Number inputs → waveform sync
+  const wfStart = _id('compose-wf-region-start');
+  const wfEnd = _id('compose-wf-region-end');
+  if (wfStart) wfStart.addEventListener('input', () => {
+    const panelStart = _id('compose-region-start');
+    if (panelStart) panelStart.value = wfStart.value;
+    _updateWfVisuals();
+  });
+  if (wfEnd) wfEnd.addEventListener('input', () => {
+    const panelEnd = _id('compose-region-end');
+    if (panelEnd) panelEnd.value = wfEnd.value;
+    _updateWfVisuals();
+  });
+
+  // Rework panel region inputs → waveform sync (bidirectional)
+  const panelStart = _id('compose-region-start');
+  const panelEnd = _id('compose-region-end');
+  if (panelStart) panelStart.addEventListener('input', () => {
+    if (wfStart) wfStart.value = panelStart.value;
+    _updateWfVisuals();
+  });
+  if (panelEnd) panelEnd.addEventListener('input', () => {
+    if (wfEnd) wfEnd.value = panelEnd.value;
+    _updateWfVisuals();
+  });
+}
+
+// Playhead tracking
+function _startWfPlayhead(audioEl) {
+  _stopWfPlayhead();
+  _wfAudioElement = audioEl;
+  const playhead = _id('compose-wf-playhead');
+  if (playhead) playhead.classList.add('active');
+
+  function update() {
+    if (audioEl.paused && !audioEl.seeking) {
+      if (playhead) playhead.classList.remove('active');
+      return;
+    }
+    if (_wfDuration > 0 && playhead) {
+      playhead.style.left = (audioEl.currentTime / _wfDuration * 100) + '%';
+    }
+    _wfAnimFrame = requestAnimationFrame(update);
+  }
+  _wfAnimFrame = requestAnimationFrame(update);
+}
+
+function _stopWfPlayhead() {
+  if (_wfAnimFrame) {
+    cancelAnimationFrame(_wfAnimFrame);
+    _wfAnimFrame = null;
+  }
+  const playhead = _id('compose-wf-playhead');
+  if (playhead) playhead.classList.remove('active');
+}
+
+function hideReworkWaveform() {
+  _wfData = null;
+  _wfDuration = 0;
+  _wfSections = [];
+  _stopWfPlayhead();
+  _id('compose-wf-timeline')?.classList.add('hidden');
+  _id('compose-wf-timeline-selection')?.classList.add('hidden');
+  const sections = _id('compose-wf-timeline-sections');
+  if (sections) clearChildren(sections);
 }
 
 // ─── Style Preview ──────────────────────────────────────────────────
@@ -2451,6 +2858,9 @@ async function handleAudioUpload(file) {
     // Enable extract button
     const eb = _id('compose-rework-extract-btn');
     if (eb) { eb.disabled = false; eb.title = 'Analyze this song to extract lyrics, BPM, key, and style'; }
+
+    // Render rework waveform timeline
+    renderReworkWaveform(`/api/compose/audio?path=${encodeURIComponent(data.path)}`);
   } catch (err) {
     removeUploadedAudio();
   }
@@ -2463,6 +2873,7 @@ function removeUploadedAudio() {
   _id('compose-upload-loaded')?.classList.add('hidden');
   const eb = _id('compose-rework-extract-btn');
   if (eb) { eb.disabled = true; }
+  hideReworkWaveform();
 }
 
 // ─── Sound Reference Upload ─────────────────────────────────────────
