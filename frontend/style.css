@@ -2244,7 +2244,14 @@ input[type="range"]::-moz-range-track {
   white-space: nowrap;
 }
 
-/* ─── Understand Results Grid ────────────────────────────────────────── */
+/* ─── Understand Results ─────────────────────────────────────────────── */
+
+#compose-understand-results {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 
 .compose-understand-grid {
   display: grid;

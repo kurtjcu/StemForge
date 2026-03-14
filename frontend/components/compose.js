@@ -731,7 +731,7 @@ function buildCenterColumn() {
         el('label', { className: 'compose-field-label' }, 'Style description'),
         el('textarea', { id: 'compose-understand-caption', className: 'compose-textarea', rows: '3', readOnly: true }),
       ),
-      el('div', { className: 'compose-field-group' },
+      el('div', { className: 'compose-field-group', style: { flex: '1', minHeight: '0' } },
         el('label', { className: 'compose-field-label' }, 'Lyrics'),
         el('textarea', { id: 'compose-understand-lyrics', className: 'compose-textarea compose-lyrics-area', readOnly: true }),
       ),

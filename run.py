@@ -122,11 +122,17 @@ def main() -> None:
         proc = acestep_state.get_process()
         if proc and proc.poll() is None:
             print("\n[stemforge] Stopping AceStep...")
-            proc.terminate()
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                proc.terminate()
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    proc.kill()
         raise SystemExit(0)
 
     signal.signal(signal.SIGINT, _shutdown)

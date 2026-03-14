@@ -123,7 +123,7 @@ def launch() -> bool:
     ]
     print(f"[stemforge] Starting AceStep API server on port {port}...")
 
-    proc = subprocess.Popen(cmd, env=env)
+    proc = subprocess.Popen(cmd, env=env, start_new_session=True)
     with _lock:
         _proc = proc
 
