@@ -680,7 +680,7 @@ async def analyze_audio(req: AnalyzeAudioRequest):
 
 @router.post("/upload-audio")
 async def upload_audio(file: UploadFile):
-    _require_acestep()
+    # No _require_acestep() — upload is local file I/O, not an AceStep call
     if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(422, "Only audio files are supported")
     upload_id = uuid.uuid4().hex[:12]

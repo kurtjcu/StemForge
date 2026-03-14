@@ -2922,6 +2922,24 @@ async function handleExtractFromSong() {
   if (!_uploadedPath) return;
   const btn = _id('compose-rework-extract-btn');
   const hint = _id('compose-hint');
+
+  // Auto-initialize AceStep if needed
+  if (!_aceStepRunning) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Initializing\u2026'; }
+    if (hint) hint.textContent = 'Starting AceStep\u2026 please stand by.';
+    try {
+      await ensureAceStep();
+      _aceStepRunning = true;
+      const genBtn = _id('compose-generate-btn');
+      if (genBtn && !genBtn.disabled) genBtn.textContent = _modeLabel();
+      if (hint) hint.textContent = '';
+    } catch (err) {
+      if (hint) hint.textContent = `AceStep: ${err.message}`;
+      if (btn) { btn.disabled = false; btn.textContent = 'Extract from loaded song'; }
+      return;
+    }
+  }
+
   if (btn) { btn.disabled = true; btn.textContent = 'Analyzing\u2026'; }
 
   try {
@@ -3033,6 +3051,22 @@ async function runAudioAnalysis(audioPath) {
   const statusEl = _id('compose-understand-status');
   const resultsEl = _id('compose-understand-results');
   const btn = _id('compose-generate-btn');
+
+  // Auto-initialize AceStep if needed
+  if (!_aceStepRunning) {
+    if (btn) { btn.disabled = true; btn.textContent = 'Initializing\u2026'; }
+    if (statusEl) statusEl.textContent = 'Starting AceStep\u2026 please stand by.';
+    try {
+      await ensureAceStep();
+      _aceStepRunning = true;
+      if (statusEl) statusEl.textContent = '';
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `AceStep: ${err.message}`;
+      if (btn) { btn.disabled = false; btn.textContent = _modeLabel(); }
+      return;
+    }
+  }
+
   if (resultsEl) resultsEl.classList.add('hidden');
   if (statusEl) statusEl.textContent = 'Analyzing audio\u2026';
   if (btn) { btn.disabled = true; btn.textContent = 'Analyzing\u2026'; }
