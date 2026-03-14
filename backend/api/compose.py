@@ -78,8 +78,8 @@ _upload_dir = Path(tempfile.mkdtemp(prefix="stemforge-compose-"))
 # Parameter mapping tables
 # ---------------------------------------------------------------------------
 
-_LYRIC_ADHERENCE = [3.0, 7.0, 12.0]
-_QUALITY_STEPS = [15, 60, 120]
+_LYRIC_ADHERENCE = [3.0, 6.0, 10.0]
+_QUALITY_STEPS = [20, 40, 100]
 
 _GEN_MODEL = {
     "turbo": "acestep-v15-turbo",
@@ -136,6 +136,14 @@ class GenerateRequest(BaseModel):
     audio_cover_strength: Optional[float] = None
     repainting_start: Optional[float] = None
     repainting_end: Optional[float] = None
+
+    # Conditioning
+    reference_audio_path: Optional[str] = None
+    audio_code_string: str = ""
+    use_adg: bool = False
+    cfg_interval_start: float = 0.0
+    cfg_interval_end: float = 1.0
+    cover_noise_strength: Optional[float] = None
 
     # Analyze task types (extract / lego / complete)
     track_name: Optional[str] = None
@@ -249,6 +257,19 @@ def _build_payload(req: GenerateRequest) -> dict:
     if req.audio_guidance_scale is not None:
         payload["audio_guidance_scale"] = req.audio_guidance_scale
 
+    # Conditioning params
+    if req.reference_audio_path:
+        payload["reference_audio_path"] = req.reference_audio_path
+    if req.audio_code_string:
+        payload["audio_code_string"] = req.audio_code_string
+        payload["thinking"] = False  # codes bypass LM code generation
+    if req.use_adg:
+        payload["use_adg"] = True
+    if req.cfg_interval_start > 0.0:
+        payload["cfg_interval_start"] = req.cfg_interval_start
+    if req.cfg_interval_end < 1.0:
+        payload["cfg_interval_end"] = req.cfg_interval_end
+
     if req.sample_query:
         label = _LANG_LABELS.get(req.vocal_language, "")
         enriched = f"{req.sample_query}. {label} vocals." if label else req.sample_query
@@ -263,21 +284,19 @@ def _build_payload(req: GenerateRequest) -> dict:
     if lm_path:
         payload["lm_model_path"] = lm_path
 
-    if req.task_type in ("cover", "repaint"):
+    if req.task_type in ("cover", "repaint", "extract", "lego", "complete"):
         payload["task_type"] = req.task_type
         if req.src_audio_path:
             payload["src_audio_path"] = req.src_audio_path
         if req.task_type == "cover" and req.audio_cover_strength is not None:
             payload["audio_cover_strength"] = req.audio_cover_strength
+        if req.task_type == "cover" and req.cover_noise_strength is not None:
+            payload["cover_noise_strength"] = req.cover_noise_strength
         if req.task_type == "repaint":
             if req.repainting_start is not None:
                 payload["repainting_start"] = req.repainting_start
             if req.repainting_end is not None:
                 payload["repainting_end"] = req.repainting_end
-    elif req.task_type in ("extract", "lego", "complete"):
-        payload["task_type"] = req.task_type
-        if req.src_audio_path:
-            payload["src_audio_path"] = req.src_audio_path
         if req.track_name:
             payload["track_name"] = req.track_name
         if req.track_classes:
@@ -435,10 +454,17 @@ async def start_acestep():
 @router.post("/generate")
 async def generate(req: GenerateRequest):
     _require_acestep()
+    updates = {}
     if req.src_audio_path:
-        safe_path = _ensure_in_tmp(req.src_audio_path)
-        if safe_path != req.src_audio_path:
-            req = req.model_copy(update={"src_audio_path": safe_path})
+        safe = _ensure_in_tmp(req.src_audio_path)
+        if safe != req.src_audio_path:
+            updates["src_audio_path"] = safe
+    if req.reference_audio_path:
+        safe = _ensure_in_tmp(req.reference_audio_path)
+        if safe != req.reference_audio_path:
+            updates["reference_audio_path"] = safe
+    if updates:
+        req = req.model_copy(update=updates)
     payload = _build_payload(req)
     try:
         task_id = await release_task(payload)
@@ -597,6 +623,59 @@ async def estimate_sections(req: EstimateSectionsRequest):
     bpm = req.bpm if req.bpm else 120
     sections = _estimate_sections(req.lyrics, req.duration, bpm, req.time_signature)
     return {"sections": sections}
+
+
+class AnalyzeAudioRequest(BaseModel):
+    audio_path: str
+
+
+@router.post("/analyze-audio")
+async def analyze_audio(req: AnalyzeAudioRequest):
+    """Analyze uploaded audio: extract BPM, key, lyrics, style description.
+
+    Uses AceStep's full_analysis_only mode: VAE-encodes audio, VQ-tokenizes to
+    discrete codes, then the LLM reverse-engineers metadata from the codes.
+    No audio generation occurs — this is analysis only.
+    """
+    _require_acestep()
+    if not req.audio_path:
+        raise HTTPException(422, "audio_path is required")
+
+    safe_path = _ensure_in_tmp(req.audio_path)
+    try:
+        task_id = await release_task({
+            "full_analysis_only": True,
+            "src_audio_path": safe_path,
+        })
+    except Exception as exc:
+        raise HTTPException(502, f"AceStep error: {exc}")
+
+    for _ in range(150):  # 150 × 2s = 5 min timeout
+        await asyncio.sleep(2)
+        try:
+            data = await query_result(task_id)
+        except Exception as exc:
+            raise HTTPException(502, f"AceStep poll error: {exc}")
+
+        if data["status"] == "done":
+            results = data.get("results") or []
+            if not results:
+                raise HTTPException(502, "No results returned")
+            result = results[0]
+            meta = result.get("meta") or {}
+            return {
+                "caption": result.get("prompt", ""),
+                "lyrics": result.get("lyrics", ""),
+                "bpm": meta.get("bpm"),
+                "key_scale": meta.get("keyscale", ""),
+                "time_signature": meta.get("timesignature", "4/4"),
+                "vocal_language": meta.get("language", ""),
+                "duration": meta.get("duration"),
+            }
+        elif data["status"] == "error":
+            raise HTTPException(502, "Audio analysis failed")
+
+    raise HTTPException(504, "Audio analysis timed out")
 
 
 @router.post("/upload-audio")
