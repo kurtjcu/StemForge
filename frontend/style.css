@@ -1088,6 +1088,18 @@ input[type="range"]::-moz-range-track {
   background: var(--surface);
 }
 
+/* Full disable for Understand mode — everything greyed out */
+.compose-col-right.compose-controls-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+/* Disabled sliders get visual muting */
+.compose-slider:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .compose-panel-inner {
   display: flex;
   flex-direction: column;
@@ -1792,6 +1804,12 @@ input[type="range"]::-moz-range-track {
 
 .compose-advanced[open] > .compose-advanced-toggle {
   color: var(--text-dim);
+}
+
+/* Disabled state — greyed out, non-interactive */
+.compose-advanced.disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 .compose-advanced-content {

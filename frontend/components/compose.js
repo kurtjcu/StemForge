@@ -2177,7 +2177,50 @@ function switchMode(mode) {
     wfTimeline.classList.toggle('hidden', !showWf);
   }
 
-  // Lock gen_model to base for analyze modes (extract/lego/complete require it)
+  // Update right column control states (disabled/greyed for analyze modes)
+  _updateRightColumnState();
+
+  const btn = _id('compose-generate-btn');
+  if (btn && !btn.disabled) {
+    if (mode === 'voice' || _aceStepRunning) {
+      btn.textContent = _modeLabel();
+    }
+  }
+}
+
+/**
+ * Enable/disable right-column controls based on current mode.
+ * Analyze modes lock most controls (duration, friendly sliders, advanced panel)
+ * because values are overridden by source audio / base model requirements.
+ */
+function _updateRightColumnState() {
+  const isAnalyze = _mode === 'analyze';
+  const isUnderstand = isAnalyze && _analyzeMode === 'understand';
+  // Analyze non-understand: only lego/complete/extract — limited controls
+  // Analyze understand: no generation at all — everything disabled
+  const controlsDisabled = isAnalyze;
+
+  // Duration slider + Auto button
+  const durSlider = _id('compose-duration');
+  const autoBtn = _id('compose-auto-btn');
+  if (durSlider) durSlider.disabled = controlsDisabled || _autoOn;
+  if (autoBtn) {
+    autoBtn.disabled = controlsDisabled;
+    if (controlsDisabled && _autoOn) {
+      _autoOn = false;
+      autoBtn.classList.remove('active');
+      autoBtn.textContent = 'Auto';
+    }
+  }
+
+  // Friendly sliders (lyric adherence, creativity, quality)
+  const friendlySliders = ['compose-lyric-adherence', 'compose-creativity', 'compose-quality'];
+  for (const id of friendlySliders) {
+    const sl = _id(id);
+    if (sl) sl.disabled = controlsDisabled;
+  }
+
+  // Lock gen_model to base for analyze modes
   const genModelSel = _id('compose-gen-model');
   if (genModelSel) {
     if (isAnalyze) {
@@ -2194,25 +2237,24 @@ function switchMode(mode) {
     updateBatchLimit();
   }
 
-  // Disable duration + auto for analyze modes (locked to source audio length)
-  const durSlider = _id('compose-duration');
-  const autoBtn = _id('compose-auto-btn');
-  if (durSlider) durSlider.disabled = isAnalyze || _autoOn;
-  if (autoBtn) {
-    autoBtn.disabled = isAnalyze;
-    if (isAnalyze && _autoOn) {
-      _autoOn = false;
-      autoBtn.classList.remove('active');
-      autoBtn.textContent = 'Auto';
+  // Advanced panel — disable toggle when controls are overridden
+  const advDetails = document.querySelector('#panel-compose .compose-advanced');
+  if (advDetails) {
+    const summary = advDetails.querySelector('.compose-advanced-toggle');
+    if (controlsDisabled) {
+      // Close and disable the advanced panel
+      advDetails.open = false;
+      advDetails.classList.add('disabled');
+      if (summary) summary.setAttribute('tabindex', '-1');
+    } else {
+      advDetails.classList.remove('disabled');
+      if (summary) summary.removeAttribute('tabindex');
     }
   }
 
-  const btn = _id('compose-generate-btn');
-  if (btn && !btn.disabled) {
-    if (mode === 'voice' || _aceStepRunning) {
-      btn.textContent = _modeLabel();
-    }
-  }
+  // Right column visual disabled state
+  const rightCol = document.querySelector('.compose-col-right');
+  if (rightCol) rightCol.classList.toggle('compose-controls-disabled', isUnderstand);
 }
 
 function switchAnalyzeMode(mode) {
@@ -2231,6 +2273,9 @@ function switchAnalyzeMode(mode) {
   _showAnalyzeCenterContent();
 
   if (!isUnderstand) updateAnalyzeTrackHint();
+
+  // Update right column disabled state (understand disables everything)
+  _updateRightColumnState();
 
   const btn = _id('compose-generate-btn');
   if (btn && !btn.disabled && _aceStepRunning) {
