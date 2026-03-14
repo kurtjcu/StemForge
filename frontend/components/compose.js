@@ -44,6 +44,9 @@ let _voiceJobId = null;
 // Seed recall
 let _lastSeed = null;
 
+// Sound reference
+let _referenceAudioPath = null;
+
 const ACE_TRACKS = [
   'vocals', 'backing_vocals', 'drums', 'bass', 'guitar', 'keyboard',
   'strings', 'brass', 'woodwinds', 'synth', 'percussion', 'fx',
@@ -65,8 +68,8 @@ const _BATCH_LIMITS = {
 };
 
 // Lyric adherence → guidance_scale, quality → inference steps
-const _LYRIC_STEPS = [3.0, 7.0, 12.0];
-const _QUALITY_STEPS = [15, 60, 120];
+const _LYRIC_STEPS = [3.0, 6.0, 10.0];
+const _QUALITY_STEPS = [20, 40, 100];
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -358,6 +361,25 @@ function buildLeftColumn() {
     })(),
   );
 
+  // Cover noise blend
+  const coverNoiseGroup = el('div', { id: 'compose-cover-noise-group' },
+    el('div', { style: { display: 'flex', justifyContent: 'space-between' } },
+      el('label', { className: 'compose-field-label' }, 'Noise blend'),
+      el('span', { id: 'compose-cover-noise-value', className: 'compose-value' }, '0%'),
+    ),
+    (() => {
+      const s = el('input', { type: 'range', className: 'compose-slider', id: 'compose-cover-noise',
+        min: '0', max: '100', value: '0', step: '1' });
+      s.addEventListener('input', () => {
+        _id('compose-cover-noise-value').textContent = s.value + '%';
+      });
+      return s;
+    })(),
+    el('div', { className: 'compose-slider-bounds' }, el('span', {}, 'Max AI creativity'), el('span', {}, 'Closest to original')),
+    el('p', { className: 'compose-hint', style: { fontSize: '11px', marginTop: '4px' } },
+      'How the AI starts \u2014 0% begins from pure noise (most creative), 100% begins from the original audio'),
+  );
+
   // Region inputs (for repaint)
   const regionGroup = el('div', { className: 'hidden', id: 'compose-region-group' },
     el('span', { className: 'compose-label-sm' }, 'Region to fix'),
@@ -380,13 +402,22 @@ function buildLeftColumn() {
       placeholder: 'Describe the desired result\u2026 e.g. make it more jazzy with brass' }),
   );
 
+  // "Extract from loaded song" button
+  const extractBtn = el('button', {
+    className: 'compose-ghost-btn', id: 'compose-rework-extract-btn',
+    type: 'button', disabled: 'true',
+    title: 'Analyze this song to extract lyrics, BPM, key, and style',
+  }, 'Extract from loaded song');
+  extractBtn.addEventListener('click', handleExtractFromSong);
+
   reworkPanel.append(
     uploadZone,
     el('div', { className: 'compose-divider' }),
     el('span', { className: 'compose-label-sm' }, 'Approach'),
-    approachBtns, coverGroup, regionGroup,
+    approachBtns, coverGroup, coverNoiseGroup, regionGroup,
     el('div', { className: 'compose-divider' }),
     reworkDirection,
+    extractBtn,
   );
 
   // Wire upload zone drag/drop
@@ -964,6 +995,64 @@ function buildAdvancedPanel() {
 
   content.appendChild(el('div', { className: 'compose-divider' }));
 
+  // Guidance mode (APG vs ADG)
+  content.appendChild(el('div', { className: 'compose-control-group' },
+    el('label', { className: 'compose-field-label' }, 'Guidance mode'),
+    el('select', { id: 'compose-guidance-mode', className: 'compose-select', onChange: checkAdgCompat },
+      el('option', { value: 'apg' }, 'Standard'),
+      el('option', { value: 'adg' }, 'Precise (base/SFT only)'),
+    ),
+    el('p', { id: 'compose-adg-note', className: 'compose-batch-note hidden' }, 'Precise mode requires High Quality or Base model'),
+  ));
+
+  // CFG Interval
+  content.appendChild(el('div', { className: 'compose-control-group' },
+    el('span', { className: 'compose-field-label' }, 'Guidance focus'),
+    el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' } },
+      el('div', {},
+        el('label', { className: 'compose-field-label', style: { fontSize: '11px' } }, 'From'),
+        el('input', { type: 'number', id: 'compose-cfg-start', className: 'compose-number', min: '0', max: '1', step: '0.05', value: '0' }),
+      ),
+      el('div', {},
+        el('label', { className: 'compose-field-label', style: { fontSize: '11px' } }, 'To'),
+        el('input', { type: 'number', id: 'compose-cfg-end', className: 'compose-number', min: '0', max: '1', step: '0.05', value: '1' }),
+      ),
+    ),
+    el('p', { className: 'compose-hint', style: { fontSize: '11px', marginTop: '4px' } },
+      'Which portion of the diffusion process uses guidance. Default 0\u20131 applies to all steps. ' +
+      'Narrowing focuses guidance on structure (high values) or detail (low values).'),
+  ));
+
+  content.appendChild(el('div', { className: 'compose-divider' }));
+
+  // Sound Reference upload
+  const refSection = el('div', { className: 'compose-control-group', id: 'compose-reference-section' },
+    el('span', { className: 'compose-field-label' }, 'Sound Reference'),
+    el('p', { className: 'compose-hint', style: { fontSize: '11px', marginBottom: '6px' } },
+      'Upload a track to match its vibe and production style. Shapes timbre and feel \u2014 not structure or lyrics.'),
+    el('div', { className: 'compose-upload-zone compose-upload-zone--compact', id: 'compose-ref-upload-zone' },
+      el('div', { id: 'compose-ref-upload-prompt' },
+        el('span', {}, '\u266B Drop reference audio or '),
+        el('button', { className: 'compose-ghost-btn', onClick: browseReferenceAudio }, 'Browse'),
+      ),
+      el('div', { className: 'hidden', id: 'compose-ref-upload-loaded' },
+        el('span', { id: 'compose-ref-upload-filename', style: { fontWeight: '600', fontSize: '13px' } }),
+        el('button', { className: 'compose-ghost-btn', onClick: removeReferenceAudio }, 'Remove'),
+      ),
+    ),
+  );
+  content.appendChild(refSection);
+  // Drag/drop wired after DOM insertion via details toggle
+  details.addEventListener('toggle', () => {
+    const zone = _id('compose-ref-upload-zone');
+    if (zone && !zone._dragWired) {
+      setupUploadDragDrop(zone, handleReferenceAudioUpload);
+      zone._dragWired = true;
+    }
+  }, { once: true });
+
+  content.appendChild(el('div', { className: 'compose-divider' }));
+
   // ─── Style Adapter (LoRA) ───
   const loraStatus = el('div', { id: 'compose-lora-status', className: 'compose-lora-status' }, 'No adapter loaded');
   const loraBrowser = el('select', { id: 'compose-lora-browser', className: 'compose-select' },
@@ -1138,6 +1227,10 @@ function _gatherProject() {
     aiDescription: (_id('compose-ai-description') || {}).value || '',
     aiLanguage: (_id('compose-ai-lang') || {}).value || 'en',
     reworkDirection: (_id('compose-rework-direction') || {}).value || '',
+    guidanceMode: (_id('compose-guidance-mode') || {}).value || 'apg',
+    cfgStart: (_id('compose-cfg-start') || {}).value || '0',
+    cfgEnd: (_id('compose-cfg-end') || {}).value || '1',
+    coverNoiseStrength: (_id('compose-cover-noise') || {}).value || '0',
     lastSeed: _lastSeed,
   };
 }
@@ -1207,6 +1300,12 @@ function _applyProject(proj) {
 
   // Rework
   const reworkDir = _id('compose-rework-direction'); if (reworkDir && proj.reworkDirection != null) reworkDir.value = proj.reworkDirection;
+
+  // Guidance mode & CFG interval
+  const guidanceMode = _id('compose-guidance-mode'); if (guidanceMode && proj.guidanceMode) guidanceMode.value = proj.guidanceMode;
+  const cfgStart = _id('compose-cfg-start'); if (cfgStart && proj.cfgStart != null) cfgStart.value = proj.cfgStart;
+  const cfgEnd = _id('compose-cfg-end'); if (cfgEnd && proj.cfgEnd != null) cfgEnd.value = proj.cfgEnd;
+  _setSliderValue('compose-cover-noise', proj.coverNoiseStrength);
 
   // Last seed recall
   if (proj.lastSeed != null) {
@@ -2023,6 +2122,10 @@ function switchMode(mode) {
   if (centerCol) centerCol.classList.toggle('hidden', mode === 'lego' || mode === 'complete' || mode === 'voice');
   if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice');
 
+  // Hide sound reference in train/lego/complete/voice modes (only relevant for create/rework)
+  const refSection = _id('compose-reference-section');
+  if (refSection) refSection.classList.toggle('hidden', isTrain || mode === 'lego' || mode === 'complete' || mode === 'voice');
+
   // Start/stop train polling
   if (isTrain) { _startTrainStatusPoll(); _recoverPipelineState(); }
   else { _stopTrainStatusPoll(); }
@@ -2085,8 +2188,10 @@ function switchApproach(approach) {
   document.querySelectorAll('#panel-compose .compose-approach-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.approach === approach));
   const cg = _id('compose-cover-group');
+  const cng = _id('compose-cover-noise-group');
   const rg = _id('compose-region-group');
   if (cg) cg.classList.toggle('hidden', approach !== 'cover');
+  if (cng) cng.classList.toggle('hidden', approach !== 'cover');
   if (rg) rg.classList.toggle('hidden', approach !== 'repaint');
 
   const btn = _id('compose-generate-btn');
@@ -2181,6 +2286,21 @@ function updateBatchLimit() {
     } else {
       note.classList.add('hidden');
     }
+  }
+  // ADG compat check — turbo doesn't support Precise guidance
+  checkAdgCompat();
+}
+
+function checkAdgCompat() {
+  const genModel = (_id('compose-gen-model') || {}).value || 'turbo';
+  const guidanceMode = _id('compose-guidance-mode');
+  const adgNote = _id('compose-adg-note');
+  if (!guidanceMode) return;
+  if (genModel === 'turbo' && guidanceMode.value === 'adg') {
+    guidanceMode.value = 'apg';
+    if (adgNote) adgNote.classList.remove('hidden');
+  } else {
+    if (adgNote) adgNote.classList.add('hidden');
   }
 }
 
@@ -2288,6 +2408,9 @@ async function handleAudioUpload(file) {
       const re = _id('compose-region-end');
       if (re) { re.value = Math.round(audio.duration * 10) / 10; re.max = re.value; }
     });
+    // Enable extract button
+    const eb = _id('compose-rework-extract-btn');
+    if (eb) { eb.disabled = false; eb.title = 'Analyze this song to extract lyrics, BPM, key, and style'; }
   } catch (err) {
     removeUploadedAudio();
   }
@@ -2298,6 +2421,81 @@ function removeUploadedAudio() {
   _uploadedDuration = null;
   _id('compose-upload-prompt')?.classList.remove('hidden');
   _id('compose-upload-loaded')?.classList.add('hidden');
+  const eb = _id('compose-rework-extract-btn');
+  if (eb) { eb.disabled = true; }
+}
+
+// ─── Sound Reference Upload ─────────────────────────────────────────
+
+function browseReferenceAudio() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'audio/*';
+  input.addEventListener('change', () => { if (input.files[0]) handleReferenceAudioUpload(input.files[0]); });
+  input.click();
+}
+
+async function handleReferenceAudioUpload(file) {
+  if (!file || !file.type.startsWith('audio/')) return;
+
+  const fnEl = _id('compose-ref-upload-filename');
+  if (fnEl) fnEl.textContent = file.name;
+  _id('compose-ref-upload-prompt')?.classList.add('hidden');
+  _id('compose-ref-upload-loaded')?.classList.remove('hidden');
+
+  const form = new FormData();
+  form.append('file', file);
+  try {
+    const res = await fetch('/api/compose/upload-audio', { method: 'POST', body: form });
+    if (!res.ok) throw new Error(res.statusText);
+    const data = await res.json();
+    _referenceAudioPath = data.path;
+  } catch (err) {
+    removeReferenceAudio();
+    const hint = _id('compose-hint');
+    if (hint) hint.textContent = 'Reference upload failed: ' + err.message;
+  }
+}
+
+function removeReferenceAudio() {
+  _referenceAudioPath = null;
+  const fnEl = _id('compose-ref-upload-filename');
+  if (fnEl) fnEl.textContent = '';
+  _id('compose-ref-upload-prompt')?.classList.remove('hidden');
+  _id('compose-ref-upload-loaded')?.classList.add('hidden');
+}
+
+// ─── Extract from loaded song ───────────────────────────────────────
+
+async function handleExtractFromSong() {
+  if (!_uploadedPath) return;
+  const btn = _id('compose-rework-extract-btn');
+  const hint = _id('compose-hint');
+  if (btn) { btn.disabled = true; btn.textContent = 'Analyzing\u2026'; }
+
+  try {
+    const res = await fetch('/api/compose/analyze-audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ audio_path: _uploadedPath }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    const data = await res.json();
+    // Apply extracted caption to rework direction
+    const dir = _id('compose-rework-direction');
+    if (dir && data.caption) dir.value = data.caption;
+    // Apply extracted lyrics
+    const lyrics = _id('compose-lyrics-text');
+    if (lyrics && data.lyrics) lyrics.value = data.lyrics;
+    checkLyricsWarning();
+  } catch (err) {
+    if (hint) hint.textContent = 'Analysis failed: ' + err.message;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Extract from loaded song'; }
+  }
 }
 
 // ─── Lego Audio Upload ─────────────────────────────────────────────
@@ -2446,6 +2644,10 @@ function buildPayload() {
     guidance_scale_raw: Number((_id('compose-guidance-lyric') || {}).value || 7),
     audio_guidance_scale: Number((_id('compose-guidance-audio') || {}).value || 4),
     inference_steps_raw: Number((_id('compose-inf-steps') || {}).value || 60),
+    reference_audio_path: _referenceAudioPath,
+    use_adg: (_id('compose-guidance-mode') || {}).value === 'adg',
+    cfg_interval_start: Number((_id('compose-cfg-start') || {}).value || 0),
+    cfg_interval_end: Number((_id('compose-cfg-end') || {}).value || 1),
   };
 
   if (_mode === 'rework') {
@@ -2458,6 +2660,7 @@ function buildPayload() {
     };
     if (taskType === 'cover') {
       payload.audio_cover_strength = Number((_id('compose-cover-strength') || {}).value || 50) / 100;
+      payload.cover_noise_strength = Number((_id('compose-cover-noise') || {}).value || 0) / 100;
     } else {
       payload.repainting_start = Number((_id('compose-region-start') || {}).value || 0);
       payload.repainting_end = Number((_id('compose-region-end') || {}).value || 0);
@@ -2769,6 +2972,11 @@ function showResults(taskId, results, payload) {
 
   const fmt = payload.audio_format || 'mp3';
 
+  // Determine lyrics source for section estimation
+  const lyricsForSections = (_createTab === 'ai-lyrics' && results[0]?.lyrics)
+    ? results[0].lyrics
+    : (payload.lyrics || '');
+
   results.forEach((result, i) => {
     const audioPath = result.audio_url || '';
     const card = buildResultCard(taskId, i, results.length, result, fmt);
@@ -2778,6 +2986,11 @@ function showResults(taskId, results, payload) {
     appState.composePaths.push({ path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
     appState.emit('composeReady', { path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
   });
+
+  // Fetch section labels and overlay on all cards from this batch
+  if (lyricsForSections.trim()) {
+    _fetchAndRenderSections(lyricsForSections, payload.duration || 30, payload.bpm, payload.time_signature || '4/4');
+  }
 
   // Render diff waveform for analyze modes (first result)
   if ((_mode === 'lego' || _mode === 'complete') && results.length > 0 && results[0].audio_url) {
@@ -2800,6 +3013,60 @@ function _stopOtherPlayers(except) {
       p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
     }
+  }
+}
+
+async function _fetchAndRenderSections(lyrics, duration, bpm, timeSig) {
+  try {
+    const res = await fetch('/api/compose/estimate-sections', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lyrics, duration, bpm: bpm || null, time_signature: timeSig }),
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const sections = data.sections || [];
+    if (!sections.length) return;
+
+    // Apply to all current result players that have a section overlay
+    for (const p of _resultPlayers) {
+      if (p.sectionOverlay) {
+        _renderSectionLabels(p.sectionOverlay, sections, duration, p.ws);
+      }
+    }
+  } catch { /* non-critical */ }
+}
+
+function _renderSectionLabels(container, sections, duration, ws) {
+  clearChildren(container);
+  if (!sections.length || !duration) return;
+
+  for (const sec of sections) {
+    const pct = (sec.start / duration * 100);
+
+    // Tick mark
+    if (sec.start > 0) {
+      const tick = el('div', { className: 'compose-wf-section-tick' });
+      tick.style.left = pct + '%';
+      container.appendChild(tick);
+    }
+
+    // Label pill
+    const pill = el('div', { className: 'compose-wf-section-label' }, sec.name);
+    pill.style.left = pct + '%';
+    pill.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (ws) {
+        _stopOtherPlayers(ws);
+        ws.setTime(sec.start);
+        ws.play();
+        // Update play button
+        for (const p of _resultPlayers) {
+          if (p.ws === ws && p.playBtn) p.playBtn.textContent = '\u23F8 Pause';
+        }
+      }
+    });
+    container.appendChild(pill);
   }
 }
 
@@ -2835,14 +3102,16 @@ function buildResultCard(taskId, index, total, result, fmt) {
       ),
     );
 
-    const waveContainer = el('div', { className: 'stem-waveform' });
+    const waveContainer = el('div', { className: 'stem-waveform compose-wf-wrap' });
+    const sectionOverlay = el('div', { className: 'compose-wf-sections' });
+    waveContainer.appendChild(sectionOverlay);
     card.append(header, waveContainer);
 
     // Wavesurfer inline player
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(audioSrc);
 
-    const playerEntry = { ws, playBtn };
+    const playerEntry = { ws, playBtn, sectionOverlay, waveContainer };
     _resultPlayers.push(playerEntry);
 
     closeBtn.addEventListener('click', () => {

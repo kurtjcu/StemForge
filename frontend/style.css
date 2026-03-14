@@ -1578,6 +1578,18 @@ input[type="range"]::-moz-range-track {
   background: var(--accent-glow);
 }
 
+.compose-upload-zone--compact {
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.compose-upload-zone--compact .compose-ghost-btn {
+  font-size: 12px;
+}
+
 /* ─── Approach Selector ──────────────────────────────────────────────── */
 
 .compose-approach-grid {
@@ -1951,6 +1963,52 @@ input[type="range"]::-moz-range-track {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* ─── Section Labels on Result Card Waveforms ──────────────────────── */
+
+.compose-wf-wrap {
+  position: relative;
+}
+
+.compose-wf-sections {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.compose-wf-section-label {
+  position: absolute;
+  top: 2px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 600;
+  padding: 0 4px;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+  white-space: nowrap;
+  z-index: 3;
+  transition: background 0.15s;
+}
+
+.compose-wf-section-label:hover {
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.compose-wf-section-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  opacity: 0.4;
+  pointer-events: none;
 }
 
 
