@@ -98,6 +98,11 @@ def launch() -> bool:
         if var in os.environ:
             env[var] = os.environ[var]
 
+    # Force CPU offload so AceStep releases GPU memory between generations,
+    # allowing other pipelines (Synth, Separate, etc.) to use the GPU.
+    # See memory/project_acestep_vram_workaround.md for context.
+    env.setdefault("MAX_CUDA_VRAM", "16")
+
     # Preamble sets process-wide torch config without touching vendor code.
     preamble = (
         "import torch;"
