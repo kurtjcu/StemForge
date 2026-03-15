@@ -2141,7 +2141,7 @@ input[type="range"]::-moz-range-track {
 .compose-wf-timeline-container {
   position: relative;
   width: 100%;
-  height: 80px;
+  height: 140px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 4px);

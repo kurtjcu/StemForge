@@ -762,7 +762,42 @@ function buildCenterColumn() {
     ),
   );
 
-  col.append(myLyrics, aiLyrics, instrumental, analyzeTab, understandTab);
+  // Rework waveform tab (replaces lyrics area when in rework mode)
+  const reworkWfTab = el('div', { className: 'compose-tab-content hidden', id: 'compose-tab-rework-wf' },
+    // Waveform timeline
+    el('div', { className: 'compose-wf-timeline', id: 'compose-wf-timeline' },
+      el('div', { className: 'compose-wf-timeline-container', id: 'compose-wf-timeline-container' },
+        el('div', { className: 'compose-wf-timeline-loading hidden', id: 'compose-wf-timeline-loading' },
+          el('div', { className: 'compose-spinner' }),
+          el('span', {}, 'Decoding audio\u2026'),
+        ),
+        el('canvas', { id: 'compose-wf-timeline-canvas' }),
+        el('div', { className: 'compose-wf-timeline-sections', id: 'compose-wf-timeline-sections' }),
+        el('div', { className: 'compose-wf-timeline-selection hidden', id: 'compose-wf-timeline-selection' },
+          el('div', { className: 'compose-wf-handle compose-wf-handle-left' }),
+          el('div', { className: 'compose-wf-handle compose-wf-handle-right' }),
+          el('span', { className: 'compose-wf-time-label compose-wf-time-start', id: 'compose-wf-time-start' }),
+          el('span', { className: 'compose-wf-time-label compose-wf-time-end', id: 'compose-wf-time-end' }),
+        ),
+        el('div', { className: 'compose-wf-playhead', id: 'compose-wf-playhead' }),
+      ),
+      el('div', { className: 'compose-wf-controls', id: 'compose-wf-controls' },
+        el('div', { className: 'compose-wf-time-inputs' },
+          el('label', { className: 'compose-wf-label' }, 'Start'),
+          el('input', { type: 'number', id: 'compose-wf-region-start', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
+          el('label', { className: 'compose-wf-label' }, 'End'),
+          el('input', { type: 'number', id: 'compose-wf-region-end', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
+        ),
+        el('span', { className: 'compose-wf-selection-info', id: 'compose-wf-selection-info' }),
+        el('span', { className: 'compose-wf-hint', id: 'compose-wf-hint' }, 'Drag on waveform to select region \u2022 click section labels to snap'),
+      ),
+    ),
+    // Idle placeholder (shown before audio is loaded)
+    el('div', { id: 'compose-rework-wf-idle', style: { textAlign: 'center', padding: '24px 0', color: 'var(--text-dim)', fontSize: '13px' } },
+      'Load audio from the source selector to see the waveform here'),
+  );
+
+  col.append(myLyrics, aiLyrics, instrumental, analyzeTab, understandTab, reworkWfTab);
   return col;
 }
 
@@ -2162,37 +2197,7 @@ async function _recoverPipelineState() {
 // ─── Output Panel ───────────────────────────────────────────────────
 
 function buildOutputPanel() {
-  // Rework waveform timeline (shown when rework audio loaded)
-  const wfTimeline = el('div', { className: 'compose-wf-timeline hidden', id: 'compose-wf-timeline' },
-    el('div', { className: 'compose-wf-timeline-container', id: 'compose-wf-timeline-container' },
-      el('div', { className: 'compose-wf-timeline-loading hidden', id: 'compose-wf-timeline-loading' },
-        el('div', { className: 'compose-spinner' }),
-        el('span', {}, 'Decoding audio\u2026'),
-      ),
-      el('canvas', { id: 'compose-wf-timeline-canvas' }),
-      el('div', { className: 'compose-wf-timeline-sections', id: 'compose-wf-timeline-sections' }),
-      el('div', { className: 'compose-wf-timeline-selection hidden', id: 'compose-wf-timeline-selection' },
-        el('div', { className: 'compose-wf-handle compose-wf-handle-left' }),
-        el('div', { className: 'compose-wf-handle compose-wf-handle-right' }),
-        el('span', { className: 'compose-wf-time-label compose-wf-time-start', id: 'compose-wf-time-start' }),
-        el('span', { className: 'compose-wf-time-label compose-wf-time-end', id: 'compose-wf-time-end' }),
-      ),
-      el('div', { className: 'compose-wf-playhead', id: 'compose-wf-playhead' }),
-    ),
-    el('div', { className: 'compose-wf-controls', id: 'compose-wf-controls' },
-      el('div', { className: 'compose-wf-time-inputs' },
-        el('label', { className: 'compose-wf-label' }, 'Start'),
-        el('input', { type: 'number', id: 'compose-wf-region-start', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
-        el('label', { className: 'compose-wf-label' }, 'End'),
-        el('input', { type: 'number', id: 'compose-wf-region-end', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
-      ),
-      el('span', { className: 'compose-wf-selection-info', id: 'compose-wf-selection-info' }),
-      el('span', { className: 'compose-wf-hint', id: 'compose-wf-hint' }, 'Drag on waveform to select region \u2022 click section labels to snap'),
-    ),
-  );
-
   return el('div', { className: 'compose-output', id: 'compose-output' },
-    wfTimeline,
     el('div', { className: 'compose-output-generating hidden', id: 'compose-generating' },
       el('div', { className: 'compose-spinner' }),
       el('span', {}, 'Generating\u2026 '),
@@ -2238,13 +2243,24 @@ function switchMode(mode) {
   if (centerCol) centerCol.classList.toggle('hidden', mode === 'voice');
   if (rightCol) rightCol.classList.toggle('hidden', mode === 'voice');
 
-  // Toggle center column content for analyze mode
+  // Toggle center column content based on mode
+  const reworkWfTab = _id('compose-tab-rework-wf');
   if (isAnalyze) {
     _showAnalyzeCenterContent();
+    if (reworkWfTab) reworkWfTab.classList.add('hidden');
+  } else if (mode === 'rework') {
+    // Hide all lyrics tabs, show rework waveform
+    _id('compose-tab-my-lyrics')?.classList.add('hidden');
+    _id('compose-tab-ai-lyrics')?.classList.add('hidden');
+    _id('compose-tab-instrumental')?.classList.add('hidden');
+    _id('compose-tab-analyze')?.classList.add('hidden');
+    _id('compose-tab-understand')?.classList.add('hidden');
+    if (reworkWfTab) reworkWfTab.classList.remove('hidden');
   } else {
     // Restore normal center column content
     _id('compose-tab-analyze')?.classList.add('hidden');
     _id('compose-tab-understand')?.classList.add('hidden');
+    if (reworkWfTab) reworkWfTab.classList.add('hidden');
     // Show active create tab
     if (mode === 'create') switchCreateTab(_createTab);
   }
@@ -2260,12 +2276,8 @@ function switchMode(mode) {
   // Load voice models when entering voice mode for the first time
   if (mode === 'voice') loadVoiceModels();
 
-  // Show/hide rework waveform timeline (visible when rework mode has audio loaded)
-  const wfTimeline = _id('compose-wf-timeline');
-  if (wfTimeline) {
-    const showWf = mode === 'rework' && _uploadedPath && _wfData;
-    wfTimeline.classList.toggle('hidden', !showWf);
-  }
+  // Toggle rework waveform vs idle placeholder
+  _updateReworkWfVisibility();
 
   // Refresh rework source dropdown when entering rework mode
   if (mode === 'rework') _refreshReworkSources();
@@ -2486,8 +2498,8 @@ async function renderReworkWaveform(audioUrl) {
 
     _drawReworkWaveform();
 
-    // Show timeline
-    _id('compose-wf-timeline')?.classList.remove('hidden');
+    // Show waveform, hide idle placeholder
+    _updateReworkWfVisibility();
 
     // Fetch section labels
     _fetchReworkSections();
@@ -2779,10 +2791,19 @@ function hideReworkWaveform() {
   _wfDuration = 0;
   _wfSections = [];
   _stopWfPlayhead();
-  _id('compose-wf-timeline')?.classList.add('hidden');
   _id('compose-wf-timeline-selection')?.classList.add('hidden');
   const sections = _id('compose-wf-timeline-sections');
   if (sections) clearChildren(sections);
+  _updateReworkWfVisibility();
+}
+
+/** Show waveform or idle placeholder in the rework center column tab. */
+function _updateReworkWfVisibility() {
+  const wf = _id('compose-wf-timeline');
+  const idle = _id('compose-rework-wf-idle');
+  const hasWf = _uploadedPath && _wfData;
+  if (wf) wf.classList.toggle('hidden', !hasWf);
+  if (idle) idle.classList.toggle('hidden', !!hasWf);
 }
 
 // ─── Style Preview ──────────────────────────────────────────────────
