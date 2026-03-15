@@ -792,6 +792,21 @@ function buildCenterColumn() {
         el('span', { className: 'compose-wf-hint', id: 'compose-wf-hint' }, 'Drag on waveform to select region \u2022 click section labels to snap'),
       ),
     ),
+    // Extracted lyrics (shown after Extract, editable so user can adjust before Fix & Blend)
+    el('div', { className: 'compose-field-group hidden', id: 'compose-rework-lyrics-group', style: { flex: '1', minHeight: '0' } },
+      el('label', { className: 'compose-field-label' }, 'Extracted lyrics (sent with generation)'),
+      el('textarea', {
+        id: 'compose-rework-lyrics',
+        className: 'compose-textarea compose-lyrics-area',
+        placeholder: 'Use "Extract from loaded song" to populate\u2026',
+        onInput: () => {
+          // Sync to the shared lyrics textarea so buildPayload picks it up
+          const shared = _id('compose-lyrics-text');
+          const rework = _id('compose-rework-lyrics');
+          if (shared && rework) shared.value = rework.value;
+        },
+      }),
+    ),
     // Idle placeholder (shown before audio is loaded)
     el('div', { id: 'compose-rework-wf-idle', style: { textAlign: 'center', padding: '24px 0', color: 'var(--text-dim)', fontSize: '13px' } },
       'Load audio from the source selector to see the waveform here'),
@@ -3192,10 +3207,35 @@ async function handleExtractFromSong() {
     // Apply extracted caption to rework direction
     const dir = _id('compose-rework-direction');
     if (dir && data.caption) dir.value = data.caption;
-    // Apply extracted lyrics
+    // Apply extracted lyrics (shared textarea, sent in payload)
     const lyrics = _id('compose-lyrics-text');
     if (lyrics && data.lyrics) lyrics.value = data.lyrics;
+    // Show extracted lyrics in the rework waveform panel too
+    const reworkLyrics = _id('compose-rework-lyrics');
+    if (reworkLyrics && data.lyrics) {
+      reworkLyrics.value = data.lyrics;
+      _id('compose-rework-lyrics-group')?.classList.remove('hidden');
+    }
     checkLyricsWarning();
+    // Populate BPM, key, time signature in right column
+    if (data.bpm) {
+      const bpmEl = _id('compose-bpm');
+      if (bpmEl) bpmEl.value = data.bpm;
+    }
+    if (data.key_scale) {
+      // key_scale format: "C major" or "A minor"
+      const parts = data.key_scale.split(/\s+/);
+      if (parts.length >= 2) {
+        const rootEl = _id('compose-key-root');
+        const modeEl = _id('compose-key-mode');
+        if (rootEl) rootEl.value = parts[0];
+        if (modeEl) modeEl.value = parts.slice(1).join(' ');
+      }
+    }
+    if (data.time_signature) {
+      const tsEl = _id('compose-time-sig');
+      if (tsEl) tsEl.value = data.time_signature;
+    }
   } catch (err) {
     if (hint) hint.textContent = 'Analysis failed: ' + err.message;
   } finally {
