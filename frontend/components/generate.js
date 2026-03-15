@@ -496,9 +496,7 @@ async function startGeneration() {
   }
 
   const progressCard = document.getElementById('gen-progress');
-  const resultContainer = document.getElementById('gen-result');
   progressCard.classList.remove('hidden');
-  clearChildren(resultContainer);
   document.getElementById('gen-start').disabled = true;
 
   try {
@@ -530,7 +528,7 @@ async function startGeneration() {
       onError(msg) {
         progressCard.classList.add('hidden');
         document.getElementById('gen-start').disabled = false;
-        resultContainer.appendChild(
+        document.getElementById('gen-result').prepend(
           el('div', { className: 'banner banner-error' }, `Generation failed: ${msg}`),
         );
       },
@@ -590,7 +588,7 @@ function showResult(result) {
     card.remove();
   });
 
-  container.appendChild(card);
+  container.prepend(card);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
