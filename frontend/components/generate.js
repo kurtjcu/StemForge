@@ -414,10 +414,8 @@ export function initGenerate() {
     e.target.value = '';
   });
 
-  // Add sound from disk
-  document.getElementById('sfx-add-sound-btn').addEventListener('click', () => {
-    document.getElementById('sfx-add-sound-input').click();
-  });
+  // Add sound — show browser or import from disk
+  document.getElementById('sfx-add-sound-btn').addEventListener('click', showSoundBrowser);
   document.getElementById('sfx-add-sound-input').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -430,9 +428,8 @@ export function initGenerate() {
         throw new Error(err.detail || resp.statusText);
       }
       const result = await resp.json();
-      // Auto-keep and add to canvas
       await api('/sfx/keep-clip', { method: 'POST', body: JSON.stringify({ path: result.path }) });
-      await addClipToCanvas(result.path);
+      _showSoundAsResult(result.path, result.name);
     } catch (err) {
       alert(`Add sound failed: ${err.message}`);
     }
@@ -585,6 +582,110 @@ function showResult(result) {
   });
 
   container.appendChild(card);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Sound Browser
+// ═════════════════════════════════════════════════════════════════════════
+
+async function showSoundBrowser() {
+  const container = document.getElementById('gen-result');
+
+  // Remove any existing browser panel
+  const existing = document.getElementById('sound-browser');
+  if (existing) { existing.remove(); return; } // toggle off
+
+  const panel = el('div', { className: 'card', id: 'sound-browser' },
+    el('div', { className: 'stem-card-header' },
+      el('span', { className: 'stem-label' }, 'Sound Library'),
+      el('div', { className: 'stem-actions' },
+        el('button', {
+          className: 'btn btn-sm',
+          onClick: () => document.getElementById('sfx-add-sound-input').click(),
+        }, 'Import from disk\u2026'),
+        el('button', {
+          className: 'btn btn-sm btn-danger',
+          onClick: () => panel.remove(),
+        }, '\u2715'),
+      ),
+    ),
+    el('div', { id: 'sound-browser-list', style: { maxHeight: '400px', overflowY: 'auto' } },
+      el('span', { className: 'text-dim', style: { fontSize: '12px', padding: '8px' } }, 'Loading\u2026'),
+    ),
+  );
+  container.prepend(panel);
+
+  try {
+    const data = await api('/sfx/browse-sounds');
+    const list = document.getElementById('sound-browser-list');
+    clearChildren(list);
+
+    if (!data.sounds || data.sounds.length === 0) {
+      list.appendChild(el('div', { style: { padding: '12px', color: 'var(--text-dim)', fontSize: '13px' } },
+        'No saved sounds yet. Generate some or import from disk.'));
+      return;
+    }
+
+    let currentGroup = '';
+    for (const s of data.sounds) {
+      if (s.group !== currentGroup) {
+        currentGroup = s.group;
+        const label = s.group === 'generated' ? 'Generated' : 'Imported';
+        list.appendChild(el('div', {
+          style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', padding: '8px 8px 2px', borderTop: '1px solid var(--border)' },
+        }, label));
+      }
+      const row = el('div', {
+        className: 'sound-browser-item',
+        style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', cursor: 'pointer' },
+      });
+      row.appendChild(el('span', { style: { flex: '1', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, s.name));
+      const addBtn = el('button', { className: 'btn btn-sm btn-primary', style: { flexShrink: '0' } }, 'Add');
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        _showSoundAsResult(s.path, s.name);
+        panel.remove();
+      });
+      row.appendChild(addBtn);
+      list.appendChild(row);
+    }
+  } catch (err) {
+    const list = document.getElementById('sound-browser-list');
+    if (list) {
+      clearChildren(list);
+      list.appendChild(el('div', { style: { padding: '8px', color: 'var(--error)' } }, `Failed: ${err.message}`));
+    }
+  }
+}
+
+/** Show a sound from disk as a result card (same as generated results). */
+function _showSoundAsResult(audioPath, name) {
+  const container = document.getElementById('gen-result');
+  const clipName = name || audioPath.split('/').pop()?.replace('.wav', '') || 'Clip';
+
+  const keepBtn = el('button', { className: 'btn btn-sm' }, 'Keep');
+  keepBtn.addEventListener('click', async () => {
+    await api('/sfx/keep-clip', {
+      method: 'POST',
+      body: JSON.stringify({ path: audioPath }),
+    });
+    keepBtn.textContent = 'Kept';
+    keepBtn.disabled = true;
+  });
+
+  const sfxBtn = el('button', {
+    className: 'btn btn-sm btn-primary',
+    onClick: () => addClipToCanvas(audioPath),
+  }, '+ SFX Canvas');
+
+  const url = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
+  const { card } = createStemPlayer(clipName, url, {
+    getUrl: () => url,
+    saveLabel: audioPath,
+    extraButtons: [keepBtn, sfxBtn],
+  });
+
+  container.prepend(card);
 }
 
 // ═════════════════════════════════════════════════════════════════════════

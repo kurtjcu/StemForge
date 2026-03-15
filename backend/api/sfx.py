@@ -181,6 +181,32 @@ def list_sfx() -> dict:
     return {"sfx_stems": summaries}
 
 
+@router.get("/browse-sounds")
+def browse_sounds() -> dict:
+    """List all generated and imported sounds for the Add Sound picker."""
+    sounds: list[dict] = []
+
+    # Generated sounds (all, not filtered by kept_clips)
+    if MUSICGEN_DIR.exists():
+        for f in sorted(MUSICGEN_DIR.rglob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True):
+            sounds.append({"path": str(f), "name": f.stem, "group": "generated"})
+
+    # Imported sounds
+    imports_dir = SFX_DIR / "imports"
+    if imports_dir.exists():
+        for f in sorted(imports_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.suffix.lower() in SUPPORTED_EXTENSIONS:
+                raw_name = f.name
+                display_name = raw_name[9:] if len(raw_name) > 9 and raw_name[8] == "_" else raw_name
+                sounds.append({
+                    "path": str(f),
+                    "name": pathlib.Path(display_name).stem,
+                    "group": "imported",
+                })
+
+    return {"sounds": sounds}
+
+
 @router.get("/available-clips")
 def available_clips(exclude_id: str | None = Query(None)) -> dict:
     """List clips available for SFX placement, grouped by source."""

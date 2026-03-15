@@ -2621,6 +2621,11 @@ input[type="range"]::-moz-range-track {
   gap: 6px;
 }
 
+.sound-browser-item:hover {
+  background: var(--surface-overlay);
+  border-radius: 4px;
+}
+
 .sfx-clip-controls-fields label {
   color: var(--text-dim);
   font-size: 11px;
