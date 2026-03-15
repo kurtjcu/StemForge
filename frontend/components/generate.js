@@ -574,11 +574,20 @@ function showResult(result) {
     onClick: () => addClipToCanvas(audioPath),
   }, '+ SFX Canvas');
 
+  const closeBtn = el('button', { className: 'btn btn-sm btn-danger' }, '\u2715');
+
   const url = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
-  const { card } = createStemPlayer(nameSpan, url, {
+  const { card, ws } = createStemPlayer(nameSpan, url, {
     getUrl: () => `/api/audio/stream?path=${encodeURIComponent(audioPath)}`,
     saveLabel: audioPath,
-    extraButtons: [keepBtn, sfxBtn],
+    extraButtons: [keepBtn, sfxBtn, closeBtn],
+  });
+
+  closeBtn.addEventListener('click', () => {
+    ws.destroy();
+    const idx = _players.findIndex(p => p.ws === ws);
+    if (idx >= 0) _players.splice(idx, 1);
+    card.remove();
   });
 
   container.appendChild(card);
@@ -644,7 +653,6 @@ async function showSoundBrowser() {
       addBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         _showSoundAsResult(s.path, s.name);
-        panel.remove();
       });
       row.appendChild(addBtn);
       list.appendChild(row);
@@ -678,11 +686,20 @@ function _showSoundAsResult(audioPath, name) {
     onClick: () => addClipToCanvas(audioPath),
   }, '+ SFX Canvas');
 
+  const closeBtn = el('button', { className: 'btn btn-sm btn-danger' }, '\u2715');
+
   const url = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
-  const { card } = createStemPlayer(clipName, url, {
+  const { card, ws } = createStemPlayer(clipName, url, {
     getUrl: () => url,
     saveLabel: audioPath,
-    extraButtons: [keepBtn, sfxBtn],
+    extraButtons: [keepBtn, sfxBtn, closeBtn],
+  });
+
+  closeBtn.addEventListener('click', () => {
+    ws.destroy();
+    const idx = _players.findIndex(p => p.ws === ws);
+    if (idx >= 0) _players.splice(idx, 1);
+    card.remove();
   });
 
   container.prepend(card);
