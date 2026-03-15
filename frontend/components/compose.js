@@ -325,7 +325,7 @@ function buildLeftColumn() {
   createPanel.append(
     el('span', { className: 'compose-label-sm' }, 'Genre'), genreGrid,
     el('span', { className: 'compose-label-sm' }, 'Mood'), moodGrid,
-    tagStatus, songParams,
+    tagStatus,
     el('div', { className: 'compose-divider' }),
     customDesc, preview,
   );
@@ -645,7 +645,9 @@ function buildLeftColumn() {
     voiceResultWf,
   );
 
-  col.append(createPanel, reworkPanel, analyzePanel, voicePanel);
+  // Song parameters — shared between create and rework modes
+  songParams.id = 'compose-song-params';
+  col.append(createPanel, reworkPanel, analyzePanel, voicePanel, songParams);
   return col;
 }
 
@@ -2281,6 +2283,10 @@ function switchMode(mode) {
     if (mode === 'create') switchCreateTab(_createTab);
   }
 
+  // Song parameters visible in create + rework, hidden elsewhere
+  const sp = _id('compose-song-params');
+  if (sp) sp.classList.toggle('hidden', isTrain || isAnalyze || mode === 'voice');
+
   // Hide sound reference in train/analyze/voice modes (only relevant for create/rework)
   const refSection = _id('compose-reference-section');
   if (refSection) refSection.classList.toggle('hidden', isTrain || isAnalyze || mode === 'voice');
@@ -3518,11 +3524,17 @@ function buildPayload() {
 
   if (_mode === 'rework') {
     const taskType = _approach === 'cover' ? 'cover' : 'repaint';
+    const rBpmRaw = (_id('compose-bpm') || {}).value?.trim() || '';
+    const rKeyRoot = (_id('compose-key-root') || {}).value || '';
+    const rKeyMode = (_id('compose-key-mode') || {}).value || '';
     const payload = {
       ...shared,
       style: (_id('compose-rework-direction') || {}).value?.trim() || '',
       task_type: taskType,
       src_audio_path: _uploadedPath,
+      key: rKeyRoot ? `${rKeyRoot} ${rKeyMode}` : '',
+      bpm: rBpmRaw !== '' ? parseInt(rBpmRaw, 10) : null,
+      time_signature: (_id('compose-time-sig') || {}).value || '4/4',
     };
     if (taskType === 'cover') {
       payload.audio_cover_strength = Number((_id('compose-cover-strength') || {}).value || 50) / 100;
