@@ -2479,6 +2479,10 @@ async function renderReworkWaveform(audioUrl) {
       for (let i = 0; i < length; i++) mono[i] += data[i] / channels;
     }
 
+    // Make timeline visible BEFORE sizing canvas (hidden elements have 0 rect)
+    _id('compose-wf-timeline')?.classList.remove('hidden');
+    _id('compose-rework-wf-idle')?.classList.add('hidden');
+
     // Downsample to canvas width
     _resizeWfCanvas();
     const canvas = _id('compose-wf-timeline-canvas');
@@ -2497,9 +2501,6 @@ async function renderReworkWaveform(audioUrl) {
     }
 
     _drawReworkWaveform();
-
-    // Show waveform, hide idle placeholder
-    _updateReworkWfVisibility();
 
     // Fetch section labels
     _fetchReworkSections();
