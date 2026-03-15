@@ -62,6 +62,31 @@ def _parse_args() -> argparse.Namespace:
         help="Enable deterministic generation: low LM temperature + CUDA "
              "deterministic ops when a seed is set. Useful for A/B testing.",
     )
+    # Multi-user settings
+    parser.add_argument(
+        "--max-users",
+        type=int,
+        default=None,
+        help="Max concurrent users (0=unlimited, default: env MAX_USERS or 0)",
+    )
+    parser.add_argument(
+        "--max-jobs-per-user",
+        type=int,
+        default=None,
+        help="Max pending jobs per user (default: env MAX_JOBS_PER_USER or 3)",
+    )
+    parser.add_argument(
+        "--session-timeout",
+        type=int,
+        default=None,
+        help="Session inactivity timeout in minutes (default: env or 60)",
+    )
+    parser.add_argument(
+        "--job-ttl",
+        type=int,
+        default=None,
+        help="Completed job TTL in minutes (default: env or 120)",
+    )
     return parser.parse_args()
 
 
@@ -85,6 +110,10 @@ def _print_banner(
     print(f"  Models:     {model_dir}")
     print(f"  AceStep:    {acestep_display}")
     print(f"  GPU:        {gpu_display}")
+    max_users = int(os.environ.get("MAX_USERS", "0"))
+    if max_users > 0:
+        session_timeout = int(os.environ.get("SESSION_TIMEOUT_MINUTES", "60"))
+        print(f"  Users:      max {max_users} (timeout {session_timeout}m)")
     if active_overrides:
         print("-" * 60)
         print("  AceStep env overrides:")
@@ -107,6 +136,16 @@ def main() -> None:
 
     if args.deterministic:
         os.environ["STEMFORGE_DETERMINISTIC"] = "1"
+
+    # Forward multi-user CLI args as env vars (before app import)
+    if args.max_users is not None:
+        os.environ["MAX_USERS"] = str(args.max_users)
+    if args.max_jobs_per_user is not None:
+        os.environ["MAX_JOBS_PER_USER"] = str(args.max_jobs_per_user)
+    if args.session_timeout is not None:
+        os.environ["SESSION_TIMEOUT_MINUTES"] = str(args.session_timeout)
+    if args.job_ttl is not None:
+        os.environ["JOB_TTL_MINUTES"] = str(args.job_ttl)
 
     from backend.services import acestep_state
 

@@ -19,6 +19,7 @@ from utils.logging_utils import configure_logging
 
 from backend.api import system, audio, separate, midi, generate, mix, export, compose, sfx, voice, enhance
 from backend.services.session_store import registry
+from backend.services.job_manager import job_manager
 
 configure_logging()
 log = logging.getLogger("stemforge")
@@ -121,12 +122,14 @@ async def _cleanup_loop():
     while True:
         await asyncio.sleep(60)
         session_ttl = SESSION_TIMEOUT_MIN * 60
+        job_ttl = JOB_TTL_MIN * 60
 
-        expired = registry.expire(session_ttl)
-        if expired:
-            log.info("Expired %d session(s): %s", len(expired), expired)
+        expired_sessions = registry.expire(session_ttl)
+        expired_jobs = job_manager.expire_jobs(job_ttl)
 
-        # TODO: expire old jobs from JobManager once user field is added
+        if expired_sessions or expired_jobs:
+            log.info("Cleanup: %d session(s), %d job(s) expired",
+                     len(expired_sessions), expired_jobs)
 
 
 @app.on_event("startup")

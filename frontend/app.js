@@ -210,6 +210,18 @@ async function initComponents() {
 
 // ─── New Session ─────────────────────────────────────────────────────────
 
+async function initUserBadge() {
+  try {
+    const info = await api('/session');
+    const user = info.user;
+    if (user && user !== 'local') {
+      const badge = document.getElementById('user-badge');
+      badge.textContent = user;
+      badge.style.display = '';
+    }
+  } catch { /* single-user mode, no badge */ }
+}
+
 function initNewSession() {
   document.getElementById('new-session-btn').addEventListener('click', async () => {
     if (!confirm('Start a new session? All tracks, stems, and canvases will be cleared.')) return;
@@ -225,6 +237,7 @@ function initNewSession() {
 document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initDeviceBadge();
+  initUserBadge();
   initNewSession();
   initComponents();
 });

@@ -21,6 +21,7 @@ log = logging.getLogger("stemforge.jobs")
 class JobState:
     job_id: str
     job_type: str
+    user: str = "local"
     status: str = "pending"       # pending | running | done | error
     progress: float = 0.0        # 0.0–1.0
     stage: str = ""              # human-readable stage label
@@ -36,9 +37,9 @@ class JobManager:
         self._jobs: dict[str, JobState] = {}
         self._lock = threading.Lock()
 
-    def create_job(self, job_type: str) -> str:
+    def create_job(self, job_type: str, user: str = "local") -> str:
         job_id = uuid.uuid4().hex[:12]
-        job = JobState(job_id=job_id, job_type=job_type)
+        job = JobState(job_id=job_id, job_type=job_type, user=user)
         with self._lock:
             self._jobs[job_id] = job
         return job_id
@@ -82,6 +83,27 @@ class JobManager:
     def get_job(self, job_id: str) -> JobState | None:
         with self._lock:
             return self._jobs.get(job_id)
+
+    def user_job_count(self, user: str, statuses: set[str] | None = None) -> int:
+        """Count jobs for *user*, optionally filtered by status."""
+        with self._lock:
+            return sum(
+                1 for j in self._jobs.values()
+                if j.user == user
+                and (statuses is None or j.status in statuses)
+            )
+
+    def expire_jobs(self, ttl_seconds: float) -> int:
+        """Remove completed/errored jobs older than *ttl_seconds*. Returns count."""
+        cutoff = time.time() - ttl_seconds
+        with self._lock:
+            expired = [
+                jid for jid, j in self._jobs.items()
+                if j.status in ("done", "error") and j.created_at < cutoff
+            ]
+            for jid in expired:
+                del self._jobs[jid]
+            return len(expired)
 
     def make_progress_callback(self, job_id: str) -> Callable[[float, str], None]:
         """Return a callback suitable for pipeline progress reporting."""
