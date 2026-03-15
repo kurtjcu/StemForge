@@ -768,7 +768,6 @@ async function onAlignSelectChange() {
 
   _alignAudioPath = null;
   _alignStemType = null;
-  _alignPeaks = [];
 
   // Remove reference player when deselected
   const refContainer = document.getElementById('sfx-ref-player-container');
