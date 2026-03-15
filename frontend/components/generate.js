@@ -1056,6 +1056,15 @@ async function onAlignSelectChange() {
     _alignAudioPath = audioPath;
     _alignStemType = stemType;
 
+    // Add reference as a mix track so it's available for mixing
+    const refName = select.selectedOptions[0]?.text || 'Reference';
+    try {
+      await api('/mix/add-by-path', {
+        method: 'POST',
+        body: JSON.stringify({ path: audioPath, label: `Reference: ${refName}` }),
+      });
+    } catch { /* non-critical */ }
+
     // Create reference stem player
     const refLabel = select.selectedOptions[0]?.text || 'Reference';
     const refUrl = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;

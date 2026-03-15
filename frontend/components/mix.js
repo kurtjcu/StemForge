@@ -305,6 +305,14 @@ async function refreshTracks() {
         : track.source === 'synth' ? 'badge badge-synth'
         : 'badge badge-audio';
 
+      const removeBtn = el('button', {
+        className: 'btn btn-sm btn-danger',
+        onClick: async () => {
+          await fetch(`/api/mix/tracks/${track.track_id}`, { method: 'DELETE' });
+          refreshTracks();
+        },
+      }, '\u2715');
+
       const controlRow = el('div', { className: 'track-row' },
         el('label', { className: 'toggle' },
           enableInput,
@@ -317,13 +325,7 @@ async function refreshTracks() {
         volumeSlider,
         volumeLabel,
         el('span', { className: badgeClass }, track.source),
-        el('button', {
-          className: 'btn btn-sm btn-danger',
-          onClick: async () => {
-            await fetch(`/api/mix/tracks/${track.track_id}`, { method: 'DELETE' });
-            refreshTracks();
-          },
-        }, '\u2715'),
+        removeBtn,
       );
 
       container.appendChild(controlRow);
@@ -382,7 +384,8 @@ async function refreshTracks() {
         const ws = createWaveform(waveContainer, { height: 40 });
         ws.load(url);
 
-        const player = { ws, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label };
+        const player = { ws, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label,
+          _stopBtn: stopBtn, _rewindBtn: rewindBtn, _volumeSlider: volumeSlider, _removeBtn: removeBtn };
         _players.push(player);
 
         // Set initial playback volume from track state
@@ -435,7 +438,8 @@ async function refreshTracks() {
         let ws = null;
         let renderedUrl = null;
 
-        const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label };
+        const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label,
+          _stopBtn: stopBtn, _rewindBtn: rewindBtn, _volumeSlider: volumeSlider, _removeBtn: removeBtn };
         _players.push(player);
 
         function ensureWaveform() {
@@ -528,6 +532,22 @@ function _getEnabledTrackPlayers() {
   return _players.filter(p => p._isTrack && p.enableInput && p.enableInput.checked);
 }
 
+let _previewSyncUnsubs = [];   // timeupdate unsubscribe callbacks
+let _previewSeeking = false;   // guard against recursive seek sync
+
+function _setTrackControlsDisabled(disabled) {
+  // Disable/enable individual track controls during preview
+  for (const p of _players) {
+    if (!p._isTrack) continue;
+    if (p.playBtn) p.playBtn.disabled = disabled;
+    if (p._stopBtn) p._stopBtn.disabled = disabled;
+    if (p._rewindBtn) p._rewindBtn.disabled = disabled;
+    if (p.enableInput) p.enableInput.disabled = disabled;
+    if (p._volumeSlider) p._volumeSlider.disabled = disabled;
+    if (p._removeBtn) p._removeBtn.disabled = disabled;
+  }
+}
+
 function togglePreview() {
   const btn = document.getElementById('mix-preview');
   const stopBtn = document.getElementById('mix-preview-stop');
@@ -536,13 +556,15 @@ function togglePreview() {
     // Pause all
     _playingAll = false;
     for (const p of _getEnabledTrackPlayers()) {
-      if (p.ws.isPlaying()) {
+      if (p.ws && p.ws.isPlaying()) {
         p.ws.pause();
         p.playBtn.textContent = '\u25B6 Play';
       }
     }
     btn.textContent = '\u25B6 Preview';
     stopBtn.style.display = 'none';
+    _teardownPreviewSync();
+    _setTrackControlsDisabled(false);
     return;
   }
 
@@ -551,7 +573,7 @@ function togglePreview() {
 
   // Stop any solo players first
   for (const p of _players) {
-    if (p.ws.isPlaying()) {
+    if (p.ws && p.ws.isPlaying()) {
       p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
     }
@@ -560,6 +582,7 @@ function togglePreview() {
   _playingAll = true;
   btn.textContent = '\u23F8 Pause';
   stopBtn.style.display = '';
+  _setTrackControlsDisabled(true);
 
   // Sync all enabled track players to start from the beginning
   const trackNames = [];
@@ -570,6 +593,9 @@ function togglePreview() {
     if (p._trackLabel) trackNames.push(p._trackLabel);
   }
   transportLoad('', trackNames.length ? `${trackNames.length} tracks` : 'Mix Preview', false, 'Mix \u203A Preview');
+
+  // Time-lock: sync all players when any one reports timeupdate
+  _setupPreviewSync(enabled);
 
   // When the longest track finishes, end the preview
   let finishCount = 0;
@@ -582,10 +608,38 @@ function togglePreview() {
   }
 }
 
+function _setupPreviewSync(players) {
+  _teardownPreviewSync();
+  // Use the first player as the time leader — clicking its waveform syncs all others
+  if (players.length < 2) return;
+  const leader = players[0];
+  const handler = (time) => {
+    if (_previewSeeking) return;
+    _previewSeeking = true;
+    for (const p of players) {
+      if (p === leader) continue;
+      const dur = p.ws.getDuration();
+      if (dur > 0 && Math.abs(p.ws.getCurrentTime() - time) > 0.3) {
+        p.ws.setTime(Math.min(time, dur));
+      }
+    }
+    _previewSeeking = false;
+  };
+  leader.ws.on('seeking', handler);
+  _previewSyncUnsubs.push(() => leader.ws.un('seeking', handler));
+}
+
+function _teardownPreviewSync() {
+  for (const unsub of _previewSyncUnsubs) unsub();
+  _previewSyncUnsubs = [];
+}
+
 function stopPreview() {
   _playingAll = false;
+  _teardownPreviewSync();
+  _setTrackControlsDisabled(false);
   for (const p of _players) {
-    if (p._isTrack && p.ws.isPlaying()) {
+    if (p._isTrack && p.ws && p.ws.isPlaying()) {
       p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
     }

@@ -57,6 +57,34 @@ def remove_track(track_id: str) -> dict:
     return {"status": "removed"}
 
 
+class AddByPathRequest(BaseModel):
+    path: str
+    label: str = ""
+
+
+@router.post("/add-by-path")
+def add_by_path(req: AddByPathRequest) -> dict:
+    """Add an existing audio file as a mix track (no upload needed)."""
+    p = pathlib.Path(req.path)
+    if not p.exists():
+        raise HTTPException(404, f"File not found: {req.path}")
+
+    # Don't add duplicate tracks for the same path
+    for t in session.mix_tracks:
+        if t.path and str(t.path) == req.path:
+            return {"track_id": t.track_id, "label": t.label, "already_exists": True}
+
+    label = req.label or p.stem
+    track = TrackState(
+        track_id=uuid.uuid4().hex[:8],
+        label=label,
+        source="audio",
+        path=p,
+    )
+    session.add_track(track)
+    return {"track_id": track.track_id, "label": track.label}
+
+
 @router.post("/add-audio")
 async def add_audio_track(file: UploadFile = File(...)) -> dict:
     import shutil
