@@ -131,10 +131,18 @@ async def upload_batch(files: list[UploadFile] = File(...)) -> dict:
     return {"files": results}
 
 
+_MIME_MAP = {
+    ".wav": "audio/wav", ".flac": "audio/flac", ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg", ".aiff": "audio/aiff", ".aif": "audio/aiff",
+    ".m4a": "audio/mp4",
+}
+
+
 @router.get("/audio/stream")
 def stream_audio(path: str = Query(...)) -> FileResponse:
     p = _validate_path(path)
-    return FileResponse(p, media_type="audio/wav")
+    mime = _MIME_MAP.get(p.suffix.lower(), "audio/wav")
+    return FileResponse(p, media_type=mime)
 
 
 @router.get("/audio/download")

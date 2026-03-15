@@ -20,14 +20,15 @@ router = APIRouter(prefix="/api/export", tags=["export"])
 
 class ExportRequest(BaseModel):
     items: list[str]          # list of file paths to export
-    format: str = "wav"       # wav, flac, mp3, ogg
+    format: str = "wav"       # wav, flac, aiff, mp3, ogg (Opus), m4a (AAC)
+    bitrate: int | None = None  # kbps for lossy formats (mp3/ogg/m4a)
 
 
 class ZipRequest(BaseModel):
     items: list[str]          # list of file paths to zip
 
 
-def _run_export(items: list[str], fmt: str, job_id: str) -> dict:
+def _run_export(items: list[str], fmt: str, bitrate: int | None, job_id: str) -> dict:
     """Convert selected items to target format."""
     from utils.audio_io import read_audio, write_audio
 
@@ -42,13 +43,13 @@ def _run_export(items: list[str], fmt: str, job_id: str) -> dict:
             continue
 
         dest = EXPORT_DIR / f"{src.stem}.{fmt}"
-        if src.suffix.lstrip(".").lower() == fmt:
-            # Same format — just copy
+        if src.suffix.lstrip(".").lower() == fmt and bitrate is None:
+            # Same format, no bitrate override — just copy
             import shutil
             shutil.copy2(src, dest)
         else:
             waveform, sr = read_audio(src)
-            write_audio(waveform, sr, dest, fmt=fmt)
+            write_audio(waveform, sr, dest, fmt=fmt, bitrate=bitrate)
 
         exported.append(str(dest))
 
@@ -60,11 +61,11 @@ def _run_export(items: list[str], fmt: str, job_id: str) -> dict:
 def start_export(req: ExportRequest) -> dict:
     if not req.items:
         raise HTTPException(422, "No items to export")
-    if req.format not in ("wav", "flac", "mp3", "ogg"):
+    if req.format not in ("wav", "flac", "aiff", "mp3", "ogg", "m4a"):
         raise HTTPException(422, f"Unsupported format: {req.format}")
 
     job_id = job_manager.create_job("export")
-    job_manager.run_job(job_id, _run_export, req.items, req.format, job_id)
+    job_manager.run_job(job_id, _run_export, req.items, req.format, req.bitrate, job_id)
     return {"job_id": job_id}
 
 

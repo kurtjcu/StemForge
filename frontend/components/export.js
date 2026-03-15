@@ -8,6 +8,8 @@ function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
 
+const _LOSSY_FORMATS = new Set(['mp3', 'ogg', 'm4a']);
+
 export function initExport() {
   const panel = document.getElementById('panel-export');
   const layout = el('div', { className: 'two-col' });
@@ -18,24 +20,37 @@ export function initExport() {
   const itemsSection = el('div', { className: 'form-group' },
     el('label', {}, 'Available artifacts'),
     el('div', { className: 'checkbox-group', id: 'export-items' },
-      el('span', { className: 'text-dim' }, 'Process audio first to see artifacts'),
+      el('span', { className: 'text-dim' }, 'Load a file to get started'),
     ),
   );
 
   const formatGroup = el('div', { className: 'form-group' },
     el('label', {}, 'Output format'),
     el('select', { id: 'export-format' },
-      el('option', { value: 'wav' }, 'WAV'),
-      el('option', { value: 'flac' }, 'FLAC'),
+      el('option', { value: 'wav' }, 'WAV (lossless)'),
+      el('option', { value: 'flac' }, 'FLAC (lossless)'),
+      el('option', { value: 'aiff' }, 'AIFF (lossless)'),
       el('option', { value: 'mp3' }, 'MP3'),
-      el('option', { value: 'ogg' }, 'OGG'),
+      el('option', { value: 'ogg' }, 'OGG Opus'),
+      el('option', { value: 'm4a' }, 'M4A (AAC)'),
     ),
+  );
+
+  // Bitrate control — shown only for lossy formats
+  const bitrateGroup = el('div', { className: 'form-group hidden', id: 'export-bitrate-group' },
+    el('label', { htmlFor: 'export-bitrate' },
+      'Bitrate: ',
+      el('span', { id: 'export-bitrate-value' }, '192 kbps'),
+    ),
+    el('input', {
+      type: 'range', id: 'export-bitrate', min: '64', max: '320', step: '32', value: '192',
+    }),
   );
 
   const exportBtn = el('button', { className: 'btn btn-primary', id: 'export-start', disabled: 'true' }, 'Export');
   const zipBtn = el('button', { className: 'btn', id: 'export-zip', disabled: 'true', style: { marginTop: '8px' } }, 'Download All as ZIP');
 
-  left.append(itemsSection, formatGroup, exportBtn, zipBtn);
+  left.append(itemsSection, formatGroup, bitrateGroup, exportBtn, zipBtn);
 
   // ─── Right: results ───
   const right = el('div', { className: 'col-right' });
@@ -62,6 +77,24 @@ export function initExport() {
   document.getElementById('export-start').addEventListener('click', startExport);
   document.getElementById('export-zip').addEventListener('click', downloadZip);
 
+  // Format change → toggle bitrate control + set sensible default
+  document.getElementById('export-format').addEventListener('change', () => {
+    const fmt = document.getElementById('export-format').value;
+    const bg = document.getElementById('export-bitrate-group');
+    const slider = document.getElementById('export-bitrate');
+    if (_LOSSY_FORMATS.has(fmt)) {
+      bg.classList.remove('hidden');
+      // Opus sounds great at lower bitrates than MP3/AAC
+      const defaultBr = fmt === 'ogg' ? 128 : 192;
+      slider.value = defaultBr;
+      _updateBitrateLabel();
+    } else {
+      bg.classList.add('hidden');
+    }
+  });
+
+  document.getElementById('export-bitrate').addEventListener('input', _updateBitrateLabel);
+
   // Listen for all ready events
   appState.on('fileLoaded', refreshArtifacts);
   appState.on('stemsReady', refreshArtifacts);
@@ -72,6 +105,11 @@ export function initExport() {
   appState.on('sfxReady', refreshArtifacts);
   appState.on('transformReady', refreshArtifacts);
   appState.on('enhanceReady', refreshArtifacts);
+}
+
+function _updateBitrateLabel() {
+  const v = document.getElementById('export-bitrate').value;
+  document.getElementById('export-bitrate-value').textContent = v + ' kbps';
 }
 
 function refreshArtifacts() {
@@ -154,6 +192,12 @@ async function startExport() {
 
   if (!items.length) return;
 
+  // Include bitrate for lossy formats
+  const body = { items, format };
+  if (_LOSSY_FORMATS.has(format)) {
+    body.bitrate = parseInt(document.getElementById('export-bitrate').value, 10);
+  }
+
   const progressCard = document.getElementById('export-progress');
   const resultsContainer = document.getElementById('export-results');
   progressCard.classList.remove('hidden');
@@ -162,7 +206,7 @@ async function startExport() {
   try {
     const { job_id } = await api('/export', {
       method: 'POST',
-      body: JSON.stringify({ items, format }),
+      body: JSON.stringify(body),
     });
 
     pollJob(job_id, {

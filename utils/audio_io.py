@@ -52,9 +52,11 @@ VIDEO_EXTENSIONS: frozenset[str] = frozenset(
     {".mp4", ".mkv", ".webm", ".avi", ".mov", ".m4v", ".flv"}
 )
 
-# Formats supported for *writing* without an extra backend.
-# MP3 is read-only via soundfile; write via pydub (see write_audio).
-_LOSSLESS_WRITE_FORMATS: frozenset[str] = frozenset({"wav", "flac", "ogg"})
+# Formats written natively via soundfile (libsndfile).
+_SOUNDFILE_WRITE_FORMATS: frozenset[str] = frozenset({"wav", "flac", "aiff"})
+
+# Formats written via pydub/FFmpeg.
+_PYDUB_WRITE_FORMATS: frozenset[str] = frozenset({"mp3", "ogg", "m4a"})
 
 # Canonical type alias for a waveform array.
 # Concrete type: numpy.ndarray[float32], shape (channels, samples).
@@ -261,7 +263,7 @@ def write_audio(
     path: pathlib.Path,
     fmt: str | None = None,
     bit_depth: int = 16,
-    mp3_bitrate: int = 192,
+    bitrate: int | None = None,
 ) -> pathlib.Path:
     """Write *waveform* to *path*.
 
@@ -277,16 +279,18 @@ def write_audio(
         Destination file path.  The parent directory is created if it
         does not exist.
     fmt:
-        Output format: ``'wav'``, ``'flac'``, ``'ogg'``, or ``'mp3'``.
+        Output format: ``'wav'``, ``'flac'``, ``'aiff'``, ``'mp3'``,
+        ``'ogg'`` (Opus), or ``'m4a'`` (AAC).
         When ``None`` (default), the format is inferred from *path*'s
         extension.  If *path* has no extension and *fmt* is ``None``,
         ``'wav'`` is used as a fallback.
     bit_depth:
-        Bit depth for PCM formats (``16`` or ``24``).  Ignored for OGG
-        and MP3 (which are always lossy).  Default: ``16``.
-    mp3_bitrate:
-        Bitrate in kbps for MP3 output.  Ignored for all other formats.
-        Default: ``192``.
+        Bit depth for PCM formats (``16`` or ``24``).  Ignored for
+        lossy formats.  Default: ``16``.
+    bitrate:
+        Bitrate in kbps for lossy formats (MP3, OGG Opus, M4A).
+        Ignored for lossless formats.  Defaults: MP3 192, OGG 128,
+        M4A 192.
 
     Returns
     -------
@@ -323,8 +327,8 @@ def write_audio(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        if resolved_fmt == "mp3":
-            _write_mp3(arr, sample_rate, path, mp3_bitrate)
+        if resolved_fmt in _PYDUB_WRITE_FORMATS:
+            _write_pydub(arr, sample_rate, path, resolved_fmt, bitrate)
         else:
             subtype = _bit_depth_to_subtype(resolved_fmt, bit_depth)
             sf.write(str(path), arr, sample_rate, subtype=subtype)
@@ -512,7 +516,7 @@ def _resolve_write_format(path: pathlib.Path, fmt: str | None) -> str:
     else:
         resolved = path.suffix.lstrip(".").lower() or "wav"
 
-    supported = _LOSSLESS_WRITE_FORMATS | {"mp3"}
+    supported = _SOUNDFILE_WRITE_FORMATS | _PYDUB_WRITE_FORMATS
     if resolved not in supported:
         raise InvalidInputError(
             f"Unsupported write format '{resolved}'. "
@@ -524,8 +528,6 @@ def _resolve_write_format(path: pathlib.Path, fmt: str | None) -> str:
 
 def _bit_depth_to_subtype(fmt: str, bit_depth: int) -> str:
     """Map a format + bit_depth to the soundfile subtype string."""
-    if fmt == "ogg":
-        return "VORBIS"
     return f"PCM_{bit_depth}"
 
 
@@ -541,14 +543,21 @@ def _resample_numpy(
     return resampled.T  # back to (channels, samples)
 
 
-def _write_mp3(
+# Default bitrates (kbps) per lossy format.
+_DEFAULT_BITRATES: dict[str, int] = {"mp3": 192, "ogg": 128, "m4a": 192}
+
+
+def _write_pydub(
     data: Any,
     sample_rate: int,
     path: pathlib.Path,
-    bitrate: int,
+    fmt: str,
+    bitrate: int | None,
 ) -> None:
-    """Write *data* (samples × channels, float32) as MP3 via pydub."""
+    """Write *data* (samples × channels, float32) via pydub/FFmpeg."""
     from pydub import AudioSegment
+
+    br = bitrate or _DEFAULT_BITRATES.get(fmt, 192)
 
     # pydub needs int16 PCM bytes
     pcm = (data * 32767).astype(np.int16)
@@ -559,4 +568,12 @@ def _write_mp3(
         sample_width=2,
         channels=channels,
     )
-    seg.export(str(path), format="mp3", bitrate=f"{bitrate}k")
+
+    if fmt == "ogg":
+        seg.export(str(path), format="ogg", codec="libopus",
+                   bitrate=f"{br}k")
+    elif fmt == "m4a":
+        seg.export(str(path), format="ipod", codec="aac",
+                   bitrate=f"{br}k")
+    else:
+        seg.export(str(path), format=fmt, bitrate=f"{br}k")
