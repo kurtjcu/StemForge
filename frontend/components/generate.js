@@ -269,10 +269,10 @@ export function initGenerate() {
       el('label', {}, 'Canvas name'),
       el('input', { type: 'text', id: 'sfx-name', value: 'Untitled SFX', placeholder: 'SFX stem name' }),
     ),
-    el('div', { className: 'form-group' },
+    el('div', { className: 'form-group', id: 'sfx-duration-group' },
       el('label', {}, 'Canvas duration (seconds)'),
       el('div', { className: 'slider-row' },
-        el('input', { type: 'range', id: 'sfx-duration', min: '0', max: '120', value: '30', step: '1' }),
+        el('input', { type: 'range', id: 'sfx-duration', min: '0', max: '300', value: '30', step: '1' }),
         el('span', { className: 'slider-value', id: 'sfx-duration-val' }, '30s'),
       ),
     ),
@@ -959,6 +959,10 @@ async function onAlignSelectChange() {
   clearChildren(refContainer);
   _refPlayer = null;
 
+  // Show duration control when no reference
+  const durGroup = document.getElementById('sfx-duration-group');
+  if (durGroup) durGroup.classList.remove('hidden');
+
   if (!value) {
     // Re-render timeline without reference lane
     if (_currentSfxId) {
@@ -983,12 +987,19 @@ async function onAlignSelectChange() {
 
     const info = await api(`/audio/info?path=${encodeURIComponent(audioPath)}`);
     const stemDurationMs = Math.round(info.duration * 1000);
-    const stemSecs = Math.max(0, Math.min(120, Math.round(info.duration)));
+    const stemSecs = Math.max(0, Math.round(info.duration));
 
-    // Update canvas duration slider
+    // Set canvas duration to match reference exactly
     const slider = document.getElementById('sfx-duration');
     const label = document.getElementById('sfx-duration-val');
-    if (slider) { slider.value = stemSecs; label.textContent = `${stemSecs}s`; }
+    if (slider) {
+      slider.max = Math.max(300, stemSecs); // extend slider range if needed
+      slider.value = stemSecs;
+      label.textContent = `${stemSecs}s`;
+    }
+    // Hide duration control — reference dictates canvas length
+    const durGroup = document.getElementById('sfx-duration-group');
+    if (durGroup) durGroup.classList.add('hidden');
 
     // Store for timeline rendering
     _alignAudioPath = audioPath;
