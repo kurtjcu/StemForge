@@ -65,6 +65,10 @@ class MergeLanesRequest(BaseModel):
     source_lane: int
 
 
+class ClearLaneRequest(BaseModel):
+    lane: int
+
+
 class MergeCanvasRequest(BaseModel):
     source_id: str  # canvas to merge from (placements absorbed into target)
 
@@ -508,6 +512,28 @@ def merge_lanes(sfx_id: str, req: MergeLanesRequest) -> dict:
             p["lane"] = req.target_lane
 
     # Compact: renumber lanes to be contiguous starting from 0
+    used = sorted({p.get("lane", 0) for p in manifest["placements"]})
+    remap = {old: new for new, old in enumerate(used)}
+    for p in manifest["placements"]:
+        p["lane"] = remap.get(p.get("lane", 0), 0)
+
+    rendered_path = _render_and_save(manifest)
+    return {
+        "rendered_path": str(rendered_path),
+        "placement_count": len(manifest["placements"]),
+    }
+
+
+@router.post("/{sfx_id}/clear-lane")
+def clear_lane(sfx_id: str, req: ClearLaneRequest) -> dict:
+    """Remove all placements in a lane, then compact remaining lanes."""
+    manifest = session.get_sfx_manifest(sfx_id)
+    if not manifest:
+        raise HTTPException(404, f"SFX '{sfx_id}' not found")
+
+    manifest["placements"] = [p for p in manifest["placements"] if p.get("lane", 0) != req.lane]
+
+    # Compact lanes
     used = sorted({p.get("lane", 0) for p in manifest["placements"]})
     remap = {old: new for new, old in enumerate(used)}
     for p in manifest["placements"]:

@@ -826,6 +826,34 @@ async function mergeLanes(targetLane, sourceLane) {
   }
 }
 
+async function clearLane(laneIdx) {
+  if (!_currentSfxId) return;
+  try {
+    await api(`/sfx/${_currentSfxId}/clear-lane`, {
+      method: 'POST',
+      body: JSON.stringify({ lane: laneIdx }),
+    });
+    await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
+  } catch (err) {
+    alert(`Failed to clear lane: ${err.message}`);
+  }
+}
+
+async function moveClipDown(placementId, currentLane) {
+  if (!_currentSfxId) return;
+  try {
+    await api(`/sfx/${_currentSfxId}/placements/${placementId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ lane: currentLane + 1 }),
+    });
+    await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
+  } catch (err) {
+    alert(`Failed to move clip: ${err.message}`);
+  }
+}
+
 async function removePlacement(placementId) {
   if (!_currentSfxId) return;
   try {
@@ -1172,7 +1200,7 @@ function renderTimeline(manifest) {
     for (const [laneIdx, clips] of laneMap) {
       const laneRow = el('div', { className: 'sfx-lane-row' });
 
-      // Merge button (merge this lane into the one above)
+      // Lane action buttons (merge up, clear)
       const laneActions = el('div', { className: 'sfx-lane-actions' });
       if (laneIndices.indexOf(laneIdx) > 0) {
         const targetLane = laneIndices[laneIndices.indexOf(laneIdx) - 1];
@@ -1183,6 +1211,12 @@ function renderTimeline(manifest) {
         mergeBtn.addEventListener('click', () => mergeLanes(targetLane, laneIdx));
         laneActions.appendChild(mergeBtn);
       }
+      const clearBtn = el('button', {
+        className: 'sfx-merge-btn',
+        title: 'Clear lane',
+      }, '\u2212');
+      clearBtn.addEventListener('click', () => clearLane(laneIdx));
+      laneActions.appendChild(clearBtn);
       laneRow.appendChild(laneActions);
 
       const lane = el('div', { className: 'sfx-lane' });
@@ -1195,6 +1229,9 @@ function renderTimeline(manifest) {
         const clipName = p.clip_name || (p.clip_path || '').split('/').pop() || 'clip';
         const isActive = _activeClipId === p.id;
 
+        const downBtn = el('span', { className: 'sfx-clip-x', title: 'Move to lane below', style: { marginRight: '2px' } }, '\u2193');
+        downBtn.addEventListener('click', (e) => { e.stopPropagation(); moveClipDown(p.id, p.lane ?? 0); });
+
         const xBtn = el('span', { className: 'sfx-clip-x', title: 'Remove' }, '\u00d7');
         xBtn.addEventListener('click', (e) => { e.stopPropagation(); removePlacement(p.id); });
 
@@ -1205,6 +1242,7 @@ function renderTimeline(manifest) {
         block.style.width = `${widthPct}%`;
         block.title = `${clipName} @ ${(p.start_ms / 1000).toFixed(1)}s`;
         block.appendChild(el('span', { className: 'sfx-clip-label' }, clipName));
+        block.appendChild(downBtn);
         block.appendChild(xBtn);
         block._pid = p.id;
 
