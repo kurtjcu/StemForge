@@ -242,6 +242,9 @@ function buildUI(panel) {
   appState.on('fileLoaded', () => _refreshReworkSources());
   // Also populate if stems already exist
   _populateVoiceStemSelect();
+
+  // Auto-detect VRAM tier from GPU info
+  _autoDetectVramTier();
 }
 
 // ─── Left Column (Style / Rework) ───────────────────────────────────
@@ -2968,6 +2971,18 @@ function updateBatchLimit() {
   }
   // ADG compat check — turbo doesn't support Precise guidance
   checkAdgCompat();
+}
+
+async function _autoDetectVramTier() {
+  try {
+    const info = await api('/device');
+    if (!info.vram_gb) return;
+    const sel = _id('compose-vram-tier');
+    if (!sel) return;
+    const gb = info.vram_gb;
+    sel.value = gb >= 32 ? '32' : gb >= 24 ? '24' : '16';
+    updateBatchLimit();
+  } catch { /* non-critical */ }
 }
 
 function checkAdgCompat() {
