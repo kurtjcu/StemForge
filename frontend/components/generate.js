@@ -1133,9 +1133,10 @@ function showSfxCanvas(data) {
   clearChildren(playerContainer);
 
   if (rendered_path) {
-    const url = `/api/sfx/${manifest.id}/stream`;
+    const cacheBust = `t=${Date.now()}`;
+    const url = `/api/sfx/${manifest.id}/stream?${cacheBust}`;
     _canvasPlayer = createStemPlayer('Canvas', url, {
-      getUrl: () => `/api/sfx/${manifest.id}/stream`,
+      getUrl: () => `/api/sfx/${manifest.id}/stream?t=${Date.now()}`,
       saveLabel: rendered_path,
     });
     playerContainer.appendChild(_canvasPlayer.card);
