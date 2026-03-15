@@ -779,21 +779,11 @@ async function addClipToCanvas(clipPath) {
   }
 
   try {
-    // Place after the last clip's end so they don't all pile up at 0
-    let startMs = 0;
-    const data = await api(`/sfx/${_currentSfxId}`);
-    const placements = data.manifest?.placements || [];
-    if (placements.length > 0) {
-      const maxEnd = Math.max(...placements.map(p => (p.start_ms || 0) + (p.clip_duration_ms || 0)));
-      startMs = Math.min(maxEnd, (data.manifest?.duration_ms || Infinity) - 100);
-      if (startMs < 0) startMs = 0;
-    }
-
     await api(`/sfx/${_currentSfxId}/placements`, {
       method: 'POST',
       body: JSON.stringify({
         clip_path: clipPath,
-        start_ms: startMs,
+        start_ms: 0,
         volume: 1.0,
         fade_in_ms: 0,
         fade_out_ms: 0,
