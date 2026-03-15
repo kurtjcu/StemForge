@@ -1,15 +1,24 @@
-"""Thread-safe session state replacing gui/state.py AppState.
+"""Per-user session state with thread-safe registry.
 
-Holds the current audio file, stem paths, MIDI data (in-memory PrettyMIDI),
-generation results, and mix state.  All access is lock-protected.
+Each user gets their own ``SessionStore`` instance, managed by a
+``SessionRegistry`` singleton.  The registry is keyed by username
+(from the ``x-auth-user`` header, defaulting to ``"local"`` for
+single-user dev mode).
+
+FastAPI endpoints resolve the current user's session via the
+``get_user_session`` dependency.
 """
 
 from __future__ import annotations
 
 import pathlib
+import re
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from fastapi import Request
 
 
 @dataclass
@@ -26,10 +35,12 @@ class TrackState:
 
 
 class SessionStore:
-    """Thread-safe session state singleton."""
+    """Thread-safe per-user session state."""
 
-    def __init__(self) -> None:
+    def __init__(self, user: str = "local") -> None:
         self._lock = threading.Lock()
+        self.user = user
+        self.last_seen: float = time.monotonic()
         self._audio_path: pathlib.Path | None = None
         self._audio_info: dict[str, Any] | None = None
         self._stem_paths: dict[str, pathlib.Path] = {}
@@ -241,6 +252,7 @@ class SessionStore:
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
+                "user": self.user,
                 "audio_path": str(self._audio_path) if self._audio_path else None,
                 "audio_info": self._audio_info,
                 "stem_paths": {k: str(v) for k, v in self._stem_paths.items()},
@@ -271,5 +283,85 @@ class SessionStore:
             }
 
 
-# Module-level singleton
-session = SessionStore()
+# ---------------------------------------------------------------------------
+# Session registry — maps user IDs to SessionStore instances
+# ---------------------------------------------------------------------------
+
+_SAFE_USER_RE = re.compile(r"[^a-zA-Z0-9_.\-@]")
+
+
+def _sanitize_user(user: str) -> str:
+    """Sanitize username for use in filesystem paths."""
+    return _SAFE_USER_RE.sub("_", user)[:64] or "anonymous"
+
+
+class SessionRegistry:
+    """Thread-safe registry of per-user sessions."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sessions: dict[str, SessionStore] = {}
+
+    def get(self, user: str) -> SessionStore:
+        """Get or create a session for *user*, updating last_seen."""
+        with self._lock:
+            if user not in self._sessions:
+                self._sessions[user] = SessionStore(user=user)
+            s = self._sessions[user]
+            s.last_seen = time.monotonic()
+            return s
+
+    def remove(self, user: str) -> bool:
+        """Remove a user's session. Returns True if it existed."""
+        with self._lock:
+            return self._sessions.pop(user, None) is not None
+
+    def active_count(self, timeout_seconds: float) -> int:
+        """Count sessions active within *timeout_seconds*."""
+        now = time.monotonic()
+        with self._lock:
+            return sum(
+                1 for s in self._sessions.values()
+                if now - s.last_seen < timeout_seconds
+            )
+
+    def expire(self, timeout_seconds: float) -> list[str]:
+        """Remove sessions inactive for longer than *timeout_seconds*.
+
+        Returns list of expired usernames.
+        """
+        now = time.monotonic()
+        with self._lock:
+            expired = [
+                u for u, s in self._sessions.items()
+                if now - s.last_seen > timeout_seconds
+            ]
+            for u in expired:
+                del self._sessions[u]
+            return expired
+
+    def list_users(self) -> list[str]:
+        with self._lock:
+            return list(self._sessions.keys())
+
+
+# Module-level singleton registry
+registry = SessionRegistry()
+
+# Backward-compatible alias — returns the "local" user session.
+# Used by code not yet migrated to the Depends() pattern.
+session = registry.get("local")
+
+
+# ---------------------------------------------------------------------------
+# FastAPI dependency for per-user session resolution
+# ---------------------------------------------------------------------------
+
+def get_user_session(request: Request) -> SessionStore:
+    """FastAPI dependency: resolve the current user's session.
+
+    The user is set by the ``inject_user`` middleware in ``main.py``
+    from the ``x-auth-user`` header (or ``"local"`` in dev mode).
+    """
+    user = getattr(request.state, "user", "local")
+    return registry.get(user)

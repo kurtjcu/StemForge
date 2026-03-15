@@ -2,25 +2,71 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import pathlib
+import time
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import Response, JSONResponse
 
 from utils.paths import OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, VOICE_DIR, ENHANCE_DIR
 from utils.logging_utils import configure_logging
 
 from backend.api import system, audio, separate, midi, generate, mix, export, compose, sfx, voice, enhance
+from backend.services.session_store import registry
 
 configure_logging()
 log = logging.getLogger("stemforge")
 
 app = FastAPI(title="StemForge", version="0.2.0")
+
+# ---------------------------------------------------------------------------
+# Multi-user configuration (all overridable via env)
+# ---------------------------------------------------------------------------
+
+MAX_USERS = int(os.environ.get("MAX_USERS", "0"))                # 0 = unlimited
+MAX_JOBS_PER_USER = int(os.environ.get("MAX_JOBS_PER_USER", "3"))
+SESSION_TIMEOUT_MIN = int(os.environ.get("SESSION_TIMEOUT_MINUTES", "60"))
+JOB_TTL_MIN = int(os.environ.get("JOB_TTL_MINUTES", "120"))
+
+
+# ---------------------------------------------------------------------------
+# User middleware — inject request.state.user from reverse proxy header
+# ---------------------------------------------------------------------------
+
+@app.middleware("http")
+async def inject_user(request: Request, call_next):
+    """Identify user from x-auth-user header (set by reverse proxy).
+
+    Falls back to "local" for single-user dev mode.  Enforces capacity
+    limits when MAX_USERS > 0.
+    """
+    user = request.headers.get("x-auth-user", "local")
+    request.state.user = user
+
+    # Capacity enforcement (skip for "local" — single-user dev mode)
+    if user != "local" and MAX_USERS > 0:
+        timeout = SESSION_TIMEOUT_MIN * 60
+        # Check if this is a new user and we're at capacity
+        existing_users = registry.list_users()
+        if user not in existing_users:
+            active = registry.active_count(timeout)
+            if active >= MAX_USERS:
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Server is at capacity. Try again later."},
+                )
+
+    # Touch session (creates if new, updates last_seen)
+    registry.get(user)
+
+    response = await call_next(request)
+    return response
 
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
@@ -64,5 +110,28 @@ if _assets_dir.is_dir():
 _frontend_dir = pathlib.Path(__file__).parent.parent / "frontend"
 if _frontend_dir.is_dir():
     app.mount("/", StaticFiles(directory=str(_frontend_dir), html=True), name="frontend")
+
+
+# ---------------------------------------------------------------------------
+# Background cleanup task — expire stale sessions, jobs, locks
+# ---------------------------------------------------------------------------
+
+async def _cleanup_loop():
+    """Periodically expire stale sessions and jobs."""
+    while True:
+        await asyncio.sleep(60)
+        session_ttl = SESSION_TIMEOUT_MIN * 60
+
+        expired = registry.expire(session_ttl)
+        if expired:
+            log.info("Expired %d session(s): %s", len(expired), expired)
+
+        # TODO: expire old jobs from JobManager once user field is added
+
+
+@app.on_event("startup")
+async def _start_cleanup():
+    asyncio.create_task(_cleanup_loop())
+
 
 log.info("StemForge backend ready")
