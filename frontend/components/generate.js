@@ -243,9 +243,24 @@ export function initGenerate() {
 
   const genBtn = el('button', { className: 'btn btn-primary', id: 'gen-start' }, 'Generate');
 
-  // -- SFX Canvas setup (below generation controls) --
+  // -- SFX Reference (pick before creating a canvas) --
+  const sfxRefCard = el('div', { className: 'card', style: { marginTop: '8px' } },
+    el('div', { className: 'card-header' }, 'SFX REFERENCE'),
+    el('div', { className: 'form-group', style: { margin: '4px 0' } },
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+        el('label', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', margin: '0' } }, 'Align to'),
+        el('button', { className: 'btn btn-sm', id: 'sfx-align-import-btn', style: { padding: '2px 8px', fontSize: '11px' } }, '+ Load Reference'),
+      ),
+      el('input', { type: 'file', id: 'sfx-align-import-input', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' } }),
+      el('select', { id: 'sfx-align-select', style: { width: '100%' } },
+        el('option', { value: '' }, '-- none --'),
+      ),
+    ),
+  );
+
+  // -- SFX Canvas setup --
   const sfxSetupCard = el('div', { className: 'card', style: { marginTop: '8px' } },
-    el('div', { className: 'card-header' }, 'SFX STEM BUILDER'),
+    el('div', { className: 'card-header' }, 'SFX CANVAS'),
     el('div', { className: 'form-group' },
       el('label', {}, 'Canvas name'),
       el('input', { type: 'text', id: 'sfx-name', value: 'Untitled SFX', placeholder: 'SFX stem name' }),
@@ -265,7 +280,7 @@ export function initGenerate() {
     ),
   );
 
-  left.append(promptGroup, durationGroup, stepsGroup, cfgGroup, condSection, vpGroup, genBtn, sfxSetupCard);
+  left.append(promptGroup, durationGroup, stepsGroup, cfgGroup, condSection, vpGroup, genBtn, sfxRefCard, sfxSetupCard);
 
   // ═══════════════════════════════════════════════════════════════════════
   // Right column: generation results + SFX canvas
@@ -285,6 +300,9 @@ export function initGenerate() {
   );
 
   const resultContainer = el('div', { id: 'gen-result' });
+
+  // -- Reference player (always visible when a reference is selected) --
+  const refPlayerSection = el('div', { id: 'sfx-ref-player-container' });
 
   // -- SFX canvas section --
   const sfxSection = el('div', { className: 'hidden', id: 'sfx-section' },
@@ -306,19 +324,6 @@ export function initGenerate() {
           el('button', { className: 'btn btn-sm btn-danger', id: 'sfx-delete-btn' }, '\u2715'),
         ),
       ),
-      // Align dropdown
-      el('div', { className: 'form-group', style: { margin: '8px 0 6px' } },
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-          el('label', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', margin: '0' } }, 'Align to'),
-          el('button', { className: 'btn btn-sm', id: 'sfx-align-import-btn', style: { padding: '2px 8px', fontSize: '11px' } }, '+ Load Reference'),
-        ),
-        el('input', { type: 'file', id: 'sfx-align-import-input', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' } }),
-        el('select', { id: 'sfx-align-select', style: { width: '100%' } },
-          el('option', { value: '' }, '-- none --'),
-        ),
-      ),
-      // Reference stem player
-      el('div', { id: 'sfx-ref-player-container' }),
       // DAW-style timeline
       el('div', { className: 'sfx-timeline', id: 'sfx-timeline' },
         el('div', { className: 'sfx-timeline-ruler', id: 'sfx-timeline-ruler' }),
@@ -346,7 +351,7 @@ export function initGenerate() {
     ),
   );
 
-  right.append(progressCard, resultContainer, sfxSection);
+  right.append(progressCard, resultContainer, refPlayerSection, sfxSection);
   layout.append(left, right);
   panel.appendChild(layout);
 
@@ -793,10 +798,7 @@ async function deleteSfx() {
   try {
     await api(`/sfx/${_currentSfxId}`, { method: 'DELETE' });
     _currentSfxId = null;
-    _alignAudioPath = null;
-    _alignStemType = null;
     _timelineDurationMs = 0;
-    _refPlayer = null;
     _activeClipId = null;
     document.getElementById('sfx-section').classList.add('hidden');
     if (_canvasPlayer) {
@@ -806,8 +808,6 @@ async function deleteSfx() {
       _canvasPlayer = null;
     }
     clearChildren(document.getElementById('sfx-canvas-player-container'));
-    document.getElementById('sfx-align-select').value = '';
-    clearChildren(document.getElementById('sfx-ref-player-container'));
     clearChildren(document.getElementById('sfx-timeline-ruler'));
     clearChildren(document.getElementById('sfx-timeline-lanes'));
     await refreshSfxSelector();
