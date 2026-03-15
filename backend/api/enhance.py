@@ -20,11 +20,9 @@ from pipelines.autotune_pipeline import (
     AUTOTUNE_METHODS, AUTOTUNE_METHOD_LABELS,
 )
 from pipelines.effects_pipeline import EffectsConfig, EffectSlot
-from utils.paths import ENHANCE_DIR, STEMS_DIR
+from utils.paths import ENHANCE_DIR, STEMS_DIR, user_dir
 
 router = APIRouter(prefix="/api/enhance", tags=["enhance"])
-
-_BATCH_DIR = ENHANCE_DIR / "batch"
 
 
 class EnhanceRequest(BaseModel):
@@ -108,8 +106,9 @@ def _run_enhance(job_id: str, stem_path: str, preset: str,
     if not path.exists():
         raise FileNotFoundError(f"Audio file not found: {stem_path}")
 
+    enhance_out = user_dir(ENHANCE_DIR, session.user)
     pipeline = pipeline_manager.get_enhance()
-    pipeline.configure(EnhanceConfig(preset=preset, output_dir=ENHANCE_DIR))
+    pipeline.configure(EnhanceConfig(preset=preset, output_dir=enhance_out))
 
     try:
         result = pipeline.run(path, preset, progress_cb=progress_cb)
@@ -175,15 +174,16 @@ def start_enhance(req: EnhanceRequest,
 # ─── Batch enhancement ──────────────────────────────────────────────────
 
 
-def _run_batch_enhance(preset: str, files: list[dict], job_id: str) -> dict:
+def _run_batch_enhance(preset: str, files: list[dict], job_id: str, user: str = "local") -> dict:
     """Enhance multiple files with the same preset (runs in background thread)."""
     total = len(files)
     results: list[dict] = []
 
-    _BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    batch_dir = user_dir(ENHANCE_DIR, user) / "batch"
+    batch_dir.mkdir(parents=True, exist_ok=True)
 
     pipeline = pipeline_manager.get_enhance()
-    pipeline.configure(EnhanceConfig(preset=preset, output_dir=_BATCH_DIR))
+    pipeline.configure(EnhanceConfig(preset=preset, output_dir=batch_dir))
 
     job_manager.update_progress(job_id, 0.02, "Loading model...")
     pipeline.load_model(preset)
@@ -201,7 +201,7 @@ def _run_batch_enhance(preset: str, files: list[dict], job_id: str) -> dict:
             try:
                 result = pipeline.run(audio_path, preset, progress_cb=_batch_cb)
                 dest_name = f"enhanced-{preset}-{audio_path.stem}{result.output_path.suffix}"
-                dest = _BATCH_DIR / dest_name
+                dest = batch_dir / dest_name
                 if result.output_path != dest:
                     result.output_path.rename(dest)
                 results.append({
@@ -232,14 +232,14 @@ def start_batch_enhance(req: BatchEnhanceRequest, request: Request) -> dict:
 
     user = getattr(request.state, "user", "local")
     job_id = job_manager.create_job("enhance-batch", user=user)
-    job_manager.run_job(job_id, _run_batch_enhance, req.preset, req.files, job_id)
+    job_manager.run_job(job_id, _run_batch_enhance, req.preset, req.files, job_id, user)
     return {"job_id": job_id}
 
 
 @router.post("/batch/save-all")
 def batch_save_all(req: BatchSaveAllRequest):
     """Zip all batch enhancement results for download."""
-    batch_root = _BATCH_DIR.resolve()
+    batch_root = ENHANCE_DIR.resolve()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in req.paths:
@@ -294,6 +294,7 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
     if not path.exists():
         raise FileNotFoundError(f"Audio file not found: {stem_path}")
 
+    enhance_out = user_dir(ENHANCE_DIR, session.user)
     pipeline = pipeline_manager.get_autotune()
     pipeline.configure(AutotuneConfig(
         key=key,
@@ -301,7 +302,7 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
         correction_strength=correction_strength,
         humanize=humanize,
         method=method,
-        output_dir=ENHANCE_DIR,
+        output_dir=enhance_out,
     ))
 
     try:
@@ -490,8 +491,9 @@ def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict],
             params=d.get("params", {}),
         ))
 
+    enhance_out = user_dir(ENHANCE_DIR, session.user)
     pipeline = pipeline_manager.get_effects()
-    pipeline.configure(EffectsConfig(chain=chain, output_dir=ENHANCE_DIR))
+    pipeline.configure(EffectsConfig(chain=chain, output_dir=enhance_out))
 
     try:
         result = pipeline.run(path, progress_cb=progress_cb)

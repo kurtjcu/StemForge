@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from backend.services.job_manager import job_manager
 from backend.services.session_store import SessionStore, get_user_session
 from backend.services import pipeline_manager
-from utils.paths import MUSICGEN_DIR, MIDI_DIR
+from utils.paths import MUSICGEN_DIR, MIDI_DIR, user_dir
 
 router = APIRouter(prefix="/api", tags=["generate"])
 
@@ -64,7 +64,7 @@ def _run_generation(req: GenerateRequest, job_id: str, session: SessionStore) ->
         if mix_path:
             init_audio_path = mix_path
 
-    MUSICGEN_DIR.mkdir(parents=True, exist_ok=True)
+    gen_out = user_dir(MUSICGEN_DIR, session.user)
 
     config = MusicGenConfig(
         prompt=req.prompt,
@@ -73,7 +73,7 @@ def _run_generation(req: GenerateRequest, job_id: str, session: SessionStore) ->
         cfg_scale=req.cfg_scale,
         init_audio_path=init_audio_path,
         midi_path=midi_path,
-        output_dir=MUSICGEN_DIR,
+        output_dir=gen_out,
         negative_prompt=req.negative_prompt if req.vocal_preservation else "",
     )
 

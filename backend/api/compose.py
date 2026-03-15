@@ -50,7 +50,7 @@ from backend.api.acestep_wrapper import (
 )
 from backend.services import acestep_state
 from backend.services.session_store import SessionStore, get_user_session
-from utils.paths import COMPOSE_DIR
+from utils.paths import COMPOSE_DIR, user_dir
 
 import os
 
@@ -749,8 +749,8 @@ async def send_to_session(body: SendToSessionRequest, session: SessionStore = De
         ext_map = {"audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/flac": ".flac"}
         ext = ext_map.get(content_type, ".mp3")
 
-    COMPOSE_DIR.mkdir(parents=True, exist_ok=True)
-    dest = COMPOSE_DIR / f"composed_{uuid.uuid4().hex[:8]}{ext}"
+    compose_out = user_dir(COMPOSE_DIR, session.user)
+    dest = compose_out / f"composed_{uuid.uuid4().hex[:8]}{ext}"
     dest.write_bytes(data)
 
     from utils.audio_io import probe

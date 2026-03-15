@@ -21,12 +21,22 @@ from backend.services.sfx_renderer import (
     CANVAS_SAMPLE_RATE,
     CANVAS_CHANNELS,
 )
-from utils.paths import SFX_DIR, MUSICGEN_DIR, STEMS_DIR
+from utils.paths import SFX_DIR, MUSICGEN_DIR, STEMS_DIR, user_dir
 from utils.audio_io import probe, SUPPORTED_EXTENSIONS
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sfx", tags=["sfx"])
+
+
+def _user_sfx(session: SessionStore) -> pathlib.Path:
+    """Return user-scoped SFX directory."""
+    return user_dir(SFX_DIR, session.user)
+
+
+def _user_musicgen(session: SessionStore) -> pathlib.Path:
+    """Return user-scoped musicgen directory."""
+    return user_dir(MUSICGEN_DIR, session.user)
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +116,7 @@ def _validate_clip_path(path_str: str) -> pathlib.Path:
 
 def _save_manifest(manifest: dict, session: SessionStore) -> None:
     """Persist manifest to JSON and update session."""
-    out_dir = SFX_DIR / manifest["id"]
+    out_dir = _user_sfx(session) / manifest["id"]
     out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_dir / "manifest.json", "w") as f:
         json.dump(manifest, f, indent=2)
@@ -116,7 +126,7 @@ def _save_manifest(manifest: dict, session: SessionStore) -> None:
 def _render_and_save(manifest: dict, session: SessionStore) -> pathlib.Path:
     """Save manifest, render WAV, return rendered path."""
     _save_manifest(manifest, session)
-    return render_sfx(manifest)
+    return render_sfx(manifest, output_base=_user_sfx(session))
 
 
 # ---------------------------------------------------------------------------
@@ -176,9 +186,10 @@ def create_sfx(req: CreateSFXRequest, session: SessionStore = Depends(get_user_s
 def list_sfx(session: SessionStore = Depends(get_user_session)) -> dict:
     """List all SFX stems (session + disk). Loads saved canvases on first call."""
     # Hydrate session from disk — any manifest.json not already loaded
-    if SFX_DIR.exists():
+    sfx_base = _user_sfx(session)
+    if sfx_base.exists():
         loaded_ids = set(session.sfx_manifest_ids)
-        for sfx_dir in sorted(SFX_DIR.iterdir()):
+        for sfx_dir in sorted(sfx_base.iterdir()):
             if not sfx_dir.is_dir():
                 continue
             manifest_path = sfx_dir / "manifest.json"
@@ -209,17 +220,18 @@ def list_sfx(session: SessionStore = Depends(get_user_session)) -> dict:
 
 
 @router.get("/browse-sounds")
-def browse_sounds() -> dict:
+def browse_sounds(session: SessionStore = Depends(get_user_session)) -> dict:
     """List all generated and imported sounds for the Add Sound picker."""
     sounds: list[dict] = []
 
     # Generated sounds (all, not filtered by kept_clips)
-    if MUSICGEN_DIR.exists():
-        for f in sorted(MUSICGEN_DIR.rglob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True):
+    gen_dir = _user_musicgen(session)
+    if gen_dir.exists():
+        for f in sorted(gen_dir.rglob("*.wav"), key=lambda p: p.stat().st_mtime, reverse=True):
             sounds.append({"path": str(f), "name": f.stem, "group": "generated"})
 
     # Imported sounds
-    imports_dir = SFX_DIR / "imports"
+    imports_dir = _user_sfx(session) / "imports"
     if imports_dir.exists():
         for f in sorted(imports_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
             if f.suffix.lower() in SUPPORTED_EXTENSIONS:
@@ -241,14 +253,16 @@ def available_clips(exclude_id: str | None = Query(None), session: SessionStore 
 
     # 1. Session — synth outputs (only clips the user explicitly kept)
     kept = session.kept_clips
-    if MUSICGEN_DIR.exists():
-        for f in sorted(MUSICGEN_DIR.rglob("*.wav")):
+    gen_dir = _user_musicgen(session)
+    if gen_dir.exists():
+        for f in sorted(gen_dir.rglob("*.wav")):
             if str(f) in kept:
                 clips.append({"path": str(f), "name": f.name, "group": "session"})
 
     # 2. Saved SFX canvases — rendered.wav where manifest.json exists
-    if SFX_DIR.exists():
-        for sfx_dir in sorted(SFX_DIR.iterdir()):
+    sfx_base = _user_sfx(session)
+    if sfx_base.exists():
+        for sfx_dir in sorted(sfx_base.iterdir()):
             if not sfx_dir.is_dir():
                 continue
             manifest_path = sfx_dir / "manifest.json"
@@ -272,7 +286,7 @@ def available_clips(exclude_id: str | None = Query(None), session: SessionStore 
                 continue
 
     # 3. Imported external samples
-    imports_dir = SFX_DIR / "imports"
+    imports_dir = _user_sfx(session) / "imports"
     if imports_dir.exists():
         for f in sorted(imports_dir.iterdir()):
             if f.suffix.lower() in {".wav", ".flac", ".mp3", ".ogg"}:
@@ -299,7 +313,7 @@ class DeleteSoundRequest(BaseModel):
 def delete_sound(req: DeleteSoundRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Delete a generated or imported sound file from disk."""
     p = pathlib.Path(req.path)
-    # Only allow deleting files inside MUSICGEN_DIR or SFX_DIR/imports
+    # Only allow deleting files inside MUSICGEN_DIR or SFX_DIR (any user subdir)
     allowed = False
     try:
         p.resolve().relative_to(MUSICGEN_DIR.resolve())
@@ -307,9 +321,8 @@ def delete_sound(req: DeleteSoundRequest, session: SessionStore = Depends(get_us
     except ValueError:
         pass
     if not allowed:
-        imports_dir = SFX_DIR / "imports"
         try:
-            p.resolve().relative_to(imports_dir.resolve())
+            p.resolve().relative_to(SFX_DIR.resolve())
             allowed = True
         except ValueError:
             pass
@@ -338,7 +351,7 @@ def keep_clip(req: KeepClipRequest, session: SessionStore = Depends(get_user_ses
 
 
 @router.post("/upload-clip")
-async def upload_clip(file: UploadFile = File(...)) -> dict:
+async def upload_clip(file: UploadFile = File(...), session: SessionStore = Depends(get_user_session)) -> dict:
     """Import an external audio file for use as an SFX clip."""
     filename = file.filename or "clip.wav"
     ext = pathlib.Path(filename).suffix.lower()
@@ -348,7 +361,7 @@ async def upload_clip(file: UploadFile = File(...)) -> dict:
             f"Unsupported format '{ext}'. Supported: {sorted(SUPPORTED_EXTENSIONS)}",
         )
 
-    imports_dir = SFX_DIR / "imports"
+    imports_dir = _user_sfx(session) / "imports"
     imports_dir.mkdir(parents=True, exist_ok=True)
 
     safe_name = f"{uuid.uuid4().hex[:8]}_{filename}"
@@ -402,8 +415,9 @@ def rename_clip(req: RenameClipRequest, session: SessionStore = Depends(get_user
     old_str, new_str = str(old_path), str(new_path)
 
     # Update all SFX manifest references on disk + in session
-    if SFX_DIR.exists():
-        for sfx_dir in SFX_DIR.iterdir():
+    sfx_base = _user_sfx(session)
+    if sfx_base.exists():
+        for sfx_dir in sfx_base.iterdir():
             if not sfx_dir.is_dir():
                 continue
             manifest_path = sfx_dir / "manifest.json"
@@ -456,7 +470,7 @@ def get_sfx(sfx_id: str, session: SessionStore = Depends(get_user_session)) -> d
     if needs_backfill:
         _save_manifest(manifest, session)
 
-    rendered_path = SFX_DIR / sfx_id / "rendered.wav"
+    rendered_path = _user_sfx(session) / sfx_id / "rendered.wav"
     peaks = []
     if rendered_path.exists():
         peaks = generate_waveform_peaks(rendered_path)
@@ -643,7 +657,7 @@ def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest, session: Ses
         rendered_path = _render_and_save(manifest, session)
     else:
         _save_manifest(manifest, session)
-        rendered_path = SFX_DIR / sfx_id / "rendered.wav"
+        rendered_path = _user_sfx(session) / sfx_id / "rendered.wav"
 
     return {
         "id": sfx_id,
@@ -685,11 +699,11 @@ def merge_canvas(sfx_id: str, req: MergeCanvasRequest, session: SessionStore = D
         new_p["lane"] = next_lane + p.get("lane", 0)
         target["placements"].append(new_p)
 
-    rendered_path = _render_and_save(target)
+    rendered_path = _render_and_save(target, session)
 
     # Delete source canvas
     session.remove_sfx_manifest(req.source_id)
-    source_dir = SFX_DIR / req.source_id
+    source_dir = _user_sfx(session) / req.source_id
     if source_dir.exists():
         shutil.rmtree(source_dir, ignore_errors=True)
 
@@ -706,7 +720,7 @@ def send_to_mix(sfx_id: str, session: SessionStore = Depends(get_user_session)) 
     if not manifest:
         raise HTTPException(404, f"SFX '{sfx_id}' not found")
 
-    rendered_path = SFX_DIR / sfx_id / "rendered.wav"
+    rendered_path = _user_sfx(session) / sfx_id / "rendered.wav"
     if not rendered_path.exists():
         raise HTTPException(400, "SFX not yet rendered")
 
@@ -741,13 +755,14 @@ def delete_sfx(sfx_id: str, session: SessionStore = Depends(get_user_session)) -
         raise HTTPException(404, f"SFX '{sfx_id}' not found")
 
     # Remove files
-    sfx_dir = SFX_DIR / sfx_id
+    sfx_base = _user_sfx(session)
+    sfx_dir = sfx_base / sfx_id
     if sfx_dir.exists():
         shutil.rmtree(sfx_dir)
 
     # Remove any mix tracks that reference this SFX
     for track in session.mix_tracks:
-        if track.path and str(SFX_DIR / sfx_id) in str(track.path):
+        if track.path and str(sfx_base / sfx_id) in str(track.path):
             session.remove_track(track.track_id)
 
     return {"status": "deleted", "id": sfx_id}
@@ -760,7 +775,7 @@ def stream_sfx(sfx_id: str, session: SessionStore = Depends(get_user_session)) -
     if not manifest:
         raise HTTPException(404, f"SFX '{sfx_id}' not found")
 
-    rendered_path = SFX_DIR / sfx_id / "rendered.wav"
+    rendered_path = _user_sfx(session) / sfx_id / "rendered.wav"
     if not rendered_path.exists():
         raise HTTPException(404, "Rendered WAV not found")
 

@@ -14,7 +14,7 @@ from backend.services.job_manager import job_manager
 from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
 from utils.cache import get_model_cache_dir
-from utils.paths import VOICE_DIR
+from utils.paths import VOICE_DIR, user_dir
 
 router = APIRouter(prefix="/api", tags=["voice"])
 
@@ -146,6 +146,7 @@ def _run_voice_convert(
         except ValueError:
             raise RuntimeError(f"Voice model not found: {req.model_name}")
 
+    voice_out = user_dir(VOICE_DIR, session.user)
     config = RvcConfig(
         model_path=model_path,
         index_path=index_path,
@@ -153,6 +154,7 @@ def _run_voice_convert(
         f0_method=req.f0_method,
         index_rate=req.index_rate,
         protect=req.protect,
+        output_dir=voice_out,
     )
 
     def _cb(pct, stage=""):

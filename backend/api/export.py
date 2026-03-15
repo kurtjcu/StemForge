@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from utils.paths import EXPORT_DIR
+from utils.paths import EXPORT_DIR, user_dir
 
 router = APIRouter(prefix="/api/export", tags=["export"])
 
@@ -27,12 +27,12 @@ class ZipRequest(BaseModel):
     items: list[str]          # list of file paths to zip
 
 
-def _run_export(items: list[str], fmt: str, bitrate: int | None, job_id: str) -> dict:
+def _run_export(items: list[str], fmt: str, bitrate: int | None, job_id: str, user: str = "local") -> dict:
     """Convert selected items to target format."""
     from utils.audio_io import read_audio, write_audio
 
     progress_cb = job_manager.make_progress_callback(job_id)
-    EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+    export_out = user_dir(EXPORT_DIR, user)
 
     exported = []
     for i, item_path in enumerate(items):
@@ -41,7 +41,7 @@ def _run_export(items: list[str], fmt: str, bitrate: int | None, job_id: str) ->
         if not src.exists():
             continue
 
-        dest = EXPORT_DIR / f"{src.stem}.{fmt}"
+        dest = export_out / f"{src.stem}.{fmt}"
         if src.suffix.lstrip(".").lower() == fmt and bitrate is None:
             # Same format, no bitrate override — just copy
             import shutil
@@ -65,7 +65,7 @@ def start_export(req: ExportRequest, request: Request) -> dict:
 
     user = getattr(request.state, "user", "local")
     job_id = job_manager.create_job("export", user=user)
-    job_manager.run_job(job_id, _run_export, req.items, req.format, req.bitrate, job_id)
+    job_manager.run_job(job_id, _run_export, req.items, req.format, req.bitrate, job_id, user)
     return {"job_id": job_id}
 
 

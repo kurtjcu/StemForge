@@ -41,7 +41,7 @@ def make_fade(length_samples: int, curve: str = "linear") -> np.ndarray:
     return t  # linear
 
 
-def render_sfx(manifest: dict) -> pathlib.Path:
+def render_sfx(manifest: dict, output_base: pathlib.Path | None = None) -> pathlib.Path:
     """Render an SFX manifest to a WAV file and return the output path.
 
     The manifest dict must contain:
@@ -101,7 +101,8 @@ def render_sfx(manifest: dict) -> pathlib.Path:
         canvas = np.tanh(canvas).astype(np.float32)
 
     # Write output
-    out_dir = SFX_DIR / manifest["id"]
+    base = output_base or SFX_DIR
+    out_dir = base / manifest["id"]
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "rendered.wav"
     bit_depth = manifest.get("bit_depth", 24)

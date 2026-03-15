@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
 from backend.services.session_store import SessionStore, TrackState, get_user_session
-from utils.paths import MIX_DIR, OUTPUT_BASE
+from utils.paths import MIX_DIR, OUTPUT_BASE, user_dir
 
 router = APIRouter(prefix="/api/mix", tags=["mix"])
 
@@ -246,8 +246,8 @@ def _run_mix_render(job_id: str, session: SessionStore) -> dict:
     # Write stereo
     stereo = np.stack([mix, mix])  # (2, samples)
 
-    MIX_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = MIX_DIR / f"mix_{uuid.uuid4().hex[:6]}.flac"
+    mix_out = user_dir(MIX_DIR, session.user)
+    out_path = mix_out / f"mix_{uuid.uuid4().hex[:6]}.flac"
 
     write_audio(stereo, sr, out_path, fmt="flac", bit_depth=bit_depth)
 

@@ -14,11 +14,9 @@ from pydantic import BaseModel
 from backend.services.job_manager import job_manager
 from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
-from utils.paths import STEMS_DIR
+from utils.paths import STEMS_DIR, user_dir
 
 router = APIRouter(prefix="/api", tags=["separate"])
-
-_BATCH_DIR = STEMS_DIR / "batch"
 
 
 class SeparateRequest(BaseModel):
@@ -72,10 +70,11 @@ def _run_separation(
             if not isinstance(spec, RoformerSpec):
                 raise ValueError(f"{model_id} is not a Roformer model")
 
+            stems_out = user_dir(STEMS_DIR, session.user)
             config = RoformerConfig(
                 model_id=model_id,
                 stems=stems or list(spec.available_stems),
-                output_dir=STEMS_DIR,
+                output_dir=stems_out,
                 sample_rate=source_sr,
                 bit_depth=source_bd,
                 chunk_size=spec.default_chunk_size,
@@ -89,11 +88,12 @@ def _run_separation(
         else:
             from pipelines.demucs_pipeline import DemucsConfig
 
+            stems_out = user_dir(STEMS_DIR, session.user)
             pipeline = pipeline_manager.get_demucs()
             config = DemucsConfig(
                 model_name=model_id,
                 stems=stems or ["vocals", "drums", "bass", "other"],
-                output_dir=STEMS_DIR,
+                output_dir=stems_out,
                 sample_rate=source_sr,
                 bit_depth=source_bd,
             )
@@ -182,7 +182,8 @@ def _run_batch_separation(
     total = len(files)
     results = []
 
-    _BATCH_DIR.mkdir(parents=True, exist_ok=True)
+    batch_dir = user_dir(STEMS_DIR, session.user) / "batch"
+    batch_dir.mkdir(parents=True, exist_ok=True)
 
     # Inherit source audio quality from session (batch files may vary,
     # but we use the session source as the quality target)
@@ -205,7 +206,7 @@ def _run_batch_separation(
             config = RoformerConfig(
                 model_id=model_id,
                 stems=[stem],
-                output_dir=_BATCH_DIR,
+                output_dir=batch_dir,
                 sample_rate=source_sr,
                 bit_depth=source_bd,
                 chunk_size=spec.default_chunk_size,
@@ -221,7 +222,7 @@ def _run_batch_separation(
             config = DemucsConfig(
                 model_name=model_id,
                 stems=[stem],
-                output_dir=_BATCH_DIR,
+                output_dir=batch_dir,
                 sample_rate=source_sr,
                 bit_depth=source_bd,
             )
@@ -260,7 +261,7 @@ def _run_batch_separation(
                 if stem in stem_paths:
                     src = pathlib.Path(stem_paths[stem])
                     dest_name = f"{stem}-stem-{base_name}{src.suffix}"
-                    dest = _BATCH_DIR / dest_name
+                    dest = batch_dir / dest_name
                     if src != dest:
                         shutil.move(str(src), str(dest))
                     results.append({
@@ -309,7 +310,7 @@ def start_batch_separation(req: BatchSeparateRequest, session: SessionStore = De
 @router.post("/separate/batch/save-all")
 def batch_save_all(req: BatchSaveAllRequest):
     """Zip all batch results for download."""
-    batch_root = _BATCH_DIR.resolve()
+    batch_root = STEMS_DIR.resolve()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for item in req.paths:

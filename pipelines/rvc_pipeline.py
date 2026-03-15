@@ -56,6 +56,7 @@ class RvcConfig:
         protect: float = 0.33,
         filter_radius: int = 3,
         volume_envelope: float = 0.0,
+        output_dir: pathlib.Path | None = None,
     ) -> None:
         self.model_path = pathlib.Path(model_path)
         self.index_path = pathlib.Path(index_path) if index_path else None
@@ -65,6 +66,7 @@ class RvcConfig:
         self.protect = float(protect)
         self.filter_radius = int(filter_radius)
         self.volume_envelope = float(volume_envelope)
+        self.output_dir = pathlib.Path(output_dir) if output_dir else None
 
 
 # ---------------------------------------------------------------------------
@@ -135,11 +137,12 @@ class RvcPipeline:
             raise InvalidInputError(f"Voice model not found: {cfg.model_path}", field="model_path")
 
         # Prepare output path
-        VOICE_DIR.mkdir(parents=True, exist_ok=True)
+        out_dir = cfg.output_dir or VOICE_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
         stem_name = audio_path.stem
         model_name = cfg.model_path.stem
         out_name = f"{stem_name}_{model_name}_{uuid.uuid4().hex[:8]}.wav"
-        output_path = VOICE_DIR / out_name
+        output_path = out_dir / out_name
 
         self._emit(0.3, "Loading voice model")
         log.info("RVC convert: %s → %s (model=%s, pitch=%d, f0=%s)",
