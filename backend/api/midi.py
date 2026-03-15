@@ -209,7 +209,7 @@ def start_extraction(req: ExtractRequest, session: SessionStore = Depends(get_us
         "minimum_note_length": req.min_note_ms,
     }
 
-    job_id = job_manager.create_job("midi")
+    job_id = job_manager.create_job("midi", user=session.user)
     job_manager.run_job(job_id, _run_midi_extraction, stems, config_kwargs, job_id, session)
     return {"job_id": job_id}
 

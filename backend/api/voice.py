@@ -215,7 +215,7 @@ def start_voice_convert(
     if not audio.exists():
         raise HTTPException(422, f"Audio file not found: {req.audio_path}")
 
-    job_id = job_manager.create_job("voice_convert")
+    job_id = job_manager.create_job("voice_convert", user=session.user)
     job_manager.run_job(job_id, _run_voice_convert, req, job_id, session)
     return {"job_id": job_id}
 

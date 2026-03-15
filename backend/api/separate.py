@@ -131,7 +131,7 @@ def start_separation(req: SeparateRequest, session: SessionStore = Depends(get_u
     if not audio_path:
         raise HTTPException(400, "No audio file loaded — upload first")
 
-    job_id = job_manager.create_job("separate")
+    job_id = job_manager.create_job("separate", user=session.user)
     job_manager.run_job(
         job_id,
         _run_separation,
@@ -292,7 +292,7 @@ def start_batch_separation(req: BatchSeparateRequest, session: SessionStore = De
     if not req.files:
         raise HTTPException(400, "No files provided")
 
-    job_id = job_manager.create_job("separate-batch")
+    job_id = job_manager.create_job("separate-batch", user=session.user)
     job_manager.run_job(
         job_id,
         _run_batch_separation,

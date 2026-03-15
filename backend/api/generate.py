@@ -112,6 +112,6 @@ def start_generation(req: GenerateRequest, session: SessionStore = Depends(get_u
     if not req.prompt.strip():
         raise HTTPException(422, "Prompt is required")
 
-    job_id = job_manager.create_job("generate")
+    job_id = job_manager.create_job("generate", user=session.user)
     job_manager.run_job(job_id, _run_generation, req, job_id, session)
     return {"job_id": job_id}

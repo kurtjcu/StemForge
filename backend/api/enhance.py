@@ -7,7 +7,7 @@ import pathlib
 import uuid
 import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -166,7 +166,7 @@ def start_enhance(req: EnhanceRequest,
     if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
         raise HTTPException(403, "Path not within allowed directories")
 
-    job_id = job_manager.create_job("enhance")
+    job_id = job_manager.create_job("enhance", user=session.user)
     job_manager.run_job(job_id, _run_enhance, job_id, req.stem_path, req.preset,
                         session)
     return {"job_id": job_id}
@@ -223,14 +223,15 @@ def _run_batch_enhance(preset: str, files: list[dict], job_id: str) -> dict:
 
 
 @router.post("/batch")
-def start_batch_enhance(req: BatchEnhanceRequest) -> dict:
+def start_batch_enhance(req: BatchEnhanceRequest, request: Request) -> dict:
     """Start a batch enhancement job."""
     if req.preset not in PRESETS:
         raise HTTPException(400, f"Unknown preset: {req.preset}")
     if not req.files:
         raise HTTPException(400, "No files provided")
 
-    job_id = job_manager.create_job("enhance-batch")
+    user = getattr(request.state, "user", "local")
+    job_id = job_manager.create_job("enhance-batch", user=user)
     job_manager.run_job(job_id, _run_batch_enhance, req.preset, req.files, job_id)
     return {"job_id": job_id}
 
@@ -363,7 +364,7 @@ def start_autotune(req: AutotuneRequest,
     if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
         raise HTTPException(403, "Path not within allowed directories")
 
-    job_id = job_manager.create_job("autotune")
+    job_id = job_manager.create_job("autotune", user=session.user)
     job_manager.run_job(
         job_id, _run_autotune, job_id, req.stem_path,
         req.key, req.scale, req.correction_strength, req.humanize,
@@ -546,7 +547,7 @@ def start_effects(req: EffectsRequest,
     if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
         raise HTTPException(403, "Path not within allowed directories")
 
-    job_id = job_manager.create_job("effects")
+    job_id = job_manager.create_job("effects", user=session.user)
     job_manager.run_job(job_id, _run_effects, job_id, req.stem_path, req.chain,
                         session)
     return {"job_id": job_id}

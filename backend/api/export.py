@@ -7,7 +7,7 @@ import pathlib
 import uuid
 import zipfile
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -57,13 +57,14 @@ def _run_export(items: list[str], fmt: str, bitrate: int | None, job_id: str) ->
 
 
 @router.post("")
-def start_export(req: ExportRequest) -> dict:
+def start_export(req: ExportRequest, request: Request) -> dict:
     if not req.items:
         raise HTTPException(422, "No items to export")
     if req.format not in ("wav", "flac", "aiff", "mp3", "ogg", "m4a"):
         raise HTTPException(422, f"Unsupported format: {req.format}")
 
-    job_id = job_manager.create_job("export")
+    user = getattr(request.state, "user", "local")
+    job_id = job_manager.create_job("export", user=user)
     job_manager.run_job(job_id, _run_export, req.items, req.format, req.bitrate, job_id)
     return {"job_id": job_id}
 

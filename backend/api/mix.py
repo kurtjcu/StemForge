@@ -264,6 +264,6 @@ def start_mix_render(session: SessionStore = Depends(get_user_session)) -> dict:
     if not enabled:
         raise HTTPException(400, "No enabled tracks to render")
 
-    job_id = job_manager.create_job("mix")
+    job_id = job_manager.create_job("mix", user=session.user)
     job_manager.run_job(job_id, _run_mix_render, job_id, session)
     return {"job_id": job_id}
