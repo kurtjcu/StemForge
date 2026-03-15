@@ -1648,6 +1648,24 @@ input[type="range"]::-moz-range-track {
   font-size: 12px;
 }
 
+/* ─── Rework Source Selector ─────────────────────────────────────────── */
+
+.compose-source-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.compose-source-row .compose-select {
+  flex: 1;
+  min-width: 0;
+}
+
+.compose-source-row .compose-ghost-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 /* ─── Approach Selector ──────────────────────────────────────────────── */
 
 .compose-approach-grid {
@@ -2285,6 +2303,12 @@ input[type="range"]::-moz-range-track {
   color: var(--text-dim);
   font-family: var(--font-mono, monospace);
   white-space: nowrap;
+}
+
+.compose-wf-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
 }
 
 /* ─── Understand Results ─────────────────────────────────────────────── */

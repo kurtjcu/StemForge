@@ -237,7 +237,9 @@ function buildUI(panel) {
   _initWfInteraction();
 
   // Populate voice stem selector when stems become available
-  appState.on('stemsReady', () => _populateVoiceStemSelect());
+  appState.on('stemsReady', () => { _populateVoiceStemSelect(); _refreshReworkSources(); });
+  appState.on('enhanceReady', () => _refreshReworkSources());
+  appState.on('fileLoaded', () => _refreshReworkSources());
   // Also populate if stems already exist
   _populateVoiceStemSelect();
 }
@@ -331,11 +333,29 @@ function buildLeftColumn() {
   // REWORK MODE panel
   const reworkPanel = el('div', { className: 'compose-panel-inner hidden', id: 'compose-rework-panel' });
 
-  // Upload zone
+  // Source selector: session sources dropdown + upload
+  const sourceSelect = el('select', {
+    className: 'compose-select', id: 'compose-rework-source',
+    style: { marginBottom: '6px' },
+  },
+    el('option', { value: '' }, 'Select source\u2026'),
+  );
+  sourceSelect.addEventListener('change', () => {
+    const path = sourceSelect.value;
+    if (path) _loadReworkSource(path, sourceSelect.options[sourceSelect.selectedIndex].textContent);
+  });
+
+  const sourceRow = el('div', { className: 'compose-source-row' },
+    sourceSelect,
+    el('button', { className: 'compose-ghost-btn', onClick: browseAudio, title: 'Upload a file from disk' }, '+ Upload'),
+  );
+
+  // Upload zone (shows loaded state)
   const uploadZone = el('div', { className: 'compose-upload-zone', id: 'compose-upload-zone' },
     el('div', { id: 'compose-upload-prompt' },
-      el('span', {}, '\u266B Drop audio here or '),
-      el('button', { className: 'compose-ghost-btn', onClick: browseAudio }, 'Browse'),
+      sourceRow,
+      el('div', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--text-dim)', marginTop: '4px' } },
+        '\u266B or drop audio here'),
     ),
     el('div', { className: 'hidden', id: 'compose-upload-loaded' },
       el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
@@ -2167,6 +2187,7 @@ function buildOutputPanel() {
         el('input', { type: 'number', id: 'compose-wf-region-end', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
       ),
       el('span', { className: 'compose-wf-selection-info', id: 'compose-wf-selection-info' }),
+      el('span', { className: 'compose-wf-hint', id: 'compose-wf-hint' }, 'Drag on waveform to select region \u2022 click section labels to snap'),
     ),
   );
 
@@ -2245,6 +2266,9 @@ function switchMode(mode) {
     const showWf = mode === 'rework' && _uploadedPath && _wfData;
     wfTimeline.classList.toggle('hidden', !showWf);
   }
+
+  // Refresh rework source dropdown when entering rework mode
+  if (mode === 'rework') _refreshReworkSources();
 
   // Update right column control states (disabled/greyed for analyze modes)
   _updateRightColumnState();
@@ -2987,7 +3011,83 @@ function removeUploadedAudio() {
   _id('compose-upload-loaded')?.classList.add('hidden');
   const eb = _id('compose-rework-extract-btn');
   if (eb) { eb.disabled = true; }
+  // Reset source dropdown
+  const sel = _id('compose-rework-source');
+  if (sel) sel.value = '';
   hideReworkWaveform();
+}
+
+/** Load a session source (uploaded file or stem) into the rework panel by server path. */
+async function _loadReworkSource(path, displayName) {
+  const fnEl = _id('compose-upload-filename');
+  const durEl = _id('compose-upload-duration');
+  if (fnEl) fnEl.textContent = displayName || path.split('/').pop();
+  _id('compose-upload-prompt')?.classList.add('hidden');
+  _id('compose-upload-loaded')?.classList.remove('hidden');
+
+  // Store the path — _ensure_in_tmp on the backend will copy to AceStep's temp dir
+  _uploadedPath = path;
+
+  // Get duration via audio element (use general stream endpoint, no AceStep needed)
+  const audioUrl = `/api/audio/stream?path=${encodeURIComponent(path)}`;
+  const audio = new Audio(audioUrl);
+  audio.addEventListener('loadedmetadata', () => {
+    _uploadedDuration = audio.duration;
+    if (durEl) durEl.textContent = _formatDuration(audio.duration);
+    const re = _id('compose-region-end');
+    if (re) { re.value = Math.round(audio.duration * 10) / 10; re.max = re.value; }
+  });
+
+  // Enable extract button
+  const eb = _id('compose-rework-extract-btn');
+  if (eb) { eb.disabled = false; }
+
+  // Render waveform timeline (general stream endpoint — works without AceStep)
+  renderReworkWaveform(audioUrl);
+}
+
+/** Refresh the rework source dropdown with current session sources. */
+async function _refreshReworkSources() {
+  const sel = _id('compose-rework-source');
+  if (!sel) return;
+
+  // Preserve current selection
+  const prev = sel.value;
+
+  // Clear all but the placeholder
+  while (sel.options.length > 1) sel.remove(1);
+
+  try {
+    const res = await fetch('/api/compose/rework-sources');
+    if (!res.ok) return;
+    const data = await res.json();
+    const sources = data.sources || [];
+
+    // Group sources by category
+    const groups = {};
+    for (const s of sources) {
+      const g = s.group || 'other';
+      if (!groups[g]) groups[g] = [];
+      groups[g].push(s);
+    }
+
+    const groupLabels = { session: 'Session', stems: 'Stems', enhanced: 'Enhanced' };
+    for (const [key, label] of Object.entries(groupLabels)) {
+      if (!groups[key] || groups[key].length === 0) continue;
+      const optgroup = el('optgroup', { label });
+      for (const s of groups[key]) {
+        optgroup.appendChild(el('option', { value: s.path }, s.label));
+      }
+      sel.appendChild(optgroup);
+    }
+
+    // Restore selection if still valid
+    if (prev) {
+      for (const opt of sel.options) {
+        if (opt.value === prev) { sel.value = prev; break; }
+      }
+    }
+  } catch { /* non-critical */ }
 }
 
 // ─── Sound Reference Upload ─────────────────────────────────────────
@@ -3629,10 +3729,23 @@ function showResults(taskId, results, payload) {
     ? results[0].lyrics
     : (payload.lyrics || '');
 
+  const isRepaint = payload.task_type === 'repaint';
+
   results.forEach((result, i) => {
     const audioPath = result.audio_url || '';
-    const card = buildResultCard(taskId, i, results.length, result, fmt);
-    if (output) output.prepend(card);
+
+    if (isRepaint && audioPath && payload.src_audio_path) {
+      // For repaint: show "Section" card then auto-stitch full song
+      const sectionLabel = `Section (${_fmtSecs(payload.repainting_start)}\u2013${_fmtSecs(payload.repainting_end)})`;
+      const sectionCard = buildResultCard(taskId, i, results.length, result, fmt, sectionLabel);
+      if (output) output.prepend(sectionCard);
+
+      // Auto-stitch: splice result back into original
+      _stitchAndShowFullSong(taskId, i, results.length, result, fmt, payload, output);
+    } else {
+      const card = buildResultCard(taskId, i, results.length, result, fmt);
+      if (output) output.prepend(card);
+    }
 
     // Emit composeReady for cross-tab integration
     appState.composePaths.push({ path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
@@ -3648,6 +3761,44 @@ function showResults(taskId, results, payload) {
   if (_mode === 'analyze' && _analyzeMode !== 'understand' && results.length > 0 && results[0].audio_url) {
     const resultUrl = `/api/compose/audio?path=${encodeURIComponent(results[0].audio_url)}`;
     _renderResultWaveform(resultUrl, 'analyze-wf-result', 'analyze-wf-result-canvas', _analyzeSourcePeaks);
+  }
+}
+
+/** Format seconds as M:SS */
+function _fmtSecs(s) {
+  s = Number(s) || 0;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+/** Stitch repaint result into original audio and show a "Full Song" card. */
+async function _stitchAndShowFullSong(taskId, index, total, result, fmt, payload, output) {
+  try {
+    const res = await fetch('/api/compose/stitch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        original_path: payload.src_audio_path,
+        result_path: result.audio_url,
+        start: payload.repainting_start,
+        end: payload.repainting_end,
+      }),
+    });
+    if (!res.ok) {
+      console.warn('Stitch failed:', await res.text());
+      return;
+    }
+    const data = await res.json();
+    const stitchedResult = { ...result, audio_url: data.path };
+    const card = buildResultCard(taskId, index, total, stitchedResult, fmt, '\u2714 Full Song (stitched)');
+    if (output) output.prepend(card);
+
+    // Update compose paths with stitched version as primary
+    appState.composePaths.push({ path: data.path, title: 'Stitched', metadata: result.meta });
+    appState.emit('composeReady', { path: data.path, title: 'Stitched', metadata: result.meta });
+  } catch (err) {
+    console.warn('Stitch error:', err);
   }
 }
 
@@ -3718,7 +3869,7 @@ function _renderSectionLabels(container, sections, duration, ws) {
   }
 }
 
-function buildResultCard(taskId, index, total, result, fmt) {
+function buildResultCard(taskId, index, total, result, fmt, customLabel) {
   const audioPath = result.audio_url || '';
   const audioSrc = `/api/compose/audio?path=${encodeURIComponent(audioPath)}`;
   const dlAudioUrl = `/api/compose/download/${taskId}/${index}/audio`;
@@ -3727,7 +3878,7 @@ function buildResultCard(taskId, index, total, result, fmt) {
 
   const card = el('div', { className: 'stem-card' });
 
-  const label = total > 1 ? `Result ${index + 1} of ${total}` : 'Result';
+  const label = customLabel || (total > 1 ? `Result ${index + 1} of ${total}` : 'Result');
 
   if (audioPath) {
     // Transport buttons
