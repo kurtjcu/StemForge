@@ -53,7 +53,7 @@ respective rights holders.
 All tiers: third-party model weights remain subject to their own upstream licenses
 (see table above).
 
-**For pricing and tier details, contact [tsondo@gmail.com](mailto:tsondo@gmail.com).**
+**For pricing and tier details, contact [info@tsondo.com](mailto:info@tsondo.com).**
 
 ---
 
@@ -167,4 +167,4 @@ supersedes all prior negotiations and agreements.
 
 ---
 
-To inquire about commercial licensing, contact: **[tsondo@gmail.com](mailto:tsondo@gmail.com)**
+To inquire about commercial licensing, contact: **[info@tsondo.com](mailto:info@tsondo.com)**

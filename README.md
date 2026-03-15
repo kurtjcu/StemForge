@@ -517,7 +517,7 @@ StemForge is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 Free for personal, educational, research, and other noncommercial use.
 
 **Commercial use requires a separate commercial license.**
-Contact [tsondo@gmail.com](mailto:tsondo@gmail.com) to discuss terms and pricing.
+Contact [info@tsondo.com](mailto:info@tsondo.com) to discuss terms and pricing.
 See [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL) for details.
 
 ### Third-party model licenses

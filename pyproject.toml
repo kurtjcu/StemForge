@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "LicenseRef-PolyForm-Noncommercial-1.0.0" }
 requires-python = "==3.11.*"
 authors = [
-    { name = "Todd Green" },
+    { name = "Todd Green", email = "info@tsondo.com" },
 ]
 keywords = [
     "audio",
