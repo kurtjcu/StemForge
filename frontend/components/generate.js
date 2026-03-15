@@ -338,6 +338,9 @@ export function initGenerate() {
       el('div', { className: 'sfx-clip-controls hidden', id: 'sfx-clip-controls' },
         el('span', { className: 'sfx-clip-controls-label', id: 'sfx-active-clip-name' }, ''),
         el('div', { className: 'sfx-clip-controls-fields' },
+          el('label', {}, 'Vol'),
+          el('input', { type: 'range', id: 'sfx-clip-volume', min: '0', max: '200', value: '100', step: '5', style: { width: '80px' } }),
+          el('span', { id: 'sfx-clip-volume-val', className: 'text-dim', style: { fontSize: '11px', minWidth: '32px' } }, '100%'),
           el('label', {}, 'Fade in'),
           el('input', { type: 'number', id: 'sfx-clip-fade-in', min: '0', step: '50', value: '0' }),
           el('label', {}, 'Fade out'),
@@ -437,8 +440,12 @@ export function initGenerate() {
   });
 
   // Fade controls commit on change
-  document.getElementById('sfx-clip-fade-in').addEventListener('change', commitActiveFades);
-  document.getElementById('sfx-clip-fade-out').addEventListener('change', commitActiveFades);
+  document.getElementById('sfx-clip-volume').addEventListener('input', (e) => {
+    document.getElementById('sfx-clip-volume-val').textContent = `${e.target.value}%`;
+  });
+  document.getElementById('sfx-clip-volume').addEventListener('change', commitActiveClipControls);
+  document.getElementById('sfx-clip-fade-in').addEventListener('change', commitActiveClipControls);
+  document.getElementById('sfx-clip-fade-out').addEventListener('change', commitActiveClipControls);
 
   // Deselect clip when clicking empty timeline space
   document.getElementById('sfx-timeline-lanes').addEventListener('click', (e) => {
@@ -1295,14 +1302,18 @@ function _selectClip(placement) {
   controls.classList.remove('hidden');
   const clipName = placement.clip_name || (placement.clip_path || '').split('/').pop() || 'clip';
   document.getElementById('sfx-active-clip-name').textContent = clipName;
+  const volPct = Math.round((placement.volume ?? 1.0) * 100);
+  document.getElementById('sfx-clip-volume').value = volPct;
+  document.getElementById('sfx-clip-volume-val').textContent = `${volPct}%`;
   document.getElementById('sfx-clip-fade-in').value = placement.fade_in_ms || 0;
   document.getElementById('sfx-clip-fade-out').value = placement.fade_out_ms || 0;
 }
 
-/** Commit fade values for the active clip. */
-async function commitActiveFades() {
+/** Commit clip control values (volume, fades) for the active clip. */
+async function commitActiveClipControls() {
   if (!_activeClipId || !_currentSfxId) return;
+  const volume = parseInt(document.getElementById('sfx-clip-volume').value) / 100;
   const fadeIn = parseInt(document.getElementById('sfx-clip-fade-in').value) || 0;
   const fadeOut = parseInt(document.getElementById('sfx-clip-fade-out').value) || 0;
-  await updatePlacement(_activeClipId, { fade_in_ms: fadeIn, fade_out_ms: fadeOut });
+  await updatePlacement(_activeClipId, { volume, fade_in_ms: fadeIn, fade_out_ms: fadeOut });
 }
