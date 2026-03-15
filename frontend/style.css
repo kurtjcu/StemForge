@@ -2427,39 +2427,6 @@ input[type="range"]::-moz-range-track {
   color: var(--success);
 }
 
-.sfx-placement-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  margin-bottom: 6px;
-}
-
-.sfx-placement-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1;
-  min-width: 0;
-}
-
-.sfx-placement-name {
-  font-size: 13px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sfx-placement-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
 
 /* ─── SFX Timeline (DAW-style multi-track) ────────────────────────────── */
 
@@ -2552,14 +2519,6 @@ input[type="range"]::-moz-range-track {
   cursor: default;
 }
 
-.sfx-ref-waveform {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
 
 .sfx-clip-ref:hover {
   background: rgba(34, 197, 94, 0.12);
@@ -2583,6 +2542,62 @@ input[type="range"]::-moz-range-track {
   pointer-events: none;
   flex: 1;
   min-width: 0;
+}
+
+.sfx-clip-active {
+  background: rgba(245, 158, 11, 0.3);
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.3);
+}
+
+.sfx-clip-x {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.sfx-clip-x:hover {
+  color: #ef4444;
+}
+
+.sfx-clip-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.sfx-clip-controls-label {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.sfx-clip-controls-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sfx-clip-controls-fields label {
+  color: var(--text-dim);
+  font-size: 11px;
+  margin: 0;
+}
+
+.sfx-clip-controls-fields input[type="number"] {
+  width: 60px;
+  padding: 2px 4px;
+  font-size: 12px;
 }
 
 /* ─── Effects chain cards ─────────────────────────────────────────── */

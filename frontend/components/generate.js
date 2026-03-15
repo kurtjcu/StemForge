@@ -170,6 +170,8 @@ let _timelineDurationMs = 0;   // current canvas duration in ms
 let _alignedStemPaths = {};    // label → path, from stemsReady (audio, green)
 let _alignedMidiLabels = [];   // labels, from midiReady (purple, rendered on demand)
 let _alignedRefPaths = {};     // label → path, from fileLoaded or manual import
+let _activeClipId = null;      // currently selected placement id
+let _dragOffsetPct = 0;        // offset from left edge of dragged clip (0-1)
 
 export function initGenerate() {
   const panel = document.getElementById('panel-synth');
@@ -286,16 +288,24 @@ export function initGenerate() {
 
   // -- SFX canvas section --
   const sfxSection = el('div', { className: 'hidden', id: 'sfx-section' },
-    // Timeline card: header controls + align dropdown + timeline canvas
     el('div', { className: 'card', id: 'sfx-canvas-card' },
+      // Header: title + actions
       el('div', { className: 'stem-card-header' },
         el('span', { className: 'stem-label', id: 'sfx-canvas-title' }, ''),
         el('div', { className: 'stem-actions' },
+          el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px' } },
+            el('span', { className: 'toggle' },
+              el('input', { type: 'checkbox', id: 'sfx-limiter' }),
+              el('span', { className: 'toggle-slider' }),
+            ),
+            'Limiter',
+          ),
           el('button', { className: 'btn btn-sm', id: 'sfx-save-btn' }, '\u2193 Save'),
           el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-render-mix-btn' }, 'Render Canvas'),
+          el('button', { className: 'btn btn-sm btn-danger', id: 'sfx-delete-btn' }, '\u2715'),
         ),
       ),
-      // Align dropdown inside timeline card
+      // Align dropdown
       el('div', { className: 'form-group', style: { margin: '8px 0 6px' } },
         el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
           el('label', { style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-dim)', margin: '0' } }, 'Align to'),
@@ -306,7 +316,7 @@ export function initGenerate() {
           el('option', { value: '' }, '-- none --'),
         ),
       ),
-      // Reference stem player (populated when Align is selected)
+      // Reference stem player
       el('div', { id: 'sfx-ref-player-container' }),
       // DAW-style timeline
       el('div', { className: 'sfx-timeline', id: 'sfx-timeline' },
@@ -314,74 +324,19 @@ export function initGenerate() {
         el('div', { className: 'sfx-timeline-lanes', id: 'sfx-timeline-lanes' }),
         el('div', { className: 'sfx-timeline-playhead', id: 'sfx-timeline-playhead' }),
       ),
+      // Active clip controls (shown when a clip is selected on the timeline)
+      el('div', { className: 'sfx-clip-controls hidden', id: 'sfx-clip-controls' },
+        el('span', { className: 'sfx-clip-controls-label', id: 'sfx-active-clip-name' }, ''),
+        el('div', { className: 'sfx-clip-controls-fields' },
+          el('label', {}, 'Fade in'),
+          el('input', { type: 'number', id: 'sfx-clip-fade-in', min: '0', step: '50', value: '0' }),
+          el('label', {}, 'Fade out'),
+          el('input', { type: 'number', id: 'sfx-clip-fade-out', min: '0', step: '50', value: '0' }),
+          el('span', { className: 'text-dim', style: { fontSize: '11px' } }, 'ms'),
+        ),
+      ),
       // Canvas player (populated after render)
       el('div', { id: 'sfx-canvas-player-container' }),
-    ),
-    // Settings row
-    el('div', { className: 'card', style: { marginTop: '8px' } },
-      el('div', { className: 'stem-card-header' },
-        el('span', { className: 'card-header', style: { marginBottom: '0' } }, 'SETTINGS'),
-        el('div', { className: 'stem-actions' },
-          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' } },
-            el('span', { className: 'toggle' },
-              el('input', { type: 'checkbox', id: 'sfx-limiter' }),
-              el('span', { className: 'toggle-slider' }),
-            ),
-            'Soft limiter',
-          ),
-          el('button', { className: 'btn btn-sm btn-danger', id: 'sfx-delete-btn' }, 'Delete Canvas'),
-        ),
-      ),
-    ),
-    // Add clip controls
-    el('div', { className: 'card', id: 'sfx-add-card', style: { marginTop: '8px' } },
-      el('div', { className: 'card-header' }, 'ADD CLIP MANUALLY'),
-      el('div', { className: 'form-group' },
-        el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-          el('label', { style: { margin: '0' } }, 'Clip source'),
-          el('button', { className: 'btn btn-sm', id: 'sfx-import-btn', style: { padding: '2px 8px', fontSize: '11px' } }, '+ Import'),
-        ),
-        el('input', { type: 'file', id: 'sfx-import-input', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' } }),
-        el('select', { id: 'sfx-clip-select' },
-          el('option', { value: '' }, '-- loading clips --'),
-        ),
-      ),
-      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } },
-        el('div', { className: 'form-group' },
-          el('label', {}, 'Start (ms)'),
-          el('input', { type: 'number', id: 'sfx-clip-start', value: '0', min: '0', step: '100' }),
-        ),
-        el('div', { className: 'form-group' },
-          el('label', {}, 'Volume'),
-          el('div', { className: 'slider-row' },
-            el('input', { type: 'range', id: 'sfx-clip-volume', min: '0', max: '200', value: '100', step: '5' }),
-            el('span', { className: 'slider-value', id: 'sfx-clip-volume-val' }, '100%'),
-          ),
-        ),
-      ),
-      el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' } },
-        el('div', { className: 'form-group' },
-          el('label', {}, 'Fade in (ms)'),
-          el('input', { type: 'number', id: 'sfx-clip-fade-in', value: '0', min: '0', step: '50' }),
-        ),
-        el('div', { className: 'form-group' },
-          el('label', {}, 'Fade out (ms)'),
-          el('input', { type: 'number', id: 'sfx-clip-fade-out', value: '0', min: '0', step: '50' }),
-        ),
-        el('div', { className: 'form-group' },
-          el('label', {}, 'Curve'),
-          el('select', { id: 'sfx-clip-fade-curve' },
-            el('option', { value: 'linear' }, 'Linear'),
-            el('option', { value: 'cosine' }, 'Cosine'),
-          ),
-        ),
-      ),
-      el('button', { className: 'btn', id: 'sfx-add-clip-btn', style: { marginTop: '4px' } }, 'Add Clip'),
-    ),
-    // Placements list
-    el('div', { className: 'card', style: { marginTop: '8px' } },
-      el('div', { className: 'card-header' }, 'PLACEMENTS'),
-      el('div', { id: 'sfx-placements-list' }),
     ),
   );
 
@@ -412,37 +367,9 @@ export function initGenerate() {
   document.getElementById('sfx-duration').addEventListener('input', (e) => {
     document.getElementById('sfx-duration-val').textContent = `${e.target.value}s`;
   });
-  document.getElementById('sfx-clip-volume').addEventListener('input', (e) => {
-    document.getElementById('sfx-clip-volume-val').textContent = `${e.target.value}%`;
-  });
   document.getElementById('sfx-create-btn').addEventListener('click', createSfxCanvas);
   document.getElementById('sfx-select').addEventListener('change', (e) => {
     if (e.target.value) loadSfx(e.target.value);
-  });
-  document.getElementById('sfx-add-clip-btn').addEventListener('click', addClipManually);
-
-  // Import clip: button triggers hidden file input, file input uploads
-  document.getElementById('sfx-import-btn').addEventListener('click', () => {
-    document.getElementById('sfx-import-input').click();
-  });
-  document.getElementById('sfx-import-input').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const form = new FormData();
-    form.append('file', file);
-    try {
-      const resp = await fetch('/api/sfx/upload-clip', { method: 'POST', body: form });
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        throw new Error(err.detail || resp.statusText);
-      }
-      const result = await resp.json();
-      await refreshClipList();
-      document.getElementById('sfx-clip-select').value = result.path;
-    } catch (err) {
-      alert(`Import failed: ${err.message}`);
-    }
-    e.target.value = '';  // reset so same file can be re-imported
   });
   document.getElementById('sfx-save-btn').addEventListener('click', saveSfx);
   document.getElementById('sfx-render-mix-btn').addEventListener('click', renderCanvasToMix);
@@ -468,7 +395,6 @@ export function initGenerate() {
       const result = await resp.json();
       _alignedRefPaths[result.name] = result.path;
       refreshAlignDropdown();
-      // Auto-select and trigger align
       document.getElementById('sfx-align-select').value = result.path;
       onAlignSelectChange();
     } catch (err) {
@@ -477,14 +403,15 @@ export function initGenerate() {
     e.target.value = '';
   });
 
-  // Click on empty timeline space → set start_ms
+  // Fade controls commit on change
+  document.getElementById('sfx-clip-fade-in').addEventListener('change', commitActiveFades);
+  document.getElementById('sfx-clip-fade-out').addEventListener('change', commitActiveFades);
+
+  // Deselect clip when clicking empty timeline space
   document.getElementById('sfx-timeline-lanes').addEventListener('click', (e) => {
-    if (!_timelineDurationMs) return;
-    const t = e.target;
-    if (t.classList.contains('sfx-clip-block') || t.classList.contains('sfx-clip-label')) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ms = Math.round((e.clientX - rect.left) / rect.width * _timelineDurationMs / 100) * 100;
-    document.getElementById('sfx-clip-start').value = Math.max(0, ms);
+    if (e.target.classList.contains('sfx-clip-block') || e.target.classList.contains('sfx-clip-label')
+        || e.target.classList.contains('sfx-clip-x')) return;
+    _selectClip(null);
   });
 
   // Populate conditioning sources + align dropdown when stems are ready
@@ -496,7 +423,6 @@ export function initGenerate() {
       condSelect.appendChild(el('option', { value: stemPaths[label] }, label));
     }
     refreshAlignDropdown();
-    refreshClipList();
   });
 
   // Populate MIDI stems in align dropdown
@@ -513,11 +439,8 @@ export function initGenerate() {
     }
   });
 
-  appState.on('generateReady', () => refreshClipList());
-
   // Load existing SFX canvases on init
   refreshSfxSelector();
-  refreshClipList();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -601,7 +524,6 @@ function showResult(result) {
   const nameSpan = makeEditableName(clipName, () => audioPath, (newPath) => {
     audioPath = newPath;
     appState.musicgenPath = newPath;
-    refreshClipList();
   });
 
   const keepBtn = el('button', { className: 'btn btn-sm' }, 'Keep');
@@ -612,7 +534,6 @@ function showResult(result) {
     });
     keepBtn.textContent = 'Kept';
     keepBtn.disabled = true;
-    refreshClipList();
   });
 
   const sfxBtn = el('button', {
@@ -661,7 +582,6 @@ async function loadSfx(sfxId) {
     document.getElementById('sfx-select').value = sfxId;
 
     showSfxCanvas(data);
-    refreshClipList();
   } catch (err) {
     alert(`Failed to load SFX: ${err.message}`);
   }
@@ -684,40 +604,6 @@ async function refreshSfxSelector() {
   } catch { /* silent */ }
 }
 
-async function refreshClipList() {
-  try {
-    let url = '/sfx/available-clips';
-    if (_currentSfxId) url += `?exclude_id=${_currentSfxId}`;
-    const data = await api(url);
-    const select = document.getElementById('sfx-clip-select');
-    clearChildren(select);
-    select.appendChild(el('option', { value: '' }, '-- select clip --'));
-
-    const groups = { session: [], saved_sfx: [], imported: [] };
-    for (const clip of data.clips || []) {
-      const g = clip.group || 'session';
-      if (groups[g]) groups[g].push(clip);
-    }
-
-    const groupLabels = { session: 'This Session', saved_sfx: 'Saved SFX', imported: 'Imported' };
-    for (const [key, label] of Object.entries(groupLabels)) {
-      const items = groups[key];
-      if (!items.length) continue;
-      const optgroup = document.createElement('optgroup');
-      optgroup.label = label;
-      for (const clip of items) {
-        let text = clip.name;
-        if (key === 'saved_sfx') {
-          const secs = ((clip.duration_ms || 0) / 1000).toFixed(1);
-          const n = clip.clip_count ?? 0;
-          text = `${clip.name} (${secs}s, ${n} clip${n !== 1 ? 's' : ''})`;
-        }
-        optgroup.appendChild(el('option', { value: clip.path }, text));
-      }
-      select.appendChild(optgroup);
-    }
-  } catch { /* silent */ }
-}
 
 /** Quick-add a clip from a generated result card to the current canvas. */
 async function addClipToCanvas(clipPath) {
@@ -759,36 +645,6 @@ async function addClipToCanvas(clipPath) {
   }
 }
 
-async function addClipManually() {
-  if (!_currentSfxId) { alert('Create or select an SFX canvas first'); return; }
-
-  const clipPath = document.getElementById('sfx-clip-select').value;
-  if (!clipPath) { alert('Select a clip first'); return; }
-
-  const startMs = parseInt(document.getElementById('sfx-clip-start').value) || 0;
-  const volume = parseInt(document.getElementById('sfx-clip-volume').value) / 100;
-  const fadeIn = parseInt(document.getElementById('sfx-clip-fade-in').value) || 0;
-  const fadeOut = parseInt(document.getElementById('sfx-clip-fade-out').value) || 0;
-  const fadeCurve = document.getElementById('sfx-clip-fade-curve').value;
-
-  try {
-    await api(`/sfx/${_currentSfxId}/placements`, {
-      method: 'POST',
-      body: JSON.stringify({
-        clip_path: clipPath,
-        start_ms: startMs,
-        volume,
-        fade_in_ms: fadeIn,
-        fade_out_ms: fadeOut,
-        fade_curve: fadeCurve,
-      }),
-    });
-    await loadSfx(_currentSfxId);
-    appState.emit('sfxReady', { id: _currentSfxId });
-  } catch (err) {
-    alert(`Failed to add clip: ${err.message}`);
-  }
-}
 
 async function updatePlacement(placementId, updates) {
   if (!_currentSfxId) return;
@@ -856,6 +712,7 @@ async function deleteSfx() {
     _alignStemType = null;
     _timelineDurationMs = 0;
     _refPlayer = null;
+    _activeClipId = null;
     document.getElementById('sfx-section').classList.add('hidden');
     if (_canvasPlayer) {
       _canvasPlayer.ws.destroy();
@@ -1041,8 +898,6 @@ function showSfxCanvas(data) {
     });
   }
 
-  // Placements list
-  renderPlacements(manifest.placements || []);
 }
 
 /**
@@ -1125,7 +980,7 @@ function renderTimeline(manifest) {
   if (placements.length === 0) {
     const emptyLane = el('div', { className: 'sfx-lane' });
     emptyLane.appendChild(el('span', { className: 'sfx-lane-hint text-dim' },
-      'Click to set start position, then add a clip below'));
+      'Generate audio above, then click "+ SFX Canvas" on a result to place it'));
     lanesContainer.appendChild(emptyLane);
   } else {
     const rows = packPlacements(placements);
@@ -1136,19 +991,30 @@ function renderTimeline(manifest) {
         const leftPct = (p.start_ms / durationMs * 100).toFixed(2);
         const widthPct = Math.max(0.5, clipDurMs / durationMs * 100).toFixed(2);
         const clipName = p.clip_name || (p.clip_path || '').split('/').pop() || 'clip';
+        const isActive = _activeClipId === p.id;
 
-        const block = el('div', { className: 'sfx-clip-block' });
+        const xBtn = el('span', { className: 'sfx-clip-x', title: 'Remove' }, '\u00d7');
+        xBtn.addEventListener('click', (e) => { e.stopPropagation(); removePlacement(p.id); });
+
+        const block = el('div', {
+          className: `sfx-clip-block${isActive ? ' sfx-clip-active' : ''}`,
+        });
         block.style.left = `${leftPct}%`;
         block.style.width = `${widthPct}%`;
-        block.title = `${clipName} @ ${p.start_ms}ms`;
+        block.title = `${clipName} @ ${(p.start_ms / 1000).toFixed(1)}s`;
         block.appendChild(el('span', { className: 'sfx-clip-label' }, clipName));
+        block.appendChild(xBtn);
+        block._pid = p.id;
 
-        // Click to open edit mode for this placement
-        block.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const row = document.querySelector(`#sfx-placements-list [data-pid="${p.id}"]`);
-          const editBtn = row?.querySelector('.btn:not(.btn-danger)');
-          if (editBtn) editBtn.click();
+        // Click to select
+        block.addEventListener('click', (e) => { e.stopPropagation(); _selectClip(p); });
+
+        // Drag to reposition
+        block.draggable = true;
+        block.addEventListener('dragstart', (e) => {
+          e.dataTransfer.setData('text/plain', p.id);
+          e.dataTransfer.effectAllowed = 'move';
+          _dragOffsetPct = (e.clientX - block.getBoundingClientRect().left) / lanesContainer.getBoundingClientRect().width;
         });
 
         lane.appendChild(block);
@@ -1156,78 +1022,46 @@ function renderTimeline(manifest) {
       lanesContainer.appendChild(lane);
     }
   }
+
+  // Drop target on lanes container
+  lanesContainer.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+  lanesContainer.addEventListener('drop', (e) => {
+    e.preventDefault();
+    const pid = e.dataTransfer.getData('text/plain');
+    if (!pid || !_timelineDurationMs) return;
+    const rect = lanesContainer.getBoundingClientRect();
+    const dropPct = (e.clientX - rect.left) / rect.width - (_dragOffsetPct || 0);
+    const ms = Math.round(Math.max(0, dropPct * _timelineDurationMs) / 100) * 100;
+    updatePlacement(pid, { start_ms: ms });
+  });
 }
 
-function renderPlacements(placements) {
-  const container = document.getElementById('sfx-placements-list');
-  clearChildren(container);
+/** Select a clip on the timeline — shows fade controls, highlights the block. */
+function _selectClip(placement) {
+  _activeClipId = placement ? placement.id : null;
+  const controls = document.getElementById('sfx-clip-controls');
 
-  if (placements.length === 0) {
-    container.appendChild(el('span', { className: 'text-dim' },
-      'No clips placed yet. Generate audio above and click "+ SFX Canvas" to add.'));
+  // Update highlight on timeline blocks
+  document.querySelectorAll('#sfx-timeline-lanes .sfx-clip-block').forEach(b => {
+    b.classList.toggle('sfx-clip-active', b._pid === _activeClipId);
+  });
+
+  if (!placement) {
+    controls.classList.add('hidden');
     return;
   }
 
-  for (const p of placements) {
-    const clipName = p.clip_name || (p.clip_path || '').split('/').pop();
-    const row = el('div', { className: 'sfx-placement-row' },
-      el('div', { className: 'sfx-placement-info' },
-        el('span', { className: 'sfx-placement-name' }, clipName),
-        el('span', { className: 'text-dim', style: { fontSize: '11px' } },
-          `@ ${p.start_ms}ms | vol ${Math.round(p.volume * 100)}%` +
-          (p.fade_in_ms ? ` | fi ${p.fade_in_ms}ms` : '') +
-          (p.fade_out_ms ? ` | fo ${p.fade_out_ms}ms` : ''),
-        ),
-      ),
-      el('div', { className: 'sfx-placement-actions' },
-        buildEditButton(p),
-        el('button', {
-          className: 'btn btn-sm btn-danger',
-          onClick: () => removePlacement(p.id),
-        }, 'Remove'),
-      ),
-    );
-    row.dataset.pid = p.id;
-    container.appendChild(row);
-  }
+  controls.classList.remove('hidden');
+  const clipName = placement.clip_name || (placement.clip_path || '').split('/').pop() || 'clip';
+  document.getElementById('sfx-active-clip-name').textContent = clipName;
+  document.getElementById('sfx-clip-fade-in').value = placement.fade_in_ms || 0;
+  document.getElementById('sfx-clip-fade-out').value = placement.fade_out_ms || 0;
 }
 
-function buildEditButton(placement) {
-  const btn = el('button', { className: 'btn btn-sm' }, 'Edit');
-  btn.addEventListener('click', () => {
-    // Populate the manual add form with current values
-    document.getElementById('sfx-clip-start').value = placement.start_ms;
-    document.getElementById('sfx-clip-volume').value = Math.round(placement.volume * 100);
-    document.getElementById('sfx-clip-volume-val').textContent = `${Math.round(placement.volume * 100)}%`;
-    document.getElementById('sfx-clip-fade-in').value = placement.fade_in_ms;
-    document.getElementById('sfx-clip-fade-out').value = placement.fade_out_ms;
-    document.getElementById('sfx-clip-fade-curve').value = placement.fade_curve || 'linear';
-
-    // Swap Add button with Update + Cancel
-    const addBtn = document.getElementById('sfx-add-clip-btn');
-    const wrapper = el('div', { style: { display: 'flex', gap: '8px', marginTop: '4px' } },
-      el('button', { className: 'btn btn-primary', onClick: doUpdate }, 'Update Clip'),
-      el('button', { className: 'btn', onClick: cancelEdit }, 'Cancel'),
-    );
-    addBtn.classList.add('hidden');
-    addBtn.parentNode.insertBefore(wrapper, addBtn.nextSibling);
-
-    async function doUpdate() {
-      wrapper.remove();
-      addBtn.classList.remove('hidden');
-      await updatePlacement(placement.id, {
-        start_ms: parseInt(document.getElementById('sfx-clip-start').value) || 0,
-        volume: parseInt(document.getElementById('sfx-clip-volume').value) / 100,
-        fade_in_ms: parseInt(document.getElementById('sfx-clip-fade-in').value) || 0,
-        fade_out_ms: parseInt(document.getElementById('sfx-clip-fade-out').value) || 0,
-        fade_curve: document.getElementById('sfx-clip-fade-curve').value,
-      });
-    }
-
-    function cancelEdit() {
-      wrapper.remove();
-      addBtn.classList.remove('hidden');
-    }
-  });
-  return btn;
+/** Commit fade values for the active clip. */
+async function commitActiveFades() {
+  if (!_activeClipId || !_currentSfxId) return;
+  const fadeIn = parseInt(document.getElementById('sfx-clip-fade-in').value) || 0;
+  const fadeOut = parseInt(document.getElementById('sfx-clip-fade-out').value) || 0;
+  await updatePlacement(_activeClipId, { fade_in_ms: fadeIn, fade_out_ms: fadeOut });
 }
