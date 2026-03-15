@@ -7,12 +7,12 @@ import pathlib
 import shutil
 import zipfile
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session, TrackState
+from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
 from utils.paths import STEMS_DIR
 
@@ -51,6 +51,7 @@ def _run_separation(
     stems: list[str] | None,
     audio_path: pathlib.Path,
     job_id: str,
+    session: SessionStore,
 ) -> dict:
     """Execute separation pipeline (runs in background thread)."""
     pipeline_cb = _make_pipeline_cb(job_id)
@@ -125,7 +126,7 @@ def _run_separation(
 
 
 @router.post("/separate")
-def start_separation(req: SeparateRequest) -> dict:
+def start_separation(req: SeparateRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     audio_path = session.audio_path
     if not audio_path:
         raise HTTPException(400, "No audio file loaded — upload first")
@@ -139,12 +140,13 @@ def start_separation(req: SeparateRequest) -> dict:
         req.stems,
         audio_path,
         job_id,
+        session,
     )
     return {"job_id": job_id}
 
 
 @router.get("/separate/recommend")
-def recommend_separator() -> dict:
+def recommend_separator(session: SessionStore = Depends(get_user_session)) -> dict:
     audio_path = session.audio_path
     if not audio_path:
         raise HTTPException(400, "No audio file loaded")
@@ -174,6 +176,7 @@ def _run_batch_separation(
     stem: str,
     files: list[dict],
     job_id: str,
+    session: SessionStore,
 ) -> dict:
     """Separate one stem from each file in the batch (runs in background thread)."""
     total = len(files)
@@ -285,7 +288,7 @@ def _run_batch_separation(
 
 
 @router.post("/separate/batch")
-def start_batch_separation(req: BatchSeparateRequest) -> dict:
+def start_batch_separation(req: BatchSeparateRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     if not req.files:
         raise HTTPException(400, "No files provided")
 
@@ -298,6 +301,7 @@ def start_batch_separation(req: BatchSeparateRequest) -> dict:
         req.stem,
         req.files,
         job_id,
+        session,
     )
     return {"job_id": job_id}
 

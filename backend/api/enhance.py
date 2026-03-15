@@ -7,12 +7,12 @@ import pathlib
 import uuid
 import zipfile
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session, TrackState
+from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
 from pipelines.enhance_pipeline import PRESETS, EnhanceConfig
 from pipelines.autotune_pipeline import (
@@ -67,7 +67,7 @@ def get_presets() -> dict:
 
 
 @router.get("/stems")
-def get_available_stems() -> dict:
+def get_available_stems(session: SessionStore = Depends(get_user_session)) -> dict:
     """Return stems available for enhancement (from separation + uploads)."""
     stems = []
 
@@ -98,7 +98,8 @@ def get_available_stems() -> dict:
     return {"stems": stems}
 
 
-def _run_enhance(job_id: str, stem_path: str, preset: str) -> dict:
+def _run_enhance(job_id: str, stem_path: str, preset: str,
+                 session: SessionStore) -> dict:
     """Background job: run enhancement pipeline."""
     progress_cb = job_manager.make_progress_callback(job_id)
 
@@ -146,7 +147,8 @@ def _run_enhance(job_id: str, stem_path: str, preset: str) -> dict:
 
 
 @router.post("")
-def start_enhance(req: EnhanceRequest) -> dict:
+def start_enhance(req: EnhanceRequest,
+                  session: SessionStore = Depends(get_user_session)) -> dict:
     """Start an enhancement job."""
     if req.preset not in PRESETS:
         raise HTTPException(400, f"Unknown preset: {req.preset}")
@@ -165,7 +167,8 @@ def start_enhance(req: EnhanceRequest) -> dict:
         raise HTTPException(403, "Path not within allowed directories")
 
     job_id = job_manager.create_job("enhance")
-    job_manager.run_job(job_id, _run_enhance, job_id, req.stem_path, req.preset)
+    job_manager.run_job(job_id, _run_enhance, job_id, req.stem_path, req.preset,
+                        session)
     return {"job_id": job_id}
 
 
@@ -281,7 +284,8 @@ def get_autotune_options() -> dict:
 
 def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
                   correction_strength: float, humanize: float,
-                  method: str = "world") -> dict:
+                  method: str = "world",
+                  *, session: SessionStore) -> dict:
     """Background job: run auto-tune pipeline."""
     progress_cb = job_manager.make_progress_callback(job_id)
 
@@ -337,7 +341,8 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
 
 
 @router.post("/autotune")
-def start_autotune(req: AutotuneRequest) -> dict:
+def start_autotune(req: AutotuneRequest,
+                   session: SessionStore = Depends(get_user_session)) -> dict:
     """Start an auto-tune job."""
     if req.key != "Auto" and req.key not in NOTE_NAMES:
         raise HTTPException(400, f"Unknown key: {req.key}")
@@ -362,7 +367,7 @@ def start_autotune(req: AutotuneRequest) -> dict:
     job_manager.run_job(
         job_id, _run_autotune, job_id, req.stem_path,
         req.key, req.scale, req.correction_strength, req.humanize,
-        req.method,
+        req.method, session=session,
     )
     return {"job_id": job_id}
 
@@ -465,7 +470,8 @@ def get_effects_options() -> dict:
     }
 
 
-def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict]) -> dict:
+def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict],
+                 session: SessionStore) -> dict:
     """Background job: run effects chain pipeline."""
     progress_cb = job_manager.make_progress_callback(job_id)
 
@@ -513,7 +519,8 @@ def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict]) -> dict:
 
 
 @router.post("/effects")
-def start_effects(req: EffectsRequest) -> dict:
+def start_effects(req: EffectsRequest,
+                  session: SessionStore = Depends(get_user_session)) -> dict:
     """Start an effects chain job."""
     # Validate chain
     if not req.chain:
@@ -540,5 +547,6 @@ def start_effects(req: EffectsRequest) -> dict:
         raise HTTPException(403, "Path not within allowed directories")
 
     job_id = job_manager.create_job("effects")
-    job_manager.run_job(job_id, _run_effects, job_id, req.stem_path, req.chain)
+    job_manager.run_job(job_id, _run_effects, job_id, req.stem_path, req.chain,
+                        session)
     return {"job_id": job_id}

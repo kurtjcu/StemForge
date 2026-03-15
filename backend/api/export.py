@@ -12,7 +12,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session
 from utils.paths import EXPORT_DIR
 
 router = APIRouter(prefix="/api/export", tags=["export"])

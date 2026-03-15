@@ -7,11 +7,11 @@ import pathlib
 import tempfile
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session, TrackState
+from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
 from utils.paths import MIDI_DIR
 
@@ -134,6 +134,7 @@ def _run_midi_extraction(
     stems: dict[str, pathlib.Path],
     config_kwargs: dict,
     job_id: str,
+    session: SessionStore,
 ) -> dict:
     """Execute MIDI pipeline (runs in background thread)."""
     from pipelines.midi_pipeline import MidiConfig
@@ -187,7 +188,7 @@ def _run_midi_extraction(
 
 
 @router.post("/extract")
-def start_extraction(req: ExtractRequest) -> dict:
+def start_extraction(req: ExtractRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     stem_paths = session.stem_paths
     if not stem_paths:
         raise HTTPException(400, "No stems available — run separation first")
@@ -209,12 +210,12 @@ def start_extraction(req: ExtractRequest) -> dict:
     }
 
     job_id = job_manager.create_job("midi")
-    job_manager.run_job(job_id, _run_midi_extraction, stems, config_kwargs, job_id)
+    job_manager.run_job(job_id, _run_midi_extraction, stems, config_kwargs, job_id, session)
     return {"job_id": job_id}
 
 
 @router.post("/render")
-def render_midi_to_audio(req: RenderRequest) -> dict:
+def render_midi_to_audio(req: RenderRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Render a stem's MIDI to audio via FluidSynth."""
     stem_midi = session.stem_midi_data
     if req.stem_label not in stem_midi:
@@ -261,7 +262,7 @@ def render_midi_to_audio(req: RenderRequest) -> dict:
 
 
 @router.post("/save")
-def save_midi(req: SaveRequest) -> dict:
+def save_midi(req: SaveRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     MIDI_DIR.mkdir(parents=True, exist_ok=True)
 
     if req.label == "merged":
@@ -282,7 +283,7 @@ def save_midi(req: SaveRequest) -> dict:
 
 
 @router.get("/stems")
-def get_midi_stems() -> dict:
+def get_midi_stems(session: SessionStore = Depends(get_user_session)) -> dict:
     stem_midi = session.stem_midi_data
     labels = list(stem_midi.keys())
     stem_info = {}

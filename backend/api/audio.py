@@ -8,10 +8,10 @@ import tempfile
 import uuid
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 
-from backend.services.session_store import session
+from backend.services.session_store import SessionStore, get_user_session
 from utils.paths import OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR
 
 router = APIRouter(prefix="/api", tags=["audio"])
@@ -35,7 +35,10 @@ def _validate_path(path_str: str) -> pathlib.Path:
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)) -> dict:
+async def upload_file(
+    file: UploadFile = File(...),
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
     import subprocess
     from utils.audio_io import probe, SUPPORTED_EXTENSIONS, VIDEO_EXTENSIONS
 
@@ -198,7 +201,7 @@ def audio_info(path: str = Query(...)) -> dict:
 
 
 @router.post("/audio/profile")
-def profile_audio() -> dict:
+def profile_audio(session: SessionStore = Depends(get_user_session)) -> dict:
     """Run audio profiler on the current session audio."""
     audio_path = session.audio_path
     if not audio_path:

@@ -7,11 +7,11 @@ import pathlib
 import shutil
 import uuid
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session
+from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
 from utils.cache import get_model_cache_dir
 from utils.paths import VOICE_DIR
@@ -127,7 +127,9 @@ def _download_known_model(name: str) -> tuple[pathlib.Path, pathlib.Path | None]
     return pathlib.Path(local_pth), pathlib.Path(local_idx) if local_idx else None
 
 
-def _run_voice_convert(req: VoiceConvertRequest, job_id: str) -> dict:
+def _run_voice_convert(
+    req: VoiceConvertRequest, job_id: str, session: SessionStore,
+) -> dict:
     """Execute RVC pipeline (runs in background thread)."""
     from pipelines.rvc_pipeline import RvcConfig
 
@@ -168,7 +170,6 @@ def _run_voice_convert(req: VoiceConvertRequest, job_id: str) -> dict:
     session.add_voice_path(label, result.output_path)
 
     # Auto-add as mix track
-    from backend.services.session_store import TrackState
     track = TrackState(
         track_id=str(uuid.uuid4()),
         label=label,
@@ -206,13 +207,16 @@ async def upload_voice_audio(file: UploadFile) -> dict:
 
 
 @router.post("/voice/convert")
-def start_voice_convert(req: VoiceConvertRequest) -> dict:
+def start_voice_convert(
+    req: VoiceConvertRequest,
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
     audio = pathlib.Path(req.audio_path)
     if not audio.exists():
         raise HTTPException(422, f"Audio file not found: {req.audio_path}")
 
     job_id = job_manager.create_job("voice_convert")
-    job_manager.run_job(job_id, _run_voice_convert, req, job_id)
+    job_manager.run_job(job_id, _run_voice_convert, req, job_id, session)
     return {"job_id": job_id}
 
 

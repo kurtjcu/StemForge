@@ -10,11 +10,11 @@ import shutil
 import unicodedata
 import uuid
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from backend.services.session_store import session, TrackState
+from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services.sfx_renderer import (
     render_sfx,
     generate_waveform_peaks,
@@ -104,7 +104,7 @@ def _validate_clip_path(path_str: str) -> pathlib.Path:
     return p
 
 
-def _save_manifest(manifest: dict) -> None:
+def _save_manifest(manifest: dict, session: SessionStore) -> None:
     """Persist manifest to JSON and update session."""
     out_dir = SFX_DIR / manifest["id"]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -113,9 +113,9 @@ def _save_manifest(manifest: dict) -> None:
     session.add_sfx_manifest(manifest)
 
 
-def _render_and_save(manifest: dict) -> pathlib.Path:
+def _render_and_save(manifest: dict, session: SessionStore) -> pathlib.Path:
     """Save manifest, render WAV, return rendered path."""
-    _save_manifest(manifest)
+    _save_manifest(manifest, session)
     return render_sfx(manifest)
 
 
@@ -124,7 +124,7 @@ def _render_and_save(manifest: dict) -> pathlib.Path:
 # ---------------------------------------------------------------------------
 
 @router.post("/create")
-def create_sfx(req: CreateSFXRequest) -> dict:
+def create_sfx(req: CreateSFXRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Create a new SFX stem with a blank canvas."""
     sfx_id = _new_sfx_id()
 
@@ -161,7 +161,7 @@ def create_sfx(req: CreateSFXRequest) -> dict:
         "mix_track_id": mix_track_id,
     }
 
-    rendered_path = _render_and_save(manifest)
+    rendered_path = _render_and_save(manifest, session)
 
     return {
         "id": sfx_id,
@@ -173,7 +173,7 @@ def create_sfx(req: CreateSFXRequest) -> dict:
 
 
 @router.get("")
-def list_sfx() -> dict:
+def list_sfx(session: SessionStore = Depends(get_user_session)) -> dict:
     """List all SFX stems (session + disk). Loads saved canvases on first call."""
     # Hydrate session from disk — any manifest.json not already loaded
     if SFX_DIR.exists():
@@ -235,7 +235,7 @@ def browse_sounds() -> dict:
 
 
 @router.get("/available-clips")
-def available_clips(exclude_id: str | None = Query(None)) -> dict:
+def available_clips(exclude_id: str | None = Query(None), session: SessionStore = Depends(get_user_session)) -> dict:
     """List clips available for SFX placement, grouped by source."""
     clips: list[dict] = []
 
@@ -296,7 +296,7 @@ class DeleteSoundRequest(BaseModel):
 
 
 @router.post("/delete-sound")
-def delete_sound(req: DeleteSoundRequest) -> dict:
+def delete_sound(req: DeleteSoundRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Delete a generated or imported sound file from disk."""
     p = pathlib.Path(req.path)
     # Only allow deleting files inside MUSICGEN_DIR or SFX_DIR/imports
@@ -328,7 +328,7 @@ class KeepClipRequest(BaseModel):
 
 
 @router.post("/keep-clip")
-def keep_clip(req: KeepClipRequest) -> dict:
+def keep_clip(req: KeepClipRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Mark a generated clip as kept (visible in clip selector) or unkept."""
     if req.keep:
         session.keep_clip(req.path)
@@ -375,7 +375,7 @@ def _sanitize_clip_name(name: str, max_len: int = 30) -> str:
 
 
 @router.post("/rename-clip")
-def rename_clip(req: RenameClipRequest) -> dict:
+def rename_clip(req: RenameClipRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Rename a clip file and update any SFX manifest references."""
     old_path = _validate_clip_path(req.path)
 
@@ -434,7 +434,7 @@ def rename_clip(req: RenameClipRequest) -> dict:
 
 
 @router.get("/{sfx_id}")
-def get_sfx(sfx_id: str) -> dict:
+def get_sfx(sfx_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     """Return full manifest, rendered path, and waveform peaks."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -454,7 +454,7 @@ def get_sfx(sfx_id: str) -> dict:
                 p.setdefault("clip_duration_ms", 0)
                 p.setdefault("clip_name", cp.name)
     if needs_backfill:
-        _save_manifest(manifest)
+        _save_manifest(manifest, session)
 
     rendered_path = SFX_DIR / sfx_id / "rendered.wav"
     peaks = []
@@ -469,7 +469,7 @@ def get_sfx(sfx_id: str) -> dict:
 
 
 @router.post("/{sfx_id}/placements")
-def add_placement(sfx_id: str, req: AddPlacementRequest) -> dict:
+def add_placement(sfx_id: str, req: AddPlacementRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Add a clip placement, re-render."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -503,7 +503,7 @@ def add_placement(sfx_id: str, req: AddPlacementRequest) -> dict:
     }
     manifest["placements"].append(placement)
 
-    rendered_path = _render_and_save(manifest)
+    rendered_path = _render_and_save(manifest, session)
 
     return {
         "placement_id": pid,
@@ -513,7 +513,7 @@ def add_placement(sfx_id: str, req: AddPlacementRequest) -> dict:
 
 
 @router.put("/{sfx_id}/placements/{placement_id}")
-def update_placement(sfx_id: str, placement_id: str, req: UpdatePlacementRequest) -> dict:
+def update_placement(sfx_id: str, placement_id: str, req: UpdatePlacementRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Update an existing placement, re-render."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -546,7 +546,7 @@ def update_placement(sfx_id: str, placement_id: str, req: UpdatePlacementRequest
     if req.fade_curve is not None:
         placement["fade_curve"] = req.fade_curve
 
-    rendered_path = _render_and_save(manifest)
+    rendered_path = _render_and_save(manifest, session)
 
     return {
         "placement_id": placement_id,
@@ -555,7 +555,7 @@ def update_placement(sfx_id: str, placement_id: str, req: UpdatePlacementRequest
 
 
 @router.post("/{sfx_id}/merge-lanes")
-def merge_lanes(sfx_id: str, req: MergeLanesRequest) -> dict:
+def merge_lanes(sfx_id: str, req: MergeLanesRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Move all placements from source_lane into target_lane, then compact."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -571,7 +571,7 @@ def merge_lanes(sfx_id: str, req: MergeLanesRequest) -> dict:
     for p in manifest["placements"]:
         p["lane"] = remap.get(p.get("lane", 0), 0)
 
-    rendered_path = _render_and_save(manifest)
+    rendered_path = _render_and_save(manifest, session)
     return {
         "rendered_path": str(rendered_path),
         "placement_count": len(manifest["placements"]),
@@ -579,7 +579,7 @@ def merge_lanes(sfx_id: str, req: MergeLanesRequest) -> dict:
 
 
 @router.post("/{sfx_id}/clear-lane")
-def clear_lane(sfx_id: str, req: ClearLaneRequest) -> dict:
+def clear_lane(sfx_id: str, req: ClearLaneRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Remove all placements in a lane, then compact remaining lanes."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -593,7 +593,7 @@ def clear_lane(sfx_id: str, req: ClearLaneRequest) -> dict:
     for p in manifest["placements"]:
         p["lane"] = remap.get(p.get("lane", 0), 0)
 
-    rendered_path = _render_and_save(manifest)
+    rendered_path = _render_and_save(manifest, session)
     return {
         "rendered_path": str(rendered_path),
         "placement_count": len(manifest["placements"]),
@@ -601,7 +601,7 @@ def clear_lane(sfx_id: str, req: ClearLaneRequest) -> dict:
 
 
 @router.delete("/{sfx_id}/placements/{placement_id}")
-def delete_placement(sfx_id: str, placement_id: str) -> dict:
+def delete_placement(sfx_id: str, placement_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     """Remove a placement, re-render."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -612,7 +612,7 @@ def delete_placement(sfx_id: str, placement_id: str) -> dict:
     if len(manifest["placements"]) == before:
         raise HTTPException(404, f"Placement '{placement_id}' not found")
 
-    rendered_path = _render_and_save(manifest)
+    rendered_path = _render_and_save(manifest, session)
 
     return {
         "rendered_path": str(rendered_path),
@@ -621,7 +621,7 @@ def delete_placement(sfx_id: str, placement_id: str) -> dict:
 
 
 @router.patch("/{sfx_id}")
-def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest) -> dict:
+def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Update SFX name or limiter setting."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -640,9 +640,9 @@ def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest) -> dict:
         needs_render = True
 
     if needs_render:
-        rendered_path = _render_and_save(manifest)
+        rendered_path = _render_and_save(manifest, session)
     else:
-        _save_manifest(manifest)
+        _save_manifest(manifest, session)
         rendered_path = SFX_DIR / sfx_id / "rendered.wav"
 
     return {
@@ -654,7 +654,7 @@ def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest) -> dict:
 
 
 @router.post("/{sfx_id}/merge-canvas")
-def merge_canvas(sfx_id: str, req: MergeCanvasRequest) -> dict:
+def merge_canvas(sfx_id: str, req: MergeCanvasRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Absorb all placements from source canvas into this canvas.
 
     Each source placement gets its own new lane in the target.
@@ -700,7 +700,7 @@ def merge_canvas(sfx_id: str, req: MergeCanvasRequest) -> dict:
 
 
 @router.post("/{sfx_id}/send-to-mix")
-def send_to_mix(sfx_id: str) -> dict:
+def send_to_mix(sfx_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     """Add the rendered SFX WAV as an audio track in the Mix tab (idempotent)."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -729,13 +729,13 @@ def send_to_mix(sfx_id: str) -> dict:
 
     if not manifest.get("mix_track_id"):
         manifest["mix_track_id"] = track_id
-        _save_manifest(manifest)
+        _save_manifest(manifest, session)
 
     return {"track_id": track_id, "label": track.label}
 
 
 @router.delete("/{sfx_id}")
-def delete_sfx(sfx_id: str) -> dict:
+def delete_sfx(sfx_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     """Delete SFX manifest, files, and any associated mix track."""
     if not session.remove_sfx_manifest(sfx_id):
         raise HTTPException(404, f"SFX '{sfx_id}' not found")
@@ -754,7 +754,7 @@ def delete_sfx(sfx_id: str) -> dict:
 
 
 @router.get("/{sfx_id}/stream")
-def stream_sfx(sfx_id: str) -> FileResponse:
+def stream_sfx(sfx_id: str, session: SessionStore = Depends(get_user_session)) -> FileResponse:
     """Stream the rendered SFX WAV."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:
@@ -768,7 +768,7 @@ def stream_sfx(sfx_id: str) -> FileResponse:
 
 
 @router.get("/{sfx_id}/reference-waveform")
-def reference_waveform(sfx_id: str) -> dict:
+def reference_waveform(sfx_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     """Return waveform peaks for the reference stem (if any)."""
     manifest = session.get_sfx_manifest(sfx_id)
     if not manifest:

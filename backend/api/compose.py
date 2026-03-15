@@ -15,7 +15,7 @@ from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
 import httpx
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
@@ -49,7 +49,7 @@ from backend.api.acestep_wrapper import (
     training_stop,
 )
 from backend.services import acestep_state
-from backend.services.session_store import session
+from backend.services.session_store import SessionStore, get_user_session
 from utils.paths import COMPOSE_DIR
 
 import os
@@ -698,7 +698,7 @@ async def upload_audio(file: UploadFile):
 
 
 @router.get("/rework-sources")
-async def rework_sources():
+async def rework_sources(session: SessionStore = Depends(get_user_session)):
     """Return audio sources available for loading into rework mode."""
     sources = []
 
@@ -733,7 +733,7 @@ async def rework_sources():
 
 
 @router.post("/send-to-session")
-async def send_to_session(body: SendToSessionRequest):
+async def send_to_session(body: SendToSessionRequest, session: SessionStore = Depends(get_user_session)):
     """Download composed audio from AceStep, save to COMPOSE_DIR, set as session audio."""
     resolved = _resolve_audio_path(body.audio_path)
     fp = Path(resolved)

@@ -7,11 +7,11 @@ import pathlib
 import uuid
 
 import numpy as np
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session, TrackState
+from backend.services.session_store import SessionStore, TrackState, get_user_session
 from utils.paths import MIX_DIR, OUTPUT_BASE
 
 router = APIRouter(prefix="/api/mix", tags=["mix"])
@@ -28,12 +28,12 @@ class TrackUpdate(BaseModel):
 
 
 @router.get("/tracks")
-def get_tracks() -> dict:
+def get_tracks(session: SessionStore = Depends(get_user_session)) -> dict:
     return {"tracks": session.to_dict()["mix_tracks"]}
 
 
 @router.post("/tracks")
-def update_track(req: TrackUpdate) -> dict:
+def update_track(req: TrackUpdate, session: SessionStore = Depends(get_user_session)) -> dict:
     track = session.get_track(req.track_id)
     if not track:
         raise HTTPException(404, f"Track '{req.track_id}' not found")
@@ -51,7 +51,7 @@ def update_track(req: TrackUpdate) -> dict:
 
 
 @router.delete("/tracks/{track_id}")
-def remove_track(track_id: str) -> dict:
+def remove_track(track_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     if not session.remove_track(track_id):
         raise HTTPException(404, f"Track '{track_id}' not found")
     return {"status": "removed"}
@@ -63,7 +63,7 @@ class AddByPathRequest(BaseModel):
 
 
 @router.post("/add-by-path")
-def add_by_path(req: AddByPathRequest) -> dict:
+def add_by_path(req: AddByPathRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     """Add an existing audio file as a mix track (no upload needed)."""
     p = pathlib.Path(req.path)
     if not p.exists():
@@ -86,7 +86,7 @@ def add_by_path(req: AddByPathRequest) -> dict:
 
 
 @router.post("/add-audio")
-async def add_audio_track(file: UploadFile = File(...)) -> dict:
+async def add_audio_track(file: UploadFile = File(...), session: SessionStore = Depends(get_user_session)) -> dict:
     import shutil
 
     _MIX_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -105,7 +105,7 @@ async def add_audio_track(file: UploadFile = File(...)) -> dict:
 
 
 @router.post("/add-midi")
-async def add_midi_track(file: UploadFile = File(...)) -> dict:
+async def add_midi_track(file: UploadFile = File(...), session: SessionStore = Depends(get_user_session)) -> dict:
     import shutil
 
     _MIX_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -128,7 +128,7 @@ async def add_midi_track(file: UploadFile = File(...)) -> dict:
 
 
 @router.post("/render-track/{track_id}")
-def render_track_preview(track_id: str) -> dict:
+def render_track_preview(track_id: str, session: SessionStore = Depends(get_user_session)) -> dict:
     """Render a single MIDI track to audio for inline preview."""
     track = session.get_track(track_id)
     if not track:
@@ -165,7 +165,7 @@ def render_track_preview(track_id: str) -> dict:
     return {"audio_path": str(out_path), "duration": len(audio) / sr}
 
 
-def _run_mix_render(job_id: str) -> dict:
+def _run_mix_render(job_id: str, session: SessionStore) -> dict:
     """Render all enabled tracks to a single audio file."""
     from utils.audio_io import read_audio, write_audio, probe
 
@@ -258,12 +258,12 @@ def _run_mix_render(job_id: str) -> dict:
 
 
 @router.post("/render")
-def start_mix_render() -> dict:
+def start_mix_render(session: SessionStore = Depends(get_user_session)) -> dict:
     tracks = session.mix_tracks
     enabled = [t for t in tracks if t.enabled]
     if not enabled:
         raise HTTPException(400, "No enabled tracks to render")
 
     job_id = job_manager.create_job("mix")
-    job_manager.run_job(job_id, _run_mix_render, job_id)
+    job_manager.run_job(job_id, _run_mix_render, job_id, session)
     return {"job_id": job_id}

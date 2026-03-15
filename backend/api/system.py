@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import os
 
-from backend.services.session_store import session
+from fastapi import APIRouter, Depends, Request
+
+from backend.services.session_store import (
+    SessionStore, get_user_session, registry,
+)
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -62,11 +66,18 @@ def list_models() -> dict:
 
 
 @router.get("/session")
-def get_session() -> dict:
-    return session.to_dict()
+def get_session(
+    request: Request,
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
+    timeout = int(os.environ.get("SESSION_TIMEOUT_MINUTES", "60")) * 60
+    data = session.to_dict()
+    data["active_users"] = registry.active_count(timeout)
+    data["max_users"] = int(os.environ.get("MAX_USERS", "0"))
+    return data
 
 
 @router.delete("/session")
-def clear_session() -> dict:
+def clear_session(session: SessionStore = Depends(get_user_session)) -> dict:
     session.clear()
     return {"status": "cleared"}

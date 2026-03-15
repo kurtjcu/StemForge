@@ -7,11 +7,11 @@ import re
 import unicodedata
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
-from backend.services.session_store import session
+from backend.services.session_store import SessionStore, get_user_session
 from backend.services import pipeline_manager
 from utils.paths import MUSICGEN_DIR, MIDI_DIR
 
@@ -38,7 +38,7 @@ def _clip_name_from_prompt(prompt: str, max_len: int = 30) -> str:
     return text.replace(" ", "_").lower() or "clip"
 
 
-def _run_generation(req: GenerateRequest, job_id: str) -> dict:
+def _run_generation(req: GenerateRequest, job_id: str, session: SessionStore) -> dict:
     """Execute generation pipeline (runs in background thread)."""
     from pipelines.musicgen_pipeline import MusicGenConfig
 
@@ -108,10 +108,10 @@ def _run_generation(req: GenerateRequest, job_id: str) -> dict:
 
 
 @router.post("/generate")
-def start_generation(req: GenerateRequest) -> dict:
+def start_generation(req: GenerateRequest, session: SessionStore = Depends(get_user_session)) -> dict:
     if not req.prompt.strip():
         raise HTTPException(422, "Prompt is required")
 
     job_id = job_manager.create_job("generate")
-    job_manager.run_job(job_id, _run_generation, req, job_id)
+    job_manager.run_job(job_id, _run_generation, req, job_id, session)
     return {"job_id": job_id}
