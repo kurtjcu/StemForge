@@ -127,6 +127,12 @@ async def _cleanup_loop():
         expired_sessions = registry.expire(session_ttl)
         expired_jobs = job_manager.expire_jobs(job_ttl)
 
+        # Release AceStep tenant lock for expired sessions
+        if expired_sessions:
+            from backend.services import acestep_state
+            for user in expired_sessions:
+                acestep_state.release_tenant(user)
+
         if expired_sessions or expired_jobs:
             log.info("Cleanup: %d session(s), %d job(s) expired",
                      len(expired_sessions), expired_jobs)

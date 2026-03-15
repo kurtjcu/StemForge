@@ -143,15 +143,16 @@ def _run_midi_extraction(
     def _midi_cb(pct):
         job_manager.update_progress(job_id, pct / 100.0, "Extracting MIDI...")
 
-    pipeline = pipeline_manager.get_midi()
-    config = MidiConfig(**config_kwargs)
-    pipeline.configure(config)
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_midi()
+        config = MidiConfig(**config_kwargs)
+        pipeline.configure(config)
 
-    job_manager.update_progress(job_id, 0.05, "Loading model...")
-    pipeline.load_model()
+        job_manager.update_progress(job_id, 0.05, "Loading model...")
+        pipeline.load_model()
 
-    pipeline.set_progress_callback(_midi_cb)
-    result = pipeline.run(stems)
+        pipeline.set_progress_callback(_midi_cb)
+        result = pipeline.run(stems)
 
     # Store in session and auto-add mix tracks
     session.merged_midi_data = result.merged_midi_data

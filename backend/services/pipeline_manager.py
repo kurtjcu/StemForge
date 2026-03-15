@@ -2,18 +2,48 @@
 
 Each pipeline is instantiated on first use and cached.  A global lock
 prevents concurrent model loads (which would race for GPU memory).
+
+The ``gpu_lock`` serialises GPU pipeline execution across all users.
+Background worker threads must hold it for their entire
+configure → load → run → evict cycle.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
-from typing import Any
+from typing import Any, Generator
 
 log = logging.getLogger("stemforge.pipeline_manager")
 
 _lock = threading.Lock()
 _pipelines: dict[str, Any] = {}
+
+# Serialise GPU pipeline execution — held by background job threads
+# for the full configure → load → run → evict cycle so that two users
+# cannot race for GPU memory.
+_gpu_lock = threading.Lock()
+
+
+@contextlib.contextmanager
+def gpu_session() -> Generator[None, None, None]:
+    """Context manager that serialises GPU pipeline execution.
+
+    Usage in a background worker::
+
+        with pipeline_manager.gpu_session():
+            pipeline = pipeline_manager.get_demucs()
+            pipeline.configure(cfg)
+            pipeline.load_model()
+            result = pipeline.run(path)
+            pipeline_manager.evict("demucs")
+    """
+    _gpu_lock.acquire()
+    try:
+        yield
+    finally:
+        _gpu_lock.release()
 
 
 def _get_or_create(name: str) -> Any:

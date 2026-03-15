@@ -42,16 +42,13 @@ def _run_generation(req: GenerateRequest, job_id: str, session: SessionStore) ->
     """Execute generation pipeline (runs in background thread)."""
     from pipelines.musicgen_pipeline import MusicGenConfig
 
-    pipeline = pipeline_manager.get_musicgen()
-
-    # Resolve conditioning
+    # Resolve conditioning (before acquiring GPU lock)
     init_audio_path = None
     midi_path = None
 
     if req.conditioning_source == "audio" and req.conditioning_path:
         init_audio_path = pathlib.Path(req.conditioning_path)
     elif req.conditioning_source == "midi":
-        # Write session MIDI to temp file
         merged = session.merged_midi_data
         if merged:
             MIDI_DIR.mkdir(parents=True, exist_ok=True)
@@ -77,19 +74,19 @@ def _run_generation(req: GenerateRequest, job_id: str, session: SessionStore) ->
         negative_prompt=req.negative_prompt if req.vocal_preservation else "",
     )
 
-    # MusicGenPipeline callback: (pct 0–100, stage_str)
     def _gen_cb(pct, stage=""):
         job_manager.update_progress(job_id, pct / 100.0, stage)
 
-    pipeline.configure(config)
-    pipeline.set_progress_callback(_gen_cb)
-    job_manager.update_progress(job_id, 0.05, "Loading model...")
-    pipeline.load_model()
-    try:
-        result = pipeline.run(req.prompt)
-    finally:
-        # Free GPU memory so other pipelines (AceStep, separation) can use it
-        pipeline_manager.evict("musicgen")
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_musicgen()
+        pipeline.configure(config)
+        pipeline.set_progress_callback(_gen_cb)
+        job_manager.update_progress(job_id, 0.05, "Loading model...")
+        pipeline.load_model()
+        try:
+            result = pipeline.run(req.prompt)
+        finally:
+            pipeline_manager.evict("musicgen")
 
     # Rename from timestamp to prompt-based name for identifiability
     clip_name = _clip_name_from_prompt(req.prompt)

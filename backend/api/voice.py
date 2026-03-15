@@ -133,13 +133,10 @@ def _run_voice_convert(
     """Execute RVC pipeline (runs in background thread)."""
     from pipelines.rvc_pipeline import RvcConfig
 
-    pipeline = pipeline_manager.get_rvc()
-
-    # Resolve model files
+    # Resolve model files (before acquiring GPU lock)
     model_path, index_path = _find_model_files(req.model_name)
 
     if model_path is None:
-        # Try auto-download
         job_manager.update_progress(job_id, 0.05, f"Downloading model {req.model_name}...")
         try:
             model_path, index_path = _download_known_model(req.model_name)
@@ -160,12 +157,14 @@ def _run_voice_convert(
     def _cb(pct, stage=""):
         job_manager.update_progress(job_id, pct, stage)
 
-    pipeline.configure(config)
-    pipeline.set_progress_callback(_cb)
-    job_manager.update_progress(job_id, 0.1, "Loading RVC engine...")
-    pipeline.load_model()
-
-    result = pipeline.run(pathlib.Path(req.audio_path))
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_rvc()
+        pipeline.configure(config)
+        pipeline.set_progress_callback(_cb)
+        job_manager.update_progress(job_id, 0.1, "Loading RVC engine...")
+        pipeline.load_model()
+        result = pipeline.run(pathlib.Path(req.audio_path))
+        pipeline_manager.evict("rvc")
 
     # Store in session for cross-tab integration
     label = f"Voice ({req.model_name})"

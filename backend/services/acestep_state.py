@@ -23,6 +23,41 @@ _state: dict[str, Any] = {
 _launch_config: dict[str, Any] = {}
 _proc: subprocess.Popen | None = None
 
+# ── Tenant lock ─────────────────────────────────────────────────────
+# AceStep is single-tenant: LoRA adapter, training state, and dataset
+# live in GPU/process memory.  Only one user may hold the tenant lock
+# at a time; other users get HTTP 503.
+_tenant_lock = threading.Lock()
+_tenant_user: str | None = None
+
+
+def acquire_tenant(user: str) -> bool:
+    """Try to claim exclusive AceStep access for *user*.
+
+    Returns True if granted (or *user* already holds the lock).
+    Returns False if another user holds the lock.
+    """
+    global _tenant_user
+    with _tenant_lock:
+        if _tenant_user is None or _tenant_user == user:
+            _tenant_user = user
+            return True
+        return False
+
+
+def release_tenant(user: str) -> None:
+    """Release the tenant lock if *user* currently holds it."""
+    global _tenant_user
+    with _tenant_lock:
+        if _tenant_user == user:
+            _tenant_user = None
+
+
+def get_tenant() -> str | None:
+    """Return the current tenant user, or None."""
+    with _tenant_lock:
+        return _tenant_user
+
 # AceStep environment variables forwarded to the subprocess if set by the user.
 _PASSTHROUGH_VARS = [
     "ACESTEP_DEVICE",

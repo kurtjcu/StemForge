@@ -107,13 +107,13 @@ def _run_enhance(job_id: str, stem_path: str, preset: str,
         raise FileNotFoundError(f"Audio file not found: {stem_path}")
 
     enhance_out = user_dir(ENHANCE_DIR, session.user)
-    pipeline = pipeline_manager.get_enhance()
-    pipeline.configure(EnhanceConfig(preset=preset, output_dir=enhance_out))
-
-    try:
-        result = pipeline.run(path, preset, progress_cb=progress_cb)
-    finally:
-        pipeline_manager.evict("enhance")
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_enhance()
+        pipeline.configure(EnhanceConfig(preset=preset, output_dir=enhance_out))
+        try:
+            result = pipeline.run(path, preset, progress_cb=progress_cb)
+        finally:
+            pipeline_manager.evict("enhance")
 
     # Store in session
     label = f"{path.stem} ({result.label})"
@@ -182,41 +182,42 @@ def _run_batch_enhance(preset: str, files: list[dict], job_id: str, user: str = 
     batch_dir = user_dir(ENHANCE_DIR, user) / "batch"
     batch_dir.mkdir(parents=True, exist_ok=True)
 
-    pipeline = pipeline_manager.get_enhance()
-    pipeline.configure(EnhanceConfig(preset=preset, output_dir=batch_dir))
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_enhance()
+        pipeline.configure(EnhanceConfig(preset=preset, output_dir=batch_dir))
 
-    job_manager.update_progress(job_id, 0.02, "Loading model...")
-    pipeline.load_model(preset)
+        job_manager.update_progress(job_id, 0.02, "Loading model...")
+        pipeline.load_model(preset)
 
-    try:
-        for i, finfo in enumerate(files):
-            audio_path = pathlib.Path(finfo["path"])
-            display_name = finfo["filename"]
+        try:
+            for i, finfo in enumerate(files):
+                audio_path = pathlib.Path(finfo["path"])
+                display_name = finfo["filename"]
 
-            def _batch_cb(pct, stage="", _i=i):
-                file_progress = pct / 100.0 if pct > 1 else pct
-                overall = ((_i + file_progress) / total) * 0.9 + 0.05
-                job_manager.update_progress(job_id, overall, f"[{_i + 1}/{total}] {stage}")
+                def _batch_cb(pct, stage="", _i=i):
+                    file_progress = pct / 100.0 if pct > 1 else pct
+                    overall = ((_i + file_progress) / total) * 0.9 + 0.05
+                    job_manager.update_progress(job_id, overall, f"[{_i + 1}/{total}] {stage}")
 
-            try:
-                result = pipeline.run(audio_path, preset, progress_cb=_batch_cb)
-                dest_name = f"enhanced-{preset}-{audio_path.stem}{result.output_path.suffix}"
-                dest = batch_dir / dest_name
-                if result.output_path != dest:
-                    result.output_path.rename(dest)
-                results.append({
-                    "filename": display_name,
-                    "output_name": dest_name,
-                    "path": str(dest),
-                    "preset": preset,
-                })
-            except Exception as exc:
-                results.append({
-                    "filename": display_name,
-                    "error": str(exc),
-                })
-    finally:
-        pipeline_manager.evict("enhance")
+                try:
+                    result = pipeline.run(audio_path, preset, progress_cb=_batch_cb)
+                    dest_name = f"enhanced-{preset}-{audio_path.stem}{result.output_path.suffix}"
+                    dest = batch_dir / dest_name
+                    if result.output_path != dest:
+                        result.output_path.rename(dest)
+                    results.append({
+                        "filename": display_name,
+                        "output_name": dest_name,
+                        "path": str(dest),
+                        "preset": preset,
+                    })
+                except Exception as exc:
+                    results.append({
+                        "filename": display_name,
+                        "error": str(exc),
+                    })
+        finally:
+            pipeline_manager.evict("enhance")
 
     job_manager.update_progress(job_id, 1.0, "Done")
     return {"results": results, "preset": preset}
@@ -295,20 +296,20 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
         raise FileNotFoundError(f"Audio file not found: {stem_path}")
 
     enhance_out = user_dir(ENHANCE_DIR, session.user)
-    pipeline = pipeline_manager.get_autotune()
-    pipeline.configure(AutotuneConfig(
-        key=key,
-        scale=scale,
-        correction_strength=correction_strength,
-        humanize=humanize,
-        method=method,
-        output_dir=enhance_out,
-    ))
-
-    try:
-        result = pipeline.run(path, progress_cb=progress_cb)
-    finally:
-        pipeline_manager.evict("autotune")
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_autotune()
+        pipeline.configure(AutotuneConfig(
+            key=key,
+            scale=scale,
+            correction_strength=correction_strength,
+            humanize=humanize,
+            method=method,
+            output_dir=enhance_out,
+        ))
+        try:
+            result = pipeline.run(path, progress_cb=progress_cb)
+        finally:
+            pipeline_manager.evict("autotune")
 
     # Use the actual key/scale (may have been auto-detected)
     actual_key = result.key
@@ -492,13 +493,13 @@ def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict],
         ))
 
     enhance_out = user_dir(ENHANCE_DIR, session.user)
-    pipeline = pipeline_manager.get_effects()
-    pipeline.configure(EffectsConfig(chain=chain, output_dir=enhance_out))
-
-    try:
-        result = pipeline.run(path, progress_cb=progress_cb)
-    finally:
-        pipeline_manager.evict("effects")
+    with pipeline_manager.gpu_session():
+        pipeline = pipeline_manager.get_effects()
+        pipeline.configure(EffectsConfig(chain=chain, output_dir=enhance_out))
+        try:
+            result = pipeline.run(path, progress_cb=progress_cb)
+        finally:
+            pipeline_manager.evict("effects")
 
     # Store in session
     label = f"{path.stem} (FX: {result.chain_summary})"

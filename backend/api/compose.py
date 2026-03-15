@@ -15,7 +15,7 @@ from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
@@ -55,6 +55,28 @@ from utils.paths import COMPOSE_DIR, user_dir
 import os
 
 router = APIRouter(prefix="/api/compose", tags=["compose"])
+
+
+def _get_user(request: Request) -> str:
+    return getattr(request.state, "user", "local")
+
+
+def require_acestep_tenant(request: Request) -> str:
+    """FastAPI dependency: acquire exclusive AceStep tenant lock for user.
+
+    Returns the user string if granted. Raises 503 if another user holds
+    the lock. Single-user mode ("local") always succeeds.
+    """
+    user = _get_user(request)
+    if user == "local":
+        return user
+    if not acestep_state.acquire_tenant(user):
+        current = acestep_state.get_tenant()
+        raise HTTPException(
+            503,
+            f"AceStep is in use by another user ({current}). Try again later.",
+        )
+    return user
 
 # ---------------------------------------------------------------------------
 # LoRA adapter directory
@@ -425,7 +447,8 @@ def _estimate_sections(
 @router.get("/health")
 async def compose_health():
     state = acestep_state.get_status()
-    result = {"acestep_status": state["status"], "port": state["port"]}
+    tenant = acestep_state.get_tenant()
+    result = {"acestep_status": state["status"], "port": state["port"], "tenant": tenant}
     if state["status"] == "running":
         try:
             upstream = await health_check()
@@ -452,7 +475,7 @@ async def start_acestep():
 
 
 @router.post("/generate")
-async def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest, _tenant: str = Depends(require_acestep_tenant)):
     _require_acestep()
     updates = {}
     if req.src_audio_path:
@@ -795,7 +818,7 @@ class LoRAScaleRequest(BaseModel):
 
 
 @router.post("/lora/load")
-async def lora_load_route(req: LoRALoadRequest):
+async def lora_load_route(req: LoRALoadRequest, _tenant: str = Depends(require_acestep_tenant)):
     try:
         return await _lora_load(req.lora_path, req.adapter_name)
     except httpx.HTTPStatusError as exc:
@@ -805,7 +828,7 @@ async def lora_load_route(req: LoRALoadRequest):
 
 
 @router.post("/lora/unload")
-async def lora_unload_route():
+async def lora_unload_route(_tenant: str = Depends(require_acestep_tenant)):
     try:
         return await _lora_unload()
     except Exception as exc:
@@ -813,7 +836,7 @@ async def lora_unload_route():
 
 
 @router.post("/lora/toggle")
-async def lora_toggle_route(req: LoRAToggleRequest):
+async def lora_toggle_route(req: LoRAToggleRequest, _tenant: str = Depends(require_acestep_tenant)):
     try:
         return await _lora_toggle(req.use_lora)
     except Exception as exc:
@@ -821,7 +844,7 @@ async def lora_toggle_route(req: LoRAToggleRequest):
 
 
 @router.post("/lora/scale")
-async def lora_scale_route(req: LoRAScaleRequest):
+async def lora_scale_route(req: LoRAScaleRequest, _tenant: str = Depends(require_acestep_tenant)):
     try:
         return await _lora_scale(req.scale, req.adapter_name)
     except Exception as exc:
@@ -1049,7 +1072,7 @@ async def train_pipeline_state():
 
 
 @router.post("/train/scan")
-async def train_scan(req: TrainScanRequest):
+async def train_scan(req: TrainScanRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Load uploaded audio into AceStep dataset."""
     try:
         payload = {"audio_dir": str(_TRAIN_AUDIO_DIR)}
@@ -1069,7 +1092,7 @@ async def train_scan(req: TrainScanRequest):
 
 
 @router.post("/train/label")
-async def train_label(req: TrainLabelRequest):
+async def train_label(req: TrainLabelRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Start async auto-labeling."""
     try:
         payload: dict = {"only_unlabeled": True}
@@ -1137,7 +1160,7 @@ async def train_load():
 
 
 @router.post("/train/preprocess")
-async def train_preprocess():
+async def train_preprocess(_tenant: str = Depends(require_acestep_tenant)):
     """Start async preprocessing into tensors."""
     try:
         return await dataset_preprocess_async(str(_TRAIN_TENSOR_DIR))
@@ -1157,7 +1180,7 @@ async def train_preprocess_status(task_id: Optional[str] = None):
 
 
 @router.post("/train/start")
-async def train_start(req: TrainStartRequest):
+async def train_start(req: TrainStartRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Start LoRA/LoKR training."""
     out_dir = req.output_dir or str(_TRAIN_OUTPUT_DIR)
     payload = {
@@ -1195,7 +1218,7 @@ async def train_status():
 
 
 @router.post("/train/stop")
-async def train_stop():
+async def train_stop(_tenant: str = Depends(require_acestep_tenant)):
     """Stop current training run."""
     try:
         return await training_stop()
@@ -1204,7 +1227,7 @@ async def train_stop():
 
 
 @router.post("/train/export")
-async def train_export(req: TrainExportRequest):
+async def train_export(req: TrainExportRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Export trained adapter to loras/ directory."""
     try:
         export_path = str(_LORA_DIR / _safe_filename(req.name))
@@ -1217,7 +1240,7 @@ async def train_export(req: TrainExportRequest):
 
 
 @router.post("/train/reinitialize")
-async def train_reinitialize():
+async def train_reinitialize(_tenant: str = Depends(require_acestep_tenant)):
     """Reload the generation model after training."""
     try:
         return await reinitialize_service()
