@@ -241,7 +241,11 @@ export function initGenerate() {
     ),
   );
 
-  const genBtn = el('button', { className: 'btn btn-primary', id: 'gen-start' }, 'Generate');
+  const genRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+    el('button', { className: 'btn btn-primary', id: 'gen-start' }, 'Generate'),
+    el('button', { className: 'btn btn-sm', id: 'sfx-add-sound-btn' }, '+ Add Sound'),
+    el('input', { type: 'file', id: 'sfx-add-sound-input', accept: '.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' } }),
+  );
 
   // -- SFX Reference (pick before creating a canvas) --
   const sfxRefCard = el('div', { className: 'card', style: { marginTop: '8px' } },
@@ -280,7 +284,7 @@ export function initGenerate() {
     ),
   );
 
-  left.append(promptGroup, durationGroup, stepsGroup, cfgGroup, condSection, vpGroup, genBtn, sfxRefCard, sfxSetupCard);
+  left.append(promptGroup, durationGroup, stepsGroup, cfgGroup, condSection, vpGroup, genRow, sfxRefCard, sfxSetupCard);
 
   // ═══════════════════════════════════════════════════════════════════════
   // Right column: generation results + SFX canvas
@@ -329,11 +333,6 @@ export function initGenerate() {
         el('div', { className: 'sfx-timeline-ruler', id: 'sfx-timeline-ruler' }),
         el('div', { className: 'sfx-timeline-lanes', id: 'sfx-timeline-lanes' }),
         el('div', { className: 'sfx-timeline-playhead', id: 'sfx-timeline-playhead' }),
-      ),
-      // Add sound from disk
-      el('div', { style: { margin: '6px 0 2px', display: 'flex', gap: '8px', alignItems: 'center' } },
-        el('button', { className: 'btn btn-sm', id: 'sfx-add-sound-btn' }, '+ Add Sound'),
-        el('input', { type: 'file', id: 'sfx-add-sound-input', accept: '.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' } }),
       ),
       // Active clip controls (shown when a clip is selected on the timeline)
       el('div', { className: 'sfx-clip-controls hidden', id: 'sfx-clip-controls' },
