@@ -693,66 +693,6 @@ async def upload_audio(file: UploadFile):
 
 
 # ---------------------------------------------------------------------------
-# Audio stitching — splice repaint result back into original
-# ---------------------------------------------------------------------------
-
-
-class StitchRequest(BaseModel):
-    original_path: str
-    result_path: str
-    start: float
-    end: float
-
-
-@router.post("/stitch")
-async def stitch_audio(req: StitchRequest):
-    """Stitch a repaint result back into the original audio.
-
-    Produces original[0:start] + result + original[end:] via ffmpeg.
-    """
-    import subprocess
-
-    orig = Path(_resolve_audio_path(req.original_path))
-    result = Path(_resolve_audio_path(req.result_path))
-    if not orig.is_file():
-        # Try fetching from AceStep temp dir
-        orig = Path(_ensure_in_tmp(req.original_path))
-    if not result.is_file():
-        raise HTTPException(404, f"Result audio not found: {req.result_path}")
-    if not orig.is_file():
-        raise HTTPException(404, f"Original audio not found: {req.original_path}")
-
-    out_path = _upload_dir / f"stitched_{uuid.uuid4().hex[:8]}.wav"
-
-    # Build ffmpeg filter: trim original before/after selection, concat with result
-    filter_complex = (
-        f"[0]atrim=0:{req.start},asetpts=PTS-STARTPTS[a];"
-        f"[1]asetpts=PTS-STARTPTS[b];"
-        f"[0]atrim=start={req.end},asetpts=PTS-STARTPTS[c];"
-        f"[a][b][c]concat=n=3:v=0:a=1[out]"
-    )
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", str(orig),
-        "-i", str(result),
-        "-filter_complex", filter_complex,
-        "-map", "[out]",
-        "-ar", "44100",
-        str(out_path),
-    ]
-
-    try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=60)
-        if proc.returncode != 0:
-            raise HTTPException(500, f"ffmpeg stitch failed: {proc.stderr.decode()[-500:]}")
-    except subprocess.TimeoutExpired:
-        raise HTTPException(504, "Stitch operation timed out")
-
-    return {"path": str(out_path)}
-
-
-# ---------------------------------------------------------------------------
 # Rework audio sources — list session files/stems available for rework
 # ---------------------------------------------------------------------------
 

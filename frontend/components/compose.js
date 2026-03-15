@@ -3729,23 +3729,10 @@ function showResults(taskId, results, payload) {
     ? results[0].lyrics
     : (payload.lyrics || '');
 
-  const isRepaint = payload.task_type === 'repaint';
-
   results.forEach((result, i) => {
     const audioPath = result.audio_url || '';
-
-    if (isRepaint && audioPath && payload.src_audio_path) {
-      // For repaint: show "Section" card then auto-stitch full song
-      const sectionLabel = `Section (${_fmtSecs(payload.repainting_start)}\u2013${_fmtSecs(payload.repainting_end)})`;
-      const sectionCard = buildResultCard(taskId, i, results.length, result, fmt, sectionLabel);
-      if (output) output.prepend(sectionCard);
-
-      // Auto-stitch: splice result back into original
-      _stitchAndShowFullSong(taskId, i, results.length, result, fmt, payload, output);
-    } else {
-      const card = buildResultCard(taskId, i, results.length, result, fmt);
-      if (output) output.prepend(card);
-    }
+    const card = buildResultCard(taskId, i, results.length, result, fmt);
+    if (output) output.prepend(card);
 
     // Emit composeReady for cross-tab integration
     appState.composePaths.push({ path: audioPath, title: result.prompt || 'Composed', metadata: result.meta });
@@ -3761,44 +3748,6 @@ function showResults(taskId, results, payload) {
   if (_mode === 'analyze' && _analyzeMode !== 'understand' && results.length > 0 && results[0].audio_url) {
     const resultUrl = `/api/compose/audio?path=${encodeURIComponent(results[0].audio_url)}`;
     _renderResultWaveform(resultUrl, 'analyze-wf-result', 'analyze-wf-result-canvas', _analyzeSourcePeaks);
-  }
-}
-
-/** Format seconds as M:SS */
-function _fmtSecs(s) {
-  s = Number(s) || 0;
-  const m = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
-  return `${m}:${String(sec).padStart(2, '0')}`;
-}
-
-/** Stitch repaint result into original audio and show a "Full Song" card. */
-async function _stitchAndShowFullSong(taskId, index, total, result, fmt, payload, output) {
-  try {
-    const res = await fetch('/api/compose/stitch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        original_path: payload.src_audio_path,
-        result_path: result.audio_url,
-        start: payload.repainting_start,
-        end: payload.repainting_end,
-      }),
-    });
-    if (!res.ok) {
-      console.warn('Stitch failed:', await res.text());
-      return;
-    }
-    const data = await res.json();
-    const stitchedResult = { ...result, audio_url: data.path };
-    const card = buildResultCard(taskId, index, total, stitchedResult, fmt, '\u2714 Full Song (stitched)');
-    if (output) output.prepend(card);
-
-    // Update compose paths with stitched version as primary
-    appState.composePaths.push({ path: data.path, title: 'Stitched', metadata: result.meta });
-    appState.emit('composeReady', { path: data.path, title: 'Stitched', metadata: result.meta });
-  } catch (err) {
-    console.warn('Stitch error:', err);
   }
 }
 
@@ -3869,7 +3818,7 @@ function _renderSectionLabels(container, sections, duration, ws) {
   }
 }
 
-function buildResultCard(taskId, index, total, result, fmt, customLabel) {
+function buildResultCard(taskId, index, total, result, fmt) {
   const audioPath = result.audio_url || '';
   const audioSrc = `/api/compose/audio?path=${encodeURIComponent(audioPath)}`;
   const dlAudioUrl = `/api/compose/download/${taskId}/${index}/audio`;
@@ -3878,7 +3827,7 @@ function buildResultCard(taskId, index, total, result, fmt, customLabel) {
 
   const card = el('div', { className: 'stem-card' });
 
-  const label = customLabel || (total > 1 ? `Result ${index + 1} of ${total}` : 'Result');
+  const label = total > 1 ? `Result ${index + 1} of ${total}` : 'Result';
 
   if (audioPath) {
     // Transport buttons
