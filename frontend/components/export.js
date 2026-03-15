@@ -63,6 +63,7 @@ export function initExport() {
   document.getElementById('export-zip').addEventListener('click', downloadZip);
 
   // Listen for all ready events
+  appState.on('fileLoaded', refreshArtifacts);
   appState.on('stemsReady', refreshArtifacts);
   appState.on('midiReady', refreshArtifacts);
   appState.on('generateReady', refreshArtifacts);
@@ -99,6 +100,12 @@ function refreshArtifacts() {
 
 function collectArtifacts() {
   const items = [];
+
+  // Original upload
+  if (appState.audioPath) {
+    const name = appState.audioInfo?.filename || appState.audioPath.split('/').pop();
+    items.push({ label: name, path: appState.audioPath, type: 'original' });
+  }
 
   // Stems
   for (const [label, path] of Object.entries(appState.stemPaths || {})) {
