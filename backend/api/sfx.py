@@ -175,10 +175,12 @@ def available_clips(exclude_id: str | None = Query(None)) -> dict:
     """List clips available for SFX placement, grouped by source."""
     clips: list[dict] = []
 
-    # 1. Session — synth outputs
+    # 1. Session — synth outputs (only clips the user explicitly kept)
+    kept = session.kept_clips
     if MUSICGEN_DIR.exists():
         for f in sorted(MUSICGEN_DIR.rglob("*.wav")):
-            clips.append({"path": str(f), "name": f.name, "group": "session"})
+            if str(f) in kept:
+                clips.append({"path": str(f), "name": f.name, "group": "session"})
 
     # 2. Saved SFX canvases — rendered.wav where manifest.json exists
     if SFX_DIR.exists():
@@ -223,6 +225,21 @@ def available_clips(exclude_id: str | None = Query(None)) -> dict:
                 })
 
     return {"clips": clips}
+
+
+class KeepClipRequest(BaseModel):
+    path: str
+    keep: bool = True
+
+
+@router.post("/keep-clip")
+def keep_clip(req: KeepClipRequest) -> dict:
+    """Mark a generated clip as kept (visible in clip selector) or unkept."""
+    if req.keep:
+        session.keep_clip(req.path)
+    else:
+        session.unkeep_clip(req.path)
+    return {"ok": True}
 
 
 @router.post("/upload-clip")

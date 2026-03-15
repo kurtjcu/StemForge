@@ -604,6 +604,17 @@ function showResult(result) {
     refreshClipList();
   });
 
+  const keepBtn = el('button', { className: 'btn btn-sm' }, 'Keep');
+  keepBtn.addEventListener('click', async () => {
+    await api('/sfx/keep-clip', {
+      method: 'POST',
+      body: JSON.stringify({ path: audioPath }),
+    });
+    keepBtn.textContent = 'Kept';
+    keepBtn.disabled = true;
+    refreshClipList();
+  });
+
   const sfxBtn = el('button', {
     className: 'btn btn-sm btn-primary',
     onClick: () => addClipToCanvas(audioPath),
@@ -613,11 +624,10 @@ function showResult(result) {
   const { card } = createStemPlayer(nameSpan, url, {
     getUrl: () => `/api/audio/stream?path=${encodeURIComponent(audioPath)}`,
     saveLabel: audioPath,
-    extraButtons: [sfxBtn],
+    extraButtons: [keepBtn, sfxBtn],
   });
 
   container.appendChild(card);
-  refreshClipList();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -711,6 +721,8 @@ async function refreshClipList() {
 
 /** Quick-add a clip from a generated result card to the current canvas. */
 async function addClipToCanvas(clipPath) {
+  // Auto-keep the clip so it appears in the clip selector
+  try { await api('/sfx/keep-clip', { method: 'POST', body: JSON.stringify({ path: clipPath }) }); } catch { /* ok */ }
   if (!_currentSfxId) {
     // Auto-create a canvas if none exists
     const name = document.getElementById('sfx-name').value.trim() || 'Untitled SFX';
