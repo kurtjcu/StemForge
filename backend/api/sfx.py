@@ -171,7 +171,27 @@ def create_sfx(req: CreateSFXRequest) -> dict:
 
 @router.get("")
 def list_sfx() -> dict:
-    """List all SFX stems in session (summary only)."""
+    """List all SFX stems (session + disk). Loads saved canvases on first call."""
+    # Hydrate session from disk — any manifest.json not already loaded
+    if SFX_DIR.exists():
+        loaded_ids = set(session.sfx_manifest_ids)
+        for sfx_dir in sorted(SFX_DIR.iterdir()):
+            if not sfx_dir.is_dir():
+                continue
+            manifest_path = sfx_dir / "manifest.json"
+            if not manifest_path.exists():
+                continue
+            sfx_id = sfx_dir.name
+            if sfx_id in loaded_ids:
+                continue
+            try:
+                with open(manifest_path) as f:
+                    m = json.load(f)
+                m["id"] = sfx_id  # ensure id matches dir name
+                session.add_sfx_manifest(m)
+            except (json.JSONDecodeError, OSError):
+                continue
+
     summaries = []
     for sfx_id in session.sfx_manifest_ids:
         m = session.get_sfx_manifest(sfx_id)
