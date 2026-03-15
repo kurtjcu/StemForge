@@ -1,6 +1,7 @@
 """StemForge launcher — starts the FastAPI server and optionally the AceStep subprocess."""
 
 import argparse
+import atexit
 import os
 import signal
 import subprocess
@@ -117,8 +118,8 @@ def main() -> None:
 
     _print_banner(args.port, args.acestep_port, not args.no_acestep, args.gpu, str(model_base))
 
-    # Graceful shutdown: terminate AceStep on SIGINT/SIGTERM
-    def _shutdown(signum: int, frame: object) -> None:
+    # Graceful shutdown: terminate AceStep subprocess
+    def _kill_acestep() -> None:
         proc = acestep_state.get_process()
         if proc and proc.poll() is None:
             print("\n[stemforge] Stopping AceStep...")
@@ -133,6 +134,13 @@ def main() -> None:
                     os.killpg(proc.pid, signal.SIGKILL)
                 except OSError:
                     proc.kill()
+
+    # atexit runs when Python exits — catches cases where uvicorn
+    # swallows SIGINT and shuts down on its own without calling _shutdown
+    atexit.register(_kill_acestep)
+
+    def _shutdown(signum: int, frame: object) -> None:
+        _kill_acestep()
         raise SystemExit(0)
 
     signal.signal(signal.SIGINT, _shutdown)
