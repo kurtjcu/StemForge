@@ -339,7 +339,7 @@ class MusicGenPipeline:
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = out_dir / f"stemforge_gen_{ts}.wav"
-        write_audio(waveform_np, sample_rate, out_path)
+        write_audio(waveform_np, sample_rate, out_path, bit_depth=24)
 
         duration = waveform_np.shape[1] / sample_rate
         self._progress(100.0, f"Done — {duration:.1f} s")

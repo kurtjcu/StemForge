@@ -49,13 +49,13 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Extract audio from video files via FFmpeg
+    # Extract audio from video files via FFmpeg (preserve source sample rate)
     if ext in VIDEO_EXTENSIONS:
         wav_dest = dest.with_suffix(".wav")
         try:
             subprocess.run(
-                ["ffmpeg", "-i", str(dest), "-vn", "-acodec", "pcm_s16le",
-                 "-ar", "44100", str(wav_dest)],
+                ["ffmpeg", "-i", str(dest), "-vn", "-acodec", "pcm_s24le",
+                 str(wav_dest)],
                 check=True, capture_output=True, timeout=120,
             )
         except (subprocess.CalledProcessError, FileNotFoundError) as exc:
@@ -74,6 +74,7 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
         "sample_rate": info.sample_rate,
         "channels": info.channels,
         "format": info.format,
+        "bit_depth": info.bit_depth,
     }
 
     return {
@@ -82,6 +83,7 @@ async def upload_file(file: UploadFile = File(...)) -> dict:
         "duration": info.duration,
         "sample_rate": info.sample_rate,
         "channels": info.channels,
+        "bit_depth": info.bit_depth,
     }
 
 
@@ -108,8 +110,8 @@ async def upload_batch(files: list[UploadFile] = File(...)) -> dict:
             wav_dest = dest.with_suffix(".wav")
             try:
                 subprocess.run(
-                    ["ffmpeg", "-i", str(dest), "-vn", "-acodec", "pcm_s16le",
-                     "-ar", "44100", str(wav_dest)],
+                    ["ffmpeg", "-i", str(dest), "-vn", "-acodec", "pcm_s24le",
+                     str(wav_dest)],
                     check=True, capture_output=True, timeout=120,
                 )
             except (subprocess.CalledProcessError, FileNotFoundError) as exc:
@@ -126,6 +128,7 @@ async def upload_batch(files: list[UploadFile] = File(...)) -> dict:
             "duration": info.duration,
             "sample_rate": info.sample_rate,
             "channels": info.channels,
+            "bit_depth": info.bit_depth,
         })
 
     return {"files": results}

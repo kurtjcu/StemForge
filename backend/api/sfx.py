@@ -135,11 +135,13 @@ def create_sfx(req: CreateSFXRequest) -> dict:
         info = probe(ref)
         sr = info.sample_rate
         channels = info.channels
+        bit_depth = info.bit_depth or 24
         total_samples = info.num_frames
         duration_ms = int(info.duration * 1000)
     else:
         sr = CANVAS_SAMPLE_RATE
         channels = CANVAS_CHANNELS
+        bit_depth = 24
         duration_ms = max(1000, req.duration_ms)
         total_samples = int(sr * duration_ms / 1000)
 
@@ -151,6 +153,7 @@ def create_sfx(req: CreateSFXRequest) -> dict:
         "reference_stem_path": req.reference_stem_path,
         "sample_rate": sr,
         "channels": channels,
+        "bit_depth": bit_depth,
         "total_samples": total_samples,
         "duration_ms": duration_ms,
         "apply_limiter": False,

@@ -136,6 +136,10 @@ def render_track_preview(track_id: str) -> dict:
     if track.source != "midi" or not track.midi_data:
         raise HTTPException(400, "Track is not a MIDI track")
 
+    # Use source sample rate for MIDI preview renders
+    audio_info = session.audio_info or {}
+    sr = audio_info.get("sample_rate", 44100)
+
     midi_data = copy.deepcopy(track.midi_data)
     for inst in midi_data.instruments:
         inst.program = track.program
@@ -143,7 +147,7 @@ def render_track_preview(track_id: str) -> dict:
 
     from backend.api.midi import _active_soundfont
     sf2_kwargs = {"sf2_path": _active_soundfont} if _active_soundfont else {}
-    audio = midi_data.fluidsynth(fs=44100, **sf2_kwargs)
+    audio = midi_data.fluidsynth(fs=sr, **sf2_kwargs)
     if audio is None or len(audio) == 0:
         raise HTTPException(500, "FluidSynth render produced no audio")
 
@@ -156,13 +160,15 @@ def render_track_preview(track_id: str) -> dict:
     peak = np.abs(waveform).max()
     if peak > 0:
         waveform = waveform / peak * 0.9
-    write_audio(waveform, 44100, out_path)
+    write_audio(waveform, sr, out_path, bit_depth=24)
 
-    return {"audio_path": str(out_path), "duration": len(audio) / 44100}
+    return {"audio_path": str(out_path), "duration": len(audio) / sr}
 
 
 def _run_mix_render(job_id: str) -> dict:
     """Render all enabled tracks to a single audio file."""
+    from utils.audio_io import read_audio, write_audio, probe
+
     progress_cb = job_manager.make_progress_callback(job_id)
     tracks = session.mix_tracks
 
@@ -170,7 +176,21 @@ def _run_mix_render(job_id: str) -> dict:
     if not enabled:
         raise ValueError("No enabled tracks to render")
 
-    sr = 44100
+    # Detect highest sample rate across audio tracks to preserve quality
+    audio_info = session.audio_info or {}
+    sr = audio_info.get("sample_rate", 44100)
+    bit_depth = audio_info.get("bit_depth") or 24
+
+    for t in enabled:
+        if t.source in ("audio", "synth") and t.path and t.path.exists():
+            try:
+                ti = probe(t.path)
+                sr = max(sr, ti.sample_rate)
+                if ti.bit_depth and ti.bit_depth > bit_depth:
+                    bit_depth = ti.bit_depth
+            except Exception:
+                pass
+
     max_samples = 0
     rendered: list[tuple[np.ndarray, float]] = []
 
@@ -180,7 +200,6 @@ def _run_mix_render(job_id: str) -> dict:
         progress_cb(0.05 + 0.7 * i / len(enabled), f"Rendering {track.label}...")
 
         if track.source in ("audio", "synth") and track.path:
-            from utils.audio_io import read_audio
             waveform, file_sr = read_audio(track.path, mono=False, target_rate=sr)
             # Convert to mono for mixing simplicity
             if waveform.shape[0] > 1:
@@ -230,8 +249,7 @@ def _run_mix_render(job_id: str) -> dict:
     MIX_DIR.mkdir(parents=True, exist_ok=True)
     out_path = MIX_DIR / f"mix_{uuid.uuid4().hex[:6]}.flac"
 
-    from utils.audio_io import write_audio
-    write_audio(stereo, sr, out_path, fmt="flac")
+    write_audio(stereo, sr, out_path, fmt="flac", bit_depth=bit_depth)
 
     session.mix_path = out_path
     progress_cb(1.0, "Done")

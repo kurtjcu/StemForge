@@ -49,6 +49,7 @@ class RoformerConfig:
     stems: list[str] = field(default_factory=lambda: ["vocals", "other"])
     output_dir: pathlib.Path = _STEMS_DIR
     sample_rate: int = 44_100
+    bit_depth: int = 24
     chunk_size: int = 352_800
     num_overlap: int = 2
 
@@ -206,7 +207,8 @@ class RoformerPipeline:
             if stem_name not in self._config.stems:
                 continue
             out_path = self._config.output_dir / f"{base}_{stem_name}.wav"
-            write_audio(audio_np, self._config.sample_rate, out_path)
+            write_audio(audio_np, self._config.sample_rate, out_path,
+                       bit_depth=self._config.bit_depth)
             stem_paths[stem_name] = out_path
             log.info("Wrote %s -> %s", stem_name, out_path)
 

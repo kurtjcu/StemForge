@@ -55,6 +55,11 @@ def _run_separation(
     """Execute separation pipeline (runs in background thread)."""
     pipeline_cb = _make_pipeline_cb(job_id)
 
+    # Inherit source audio quality from session
+    audio_info = session.audio_info or {}
+    source_sr = audio_info.get("sample_rate", 44100)
+    source_bd = audio_info.get("bit_depth") or 24
+
     pipeline_name = "roformer" if engine == "roformer" else "demucs"
     try:
         if engine == "roformer":
@@ -70,6 +75,8 @@ def _run_separation(
                 model_id=model_id,
                 stems=stems or list(spec.available_stems),
                 output_dir=STEMS_DIR,
+                sample_rate=source_sr,
+                bit_depth=source_bd,
                 chunk_size=spec.default_chunk_size,
                 num_overlap=spec.default_num_overlap,
             )
@@ -86,6 +93,8 @@ def _run_separation(
                 model_name=model_id,
                 stems=stems or ["vocals", "drums", "bass", "other"],
                 output_dir=STEMS_DIR,
+                sample_rate=source_sr,
+                bit_depth=source_bd,
             )
             pipeline.configure(config)
             pipeline.set_progress_callback(pipeline_cb)
@@ -172,6 +181,12 @@ def _run_batch_separation(
 
     _BATCH_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Inherit source audio quality from session (batch files may vary,
+    # but we use the session source as the quality target)
+    audio_info = session.audio_info or {}
+    source_sr = audio_info.get("sample_rate", 44100)
+    source_bd = audio_info.get("bit_depth") or 24
+
     # Load model once, reuse for all files
     pipeline_name = "roformer" if engine == "roformer" else "demucs"
     if engine == "roformer":
@@ -188,6 +203,8 @@ def _run_batch_separation(
                 model_id=model_id,
                 stems=[stem],
                 output_dir=_BATCH_DIR,
+                sample_rate=source_sr,
+                bit_depth=source_bd,
                 chunk_size=spec.default_chunk_size,
                 num_overlap=spec.default_num_overlap,
             )
@@ -202,6 +219,8 @@ def _run_batch_separation(
                 model_name=model_id,
                 stems=[stem],
                 output_dir=_BATCH_DIR,
+                sample_rate=source_sr,
+                bit_depth=source_bd,
             )
             pipeline.configure(config)
 

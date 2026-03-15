@@ -61,6 +61,7 @@ class DemucsConfig:
     stems: list[str]
     output_dir: pathlib.Path
     sample_rate: int
+    bit_depth: int
 
     def __init__(
         self,
@@ -68,11 +69,13 @@ class DemucsConfig:
         stems: list[str],
         output_dir: pathlib.Path,
         sample_rate: int = 44100,
+        bit_depth: int = 24,
     ) -> None:
         self.model_name = model_name
         self.stems = list(stems)
         self.output_dir = pathlib.Path(output_dir)
         self.sample_rate = int(sample_rate)
+        self.bit_depth = int(bit_depth)
 
 
 # ---------------------------------------------------------------------------
@@ -516,7 +519,8 @@ class DemucsPipeline:
 
             out_path = self._config.output_dir / f"{name}.wav"
             try:
-                write_audio(stem_waveform, out_rate, out_path)
+                write_audio(stem_waveform, out_rate, out_path,
+                           bit_depth=self._config.bit_depth)
             except Exception as exc:
                 raise AudioProcessingError(
                     f"Failed to write stem '{name}' to {out_path}: {exc}",

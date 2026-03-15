@@ -229,9 +229,13 @@ def render_midi_to_audio(req: RenderRequest) -> dict:
         inst.program = req.program
         inst.is_drum = req.is_drum
 
+    # Use source sample rate for MIDI renders
+    audio_info = session.audio_info or {}
+    sr = audio_info.get("sample_rate", 44100)
+
     # Render via FluidSynth (with active soundfont if set)
     sf2_kwargs = {"sf2_path": _active_soundfont} if _active_soundfont else {}
-    audio = midi_data.fluidsynth(fs=44100, **sf2_kwargs)
+    audio = midi_data.fluidsynth(fs=sr, **sf2_kwargs)
     if audio is None or len(audio) == 0:
         raise HTTPException(500, "FluidSynth render produced no audio")
 
@@ -248,11 +252,11 @@ def render_midi_to_audio(req: RenderRequest) -> dict:
     peak = np.abs(waveform).max()
     if peak > 0:
         waveform = waveform / peak * 0.9
-    write_audio(waveform, 44100, out_path)
+    write_audio(waveform, sr, out_path, bit_depth=24)
 
     return {
         "audio_path": str(out_path),
-        "duration": len(audio) / 44100,
+        "duration": len(audio) / sr,
     }
 
 

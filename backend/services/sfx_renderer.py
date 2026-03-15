@@ -104,7 +104,8 @@ def render_sfx(manifest: dict) -> pathlib.Path:
     out_dir = SFX_DIR / manifest["id"]
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "rendered.wav"
-    write_audio(canvas, sr, out_path)
+    bit_depth = manifest.get("bit_depth", 24)
+    write_audio(canvas, sr, out_path, bit_depth=bit_depth)
 
     log.info("SFX rendered: %s  samples=%d  placements=%d",
              manifest["id"], total_samples, len(manifest.get("placements", [])))
