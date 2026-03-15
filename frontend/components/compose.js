@@ -783,6 +783,7 @@ function buildCenterColumn() {
       ),
       el('div', { className: 'compose-wf-controls', id: 'compose-wf-controls' },
         el('div', { className: 'compose-wf-time-inputs' },
+          el('button', { className: 'btn btn-sm', id: 'compose-wf-play-btn', title: 'Play selection', onClick: _toggleWfPlaySelection }, '\u25B6'),
           el('label', { className: 'compose-wf-label' }, 'Start'),
           el('input', { type: 'number', id: 'compose-wf-region-start', className: 'compose-input compose-wf-time-input', step: '0.1', min: '0', value: '0' }),
           el('label', { className: 'compose-wf-label' }, 'End'),
@@ -2802,7 +2803,57 @@ function _stopWfPlayhead() {
   if (playhead) playhead.classList.remove('active');
 }
 
+// ─── Play Selection ──────────────────────────────────────────────────
+
+let _wfPlayAudio = null;
+let _wfPlayEndTimer = null;
+
+function _toggleWfPlaySelection() {
+  const btn = _id('compose-wf-play-btn');
+
+  // If already playing, stop
+  if (_wfPlayAudio && !_wfPlayAudio.paused) {
+    _stopWfPlay();
+    return;
+  }
+
+  if (!_uploadedPath) return;
+  const start = Number((_id('compose-wf-region-start') || {}).value) || 0;
+  const end = Number((_id('compose-wf-region-end') || {}).value) || 0;
+  if (end <= start) return;
+
+  const audioUrl = `/api/audio/stream?path=${encodeURIComponent(_uploadedPath)}`;
+  _wfPlayAudio = new Audio(audioUrl);
+  _wfPlayAudio.currentTime = start;
+
+  _wfPlayAudio.addEventListener('canplay', () => {
+    _wfPlayAudio.play();
+    if (btn) btn.textContent = '\u25A0';
+    _startWfPlayhead(_wfPlayAudio);
+    transportLoad(audioUrl, 'Selection preview', false, 'Compose \u203A Rework');
+
+    // Stop at end of selection
+    const duration = (end - start) * 1000;
+    _wfPlayEndTimer = setTimeout(() => _stopWfPlay(), duration);
+  }, { once: true });
+
+  _wfPlayAudio.addEventListener('error', () => _stopWfPlay(), { once: true });
+}
+
+function _stopWfPlay() {
+  if (_wfPlayEndTimer) { clearTimeout(_wfPlayEndTimer); _wfPlayEndTimer = null; }
+  if (_wfPlayAudio) {
+    _wfPlayAudio.pause();
+    _wfPlayAudio = null;
+  }
+  _stopWfPlayhead();
+  const btn = _id('compose-wf-play-btn');
+  if (btn) btn.textContent = '\u25B6';
+  transportStop();
+}
+
 function hideReworkWaveform() {
+  _stopWfPlay();
   _wfData = null;
   _wfDuration = 0;
   _wfSections = [];
