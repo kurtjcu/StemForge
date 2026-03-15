@@ -85,7 +85,11 @@ def _run_generation(req: GenerateRequest, job_id: str) -> dict:
     pipeline.set_progress_callback(_gen_cb)
     job_manager.update_progress(job_id, 0.05, "Loading model...")
     pipeline.load_model()
-    result = pipeline.run(req.prompt)
+    try:
+        result = pipeline.run(req.prompt)
+    finally:
+        # Free GPU memory so other pipelines (AceStep, separation) can use it
+        pipeline_manager.evict("musicgen")
 
     # Rename from timestamp to prompt-based name for identifiability
     clip_name = _clip_name_from_prompt(req.prompt)

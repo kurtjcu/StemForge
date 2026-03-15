@@ -55,41 +55,46 @@ def _run_separation(
     """Execute separation pipeline (runs in background thread)."""
     pipeline_cb = _make_pipeline_cb(job_id)
 
-    if engine == "roformer":
-        from pipelines.roformer_pipeline import RoformerConfig
-        from models.registry import get_spec, RoformerSpec
+    pipeline_name = "roformer" if engine == "roformer" else "demucs"
+    try:
+        if engine == "roformer":
+            from pipelines.roformer_pipeline import RoformerConfig
+            from models.registry import get_spec, RoformerSpec
 
-        pipeline = pipeline_manager.get_roformer()
-        spec = get_spec(model_id)
-        if not isinstance(spec, RoformerSpec):
-            raise ValueError(f"{model_id} is not a Roformer model")
+            pipeline = pipeline_manager.get_roformer()
+            spec = get_spec(model_id)
+            if not isinstance(spec, RoformerSpec):
+                raise ValueError(f"{model_id} is not a Roformer model")
 
-        config = RoformerConfig(
-            model_id=model_id,
-            stems=stems or list(spec.available_stems),
-            output_dir=STEMS_DIR,
-            chunk_size=spec.default_chunk_size,
-            num_overlap=spec.default_num_overlap,
-        )
-        pipeline.configure(config)
-        pipeline.set_progress_callback(pipeline_cb)
-        pipeline_cb(5, "Loading model...")
-        pipeline.load_model()
-        result = pipeline.run(audio_path)
-    else:
-        from pipelines.demucs_pipeline import DemucsConfig
+            config = RoformerConfig(
+                model_id=model_id,
+                stems=stems or list(spec.available_stems),
+                output_dir=STEMS_DIR,
+                chunk_size=spec.default_chunk_size,
+                num_overlap=spec.default_num_overlap,
+            )
+            pipeline.configure(config)
+            pipeline.set_progress_callback(pipeline_cb)
+            pipeline_cb(5, "Loading model...")
+            pipeline.load_model()
+            result = pipeline.run(audio_path)
+        else:
+            from pipelines.demucs_pipeline import DemucsConfig
 
-        pipeline = pipeline_manager.get_demucs()
-        config = DemucsConfig(
-            model_name=model_id,
-            stems=stems or ["vocals", "drums", "bass", "other"],
-            output_dir=STEMS_DIR,
-        )
-        pipeline.configure(config)
-        pipeline.set_progress_callback(pipeline_cb)
-        pipeline_cb(5, "Loading model...")
-        pipeline.load_model()
-        result = pipeline.run(audio_path)
+            pipeline = pipeline_manager.get_demucs()
+            config = DemucsConfig(
+                model_name=model_id,
+                stems=stems or ["vocals", "drums", "bass", "other"],
+                output_dir=STEMS_DIR,
+            )
+            pipeline.configure(config)
+            pipeline.set_progress_callback(pipeline_cb)
+            pipeline_cb(5, "Loading model...")
+            pipeline.load_model()
+            result = pipeline.run(audio_path)
+    finally:
+        # Free GPU memory so other pipelines (AceStep, Synth) can use it
+        pipeline_manager.evict(pipeline_name)
 
     # Store stem paths in session and auto-add mix tracks
     stem_paths = dict(result.stem_paths)
@@ -168,6 +173,7 @@ def _run_batch_separation(
     _BATCH_DIR.mkdir(parents=True, exist_ok=True)
 
     # Load model once, reuse for all files
+    pipeline_name = "roformer" if engine == "roformer" else "demucs"
     if engine == "roformer":
         from pipelines.roformer_pipeline import RoformerConfig
         from models.registry import get_spec, RoformerSpec
@@ -203,53 +209,57 @@ def _run_batch_separation(
     _configure()
     pipeline.load_model()
 
-    for i, finfo in enumerate(files):
-        audio_path = pathlib.Path(finfo["path"])
-        display_name = finfo["filename"]
-        base_name = pathlib.Path(display_name).stem
+    try:
+        for i, finfo in enumerate(files):
+            audio_path = pathlib.Path(finfo["path"])
+            display_name = finfo["filename"]
+            base_name = pathlib.Path(display_name).stem
 
-        job_manager.update_progress(
-            job_id,
-            (i / total) * 0.9 + 0.05,
-            f"Processing {i + 1}/{total}: {display_name}",
-        )
+            job_manager.update_progress(
+                job_id,
+                (i / total) * 0.9 + 0.05,
+                f"Processing {i + 1}/{total}: {display_name}",
+            )
 
-        def _batch_cb(pct, stage="", _i=i):
-            file_progress = pct / 100.0
-            overall = ((_i + file_progress) / total) * 0.9 + 0.05
-            job_manager.update_progress(job_id, overall, f"[{_i + 1}/{total}] {stage}")
+            def _batch_cb(pct, stage="", _i=i):
+                file_progress = pct / 100.0
+                overall = ((_i + file_progress) / total) * 0.9 + 0.05
+                job_manager.update_progress(job_id, overall, f"[{_i + 1}/{total}] {stage}")
 
-        pipeline.set_progress_callback(_batch_cb)
+            pipeline.set_progress_callback(_batch_cb)
 
-        # Re-configure for each file (output_dir stays the same)
-        _configure()
+            # Re-configure for each file (output_dir stays the same)
+            _configure()
 
-        try:
-            result = pipeline.run(audio_path)
-            stem_paths = dict(result.stem_paths)
+            try:
+                result = pipeline.run(audio_path)
+                stem_paths = dict(result.stem_paths)
 
-            if stem in stem_paths:
-                src = pathlib.Path(stem_paths[stem])
-                dest_name = f"{stem}-stem-{base_name}{src.suffix}"
-                dest = _BATCH_DIR / dest_name
-                if src != dest:
-                    shutil.move(str(src), str(dest))
+                if stem in stem_paths:
+                    src = pathlib.Path(stem_paths[stem])
+                    dest_name = f"{stem}-stem-{base_name}{src.suffix}"
+                    dest = _BATCH_DIR / dest_name
+                    if src != dest:
+                        shutil.move(str(src), str(dest))
+                    results.append({
+                        "filename": display_name,
+                        "stem": stem,
+                        "output_name": dest_name,
+                        "path": str(dest),
+                    })
+                else:
+                    results.append({
+                        "filename": display_name,
+                        "error": f"Stem '{stem}' not found in output",
+                    })
+            except Exception as exc:
                 results.append({
                     "filename": display_name,
-                    "stem": stem,
-                    "output_name": dest_name,
-                    "path": str(dest),
+                    "error": str(exc),
                 })
-            else:
-                results.append({
-                    "filename": display_name,
-                    "error": f"Stem '{stem}' not found in output",
-                })
-        except Exception as exc:
-            results.append({
-                "filename": display_name,
-                "error": str(exc),
-            })
+    finally:
+        # Free GPU memory so other pipelines (AceStep, Synth) can use it
+        pipeline_manager.evict(pipeline_name)
 
     job_manager.update_progress(job_id, 1.0, "Done")
     return {"results": results, "stem": stem}

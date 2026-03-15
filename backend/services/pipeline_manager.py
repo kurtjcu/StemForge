@@ -108,3 +108,10 @@ def evict(name: str) -> None:
                 log.info("Evicted pipeline: %s", name)
             except Exception:
                 log.exception("Error evicting pipeline %s", name)
+    # Return CUDA memory to the allocator even if pipeline wasn't found
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
