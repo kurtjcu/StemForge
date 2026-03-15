@@ -324,6 +324,11 @@ export function initGenerate() {
         el('div', { className: 'sfx-timeline-lanes', id: 'sfx-timeline-lanes' }),
         el('div', { className: 'sfx-timeline-playhead', id: 'sfx-timeline-playhead' }),
       ),
+      // Add sound from disk
+      el('div', { style: { margin: '6px 0 2px', display: 'flex', gap: '8px', alignItems: 'center' } },
+        el('button', { className: 'btn btn-sm', id: 'sfx-add-sound-btn' }, '+ Add Sound'),
+        el('input', { type: 'file', id: 'sfx-add-sound-input', accept: '.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' } }),
+      ),
       // Active clip controls (shown when a clip is selected on the timeline)
       el('div', { className: 'sfx-clip-controls hidden', id: 'sfx-clip-controls' },
         el('span', { className: 'sfx-clip-controls-label', id: 'sfx-active-clip-name' }, ''),
@@ -399,6 +404,31 @@ export function initGenerate() {
       onAlignSelectChange();
     } catch (err) {
       alert(`Load reference failed: ${err.message}`);
+    }
+    e.target.value = '';
+  });
+
+  // Add sound from disk
+  document.getElementById('sfx-add-sound-btn').addEventListener('click', () => {
+    document.getElementById('sfx-add-sound-input').click();
+  });
+  document.getElementById('sfx-add-sound-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const resp = await fetch('/api/sfx/upload-clip', { method: 'POST', body: form });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || resp.statusText);
+      }
+      const result = await resp.json();
+      // Auto-keep and add to canvas
+      await api('/sfx/keep-clip', { method: 'POST', body: JSON.stringify({ path: result.path }) });
+      await addClipToCanvas(result.path);
+    } catch (err) {
+      alert(`Add sound failed: ${err.message}`);
     }
     e.target.value = '';
   });
