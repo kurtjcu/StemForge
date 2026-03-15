@@ -300,6 +300,7 @@ export function initGenerate() {
             ),
             'Limiter',
           ),
+          el('button', { className: 'btn btn-sm', id: 'sfx-merge-canvas-btn' }, 'Merge In\u2026'),
           el('button', { className: 'btn btn-sm', id: 'sfx-save-btn' }, '\u2193 Save'),
           el('button', { className: 'btn btn-sm btn-primary', id: 'sfx-render-mix-btn' }, 'Render Canvas'),
           el('button', { className: 'btn btn-sm btn-danger', id: 'sfx-delete-btn' }, '\u2715'),
@@ -376,6 +377,7 @@ export function initGenerate() {
   document.getElementById('sfx-select').addEventListener('change', (e) => {
     if (e.target.value) loadSfx(e.target.value);
   });
+  document.getElementById('sfx-merge-canvas-btn').addEventListener('click', mergeCanvasPrompt);
   document.getElementById('sfx-save-btn').addEventListener('click', saveSfx);
   document.getElementById('sfx-render-mix-btn').addEventListener('click', renderCanvasToMix);
   document.getElementById('sfx-delete-btn').addEventListener('click', deleteSfx);
@@ -700,6 +702,20 @@ async function updatePlacement(placementId, updates) {
   }
 }
 
+async function mergeLanes(targetLane, sourceLane) {
+  if (!_currentSfxId) return;
+  try {
+    await api(`/sfx/${_currentSfxId}/merge-lanes`, {
+      method: 'POST',
+      body: JSON.stringify({ target_lane: targetLane, source_lane: sourceLane }),
+    });
+    await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
+  } catch (err) {
+    alert(`Failed to merge lanes: ${err.message}`);
+  }
+}
+
 async function removePlacement(placementId) {
   if (!_currentSfxId) return;
   try {
@@ -721,6 +737,35 @@ async function saveSfx() {
     }
   } catch (err) {
     alert(`Save failed: ${err.message}`);
+  }
+}
+
+async function mergeCanvasPrompt() {
+  if (!_currentSfxId) { alert('No canvas loaded'); return; }
+  try {
+    const data = await api('/sfx');
+    const others = (data.sfx_stems || []).filter(s => s.id !== _currentSfxId);
+    if (others.length === 0) {
+      alert('No other canvases to merge in.');
+      return;
+    }
+    // Build a simple prompt listing available canvases
+    const choices = others.map((s, i) => `${i + 1}. ${s.name} (${s.placement_count} clips)`).join('\n');
+    const input = prompt(`Merge another canvas into this one.\nPick a number:\n\n${choices}`);
+    if (!input) return;
+    const idx = parseInt(input, 10) - 1;
+    if (idx < 0 || idx >= others.length) { alert('Invalid selection'); return; }
+
+    const sourceId = others[idx].id;
+    await api(`/sfx/${_currentSfxId}/merge-canvas`, {
+      method: 'POST',
+      body: JSON.stringify({ source_id: sourceId }),
+    });
+    await refreshSfxSelector();
+    await loadSfx(_currentSfxId);
+    appState.emit('sfxReady', { id: _currentSfxId });
+  } catch (err) {
+    alert(`Merge failed: ${err.message}`);
   }
 }
 
@@ -940,34 +985,17 @@ function showSfxCanvas(data) {
 }
 
 /**
- * Pack placements into non-overlapping rows (greedy by start_ms).
- * Returns an array of rows, each row being an array of placements.
+ * Group placements by their explicit lane assignment.
+ * Returns a Map<laneIndex, placement[]> sorted by lane number.
  */
-function packPlacements(placements) {
-  const sorted = [...placements].sort((a, b) => a.start_ms - b.start_ms);
-  const rows = [];
-  const rowEnds = [];
-
-  for (const p of sorted) {
-    const startMs = p.start_ms;
-    const durMs = p.clip_duration_ms || 1000;
-    const endMs = startMs + durMs;
-
-    let placed = false;
-    for (let i = 0; i < rows.length; i++) {
-      if (startMs >= rowEnds[i]) {
-        rows[i].push(p);
-        rowEnds[i] = endMs;
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      rows.push([p]);
-      rowEnds.push(endMs);
-    }
+function groupByLane(placements) {
+  const map = new Map();
+  for (const p of placements) {
+    const lane = p.lane ?? 0;
+    if (!map.has(lane)) map.set(lane, []);
+    map.get(lane).push(p);
   }
-  return rows;
+  return new Map([...map.entries()].sort((a, b) => a[0] - b[0]));
 }
 
 
@@ -1019,13 +1047,32 @@ function renderTimeline(manifest) {
   if (placements.length === 0) {
     const emptyLane = el('div', { className: 'sfx-lane' });
     emptyLane.appendChild(el('span', { className: 'sfx-lane-hint text-dim' },
-      'Generate audio above, then click "+ SFX Canvas" on a result to place it'));
+      'Use "+ SFX Canvas" on a result card, or "+ Add Sound" below to place clips'));
     lanesContainer.appendChild(emptyLane);
   } else {
-    const rows = packPlacements(placements);
-    for (const row of rows) {
+    const laneMap = groupByLane(placements);
+    const laneIndices = [...laneMap.keys()];
+
+    for (const [laneIdx, clips] of laneMap) {
+      const laneRow = el('div', { className: 'sfx-lane-row' });
+
+      // Merge button (merge this lane into the one above)
+      const laneActions = el('div', { className: 'sfx-lane-actions' });
+      if (laneIndices.indexOf(laneIdx) > 0) {
+        const targetLane = laneIndices[laneIndices.indexOf(laneIdx) - 1];
+        const mergeBtn = el('button', {
+          className: 'sfx-merge-btn',
+          title: 'Merge into lane above',
+        }, '\u2191');
+        mergeBtn.addEventListener('click', () => mergeLanes(targetLane, laneIdx));
+        laneActions.appendChild(mergeBtn);
+      }
+      laneRow.appendChild(laneActions);
+
       const lane = el('div', { className: 'sfx-lane' });
-      for (const p of row) {
+      lane.dataset.lane = laneIdx;
+
+      for (const p of clips) {
         const clipDurMs = p.clip_duration_ms || 1000;
         const leftPct = (p.start_ms / durationMs * 100).toFixed(2);
         const widthPct = Math.max(0.5, clipDurMs / durationMs * 100).toFixed(2);
@@ -1058,7 +1105,8 @@ function renderTimeline(manifest) {
 
         lane.appendChild(block);
       }
-      lanesContainer.appendChild(lane);
+      laneRow.appendChild(lane);
+      lanesContainer.appendChild(laneRow);
     }
   }
 

@@ -43,6 +43,7 @@ class CreateSFXRequest(BaseModel):
 class AddPlacementRequest(BaseModel):
     clip_path: str
     start_ms: int = 0
+    lane: int | None = None  # auto-assigned if omitted
     volume: float = Field(1.0, ge=0.0, le=2.0)
     fade_in_ms: int = Field(0, ge=0)
     fade_out_ms: int = Field(0, ge=0)
@@ -52,10 +53,20 @@ class AddPlacementRequest(BaseModel):
 class UpdatePlacementRequest(BaseModel):
     clip_path: str | None = None
     start_ms: int | None = None
+    lane: int | None = None
     volume: float | None = Field(None, ge=0.0, le=2.0)
     fade_in_ms: int | None = Field(None, ge=0)
     fade_out_ms: int | None = Field(None, ge=0)
     fade_curve: str | None = None
+
+
+class MergeLanesRequest(BaseModel):
+    target_lane: int
+    source_lane: int
+
+
+class MergeCanvasRequest(BaseModel):
+    source_id: str  # canvas to merge from (placements absorbed into target)
 
 
 class UpdateSFXSettingsRequest(BaseModel):
@@ -384,12 +395,23 @@ def add_placement(sfx_id: str, req: AddPlacementRequest) -> dict:
     clip_info = probe(clip_p)
 
     pid = _next_placement_id(manifest)
+
+    # Auto-assign lane: next unused lane index
+    if req.lane is not None:
+        lane = req.lane
+    else:
+        used_lanes = {p.get("lane", 0) for p in manifest["placements"]}
+        lane = 0
+        while lane in used_lanes:
+            lane += 1
+
     placement = {
         "id": pid,
         "clip_path": req.clip_path,
         "clip_name": clip_p.name,
         "clip_duration_ms": int(clip_info.duration * 1000),
         "start_ms": req.start_ms,
+        "lane": lane,
         "volume": req.volume,
         "fade_in_ms": req.fade_in_ms,
         "fade_out_ms": req.fade_out_ms,
@@ -429,6 +451,8 @@ def update_placement(sfx_id: str, placement_id: str, req: UpdatePlacementRequest
         placement["clip_duration_ms"] = int(clip_info.duration * 1000)
     if req.start_ms is not None:
         placement["start_ms"] = req.start_ms
+    if req.lane is not None:
+        placement["lane"] = req.lane
     if req.volume is not None:
         placement["volume"] = req.volume
     if req.fade_in_ms is not None:
@@ -443,6 +467,30 @@ def update_placement(sfx_id: str, placement_id: str, req: UpdatePlacementRequest
     return {
         "placement_id": placement_id,
         "rendered_path": str(rendered_path),
+    }
+
+
+@router.post("/{sfx_id}/merge-lanes")
+def merge_lanes(sfx_id: str, req: MergeLanesRequest) -> dict:
+    """Move all placements from source_lane into target_lane, then compact."""
+    manifest = session.get_sfx_manifest(sfx_id)
+    if not manifest:
+        raise HTTPException(404, f"SFX '{sfx_id}' not found")
+
+    for p in manifest["placements"]:
+        if p.get("lane") == req.source_lane:
+            p["lane"] = req.target_lane
+
+    # Compact: renumber lanes to be contiguous starting from 0
+    used = sorted({p.get("lane", 0) for p in manifest["placements"]})
+    remap = {old: new for new, old in enumerate(used)}
+    for p in manifest["placements"]:
+        p["lane"] = remap.get(p.get("lane", 0), 0)
+
+    rendered_path = _render_and_save(manifest)
+    return {
+        "rendered_path": str(rendered_path),
+        "placement_count": len(manifest["placements"]),
     }
 
 
@@ -496,6 +544,52 @@ def update_sfx_settings(sfx_id: str, req: UpdateSFXSettingsRequest) -> dict:
         "name": manifest["name"],
         "apply_limiter": manifest["apply_limiter"],
         "rendered_path": str(rendered_path),
+    }
+
+
+@router.post("/{sfx_id}/merge-canvas")
+def merge_canvas(sfx_id: str, req: MergeCanvasRequest) -> dict:
+    """Absorb all placements from source canvas into this canvas.
+
+    Each source placement gets its own new lane in the target.
+    The source canvas is deleted after merging.
+    The target canvas duration is extended if the source is longer.
+    """
+    target = session.get_sfx_manifest(sfx_id)
+    if not target:
+        raise HTTPException(404, f"Target SFX '{sfx_id}' not found")
+    source = session.get_sfx_manifest(req.source_id)
+    if not source:
+        raise HTTPException(404, f"Source SFX '{req.source_id}' not found")
+
+    # Extend target duration if source is longer
+    if source.get("duration_ms", 0) > target.get("duration_ms", 0):
+        ratio = source["duration_ms"] / target["duration_ms"] if target["duration_ms"] else 1
+        target["duration_ms"] = source["duration_ms"]
+        target["total_samples"] = int(target.get("total_samples", 0) * ratio)
+
+    # Find the next available lane in target
+    used_lanes = {p.get("lane", 0) for p in target["placements"]}
+    next_lane = (max(used_lanes) + 1) if used_lanes else 0
+
+    # Copy source placements with new IDs and lane assignments
+    for p in source.get("placements", []):
+        new_p = dict(p)
+        new_p["id"] = _next_placement_id(target)
+        new_p["lane"] = next_lane + p.get("lane", 0)
+        target["placements"].append(new_p)
+
+    rendered_path = _render_and_save(target)
+
+    # Delete source canvas
+    session.remove_sfx_manifest(req.source_id)
+    source_dir = SFX_DIR / req.source_id
+    if source_dir.exists():
+        shutil.rmtree(source_dir, ignore_errors=True)
+
+    return {
+        "rendered_path": str(rendered_path),
+        "placement_count": len(target["placements"]),
     }
 
 

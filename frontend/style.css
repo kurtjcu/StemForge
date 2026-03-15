@@ -2470,12 +2470,45 @@ input[type="range"]::-moz-range-track {
   min-height: 36px;
 }
 
+.sfx-lane-row {
+  display: flex;
+  align-items: stretch;
+}
+.sfx-lane-row:last-child .sfx-lane {
+  border-bottom: none;
+}
+.sfx-lane-actions {
+  width: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sfx-merge-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 3px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.sfx-merge-btn:hover {
+  opacity: 1;
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .sfx-lane {
   position: relative;
   height: 36px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .sfx-lane:last-child {
