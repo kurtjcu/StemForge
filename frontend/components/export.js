@@ -9,6 +9,7 @@ function clearChildren(elem) {
 }
 
 const _LOSSY_FORMATS = new Set(['mp3', 'ogg', 'm4a']);
+let _lastExportedPaths = [];
 
 export function initExport() {
   const panel = document.getElementById('panel-export');
@@ -48,7 +49,7 @@ export function initExport() {
   );
 
   const exportBtn = el('button', { className: 'btn btn-primary', id: 'export-start', disabled: 'true' }, 'Export');
-  const zipBtn = el('button', { className: 'btn', id: 'export-zip', disabled: 'true', style: { marginTop: '8px' } }, 'Download All as ZIP');
+  const zipBtn = el('button', { className: 'btn', id: 'export-zip', disabled: 'true', style: { marginTop: '8px' } }, 'Re-download as ZIP');
 
   left.append(itemsSection, formatGroup, bitrateGroup, exportBtn, zipBtn);
 
@@ -124,7 +125,6 @@ function refreshArtifacts() {
   }
 
   document.getElementById('export-start').disabled = false;
-  document.getElementById('export-zip').disabled = false;
 
   for (const item of items) {
     container.appendChild(
@@ -215,9 +215,18 @@ async function startExport() {
         document.getElementById('export-pct').textContent = `${(progress * 100).toFixed(0)}%`;
         document.getElementById('export-stage').textContent = stage;
       },
-      onDone(result) {
+      async onDone(result) {
         progressCard.classList.add('hidden');
-        showExportResults(result.exported || []);
+        const exported = result.exported || [];
+        _lastExportedPaths = exported;
+        showExportResults(exported);
+        // Auto-download: single file → save dialog, multiple → zip
+        if (exported.length === 1) {
+          const name = exported[0].split('/').pop();
+          await saveFileAs(`/api/audio/download?path=${encodeURIComponent(exported[0])}`, name);
+        } else if (exported.length > 1) {
+          await _downloadZipFromPaths(exported);
+        }
       },
       onError(msg) {
         progressCard.classList.add('hidden');
@@ -234,6 +243,11 @@ async function startExport() {
 function showExportResults(exported) {
   const container = document.getElementById('export-results');
 
+  // Enable re-download zip button when multiple files exported
+  if (exported.length > 1) {
+    document.getElementById('export-zip').disabled = false;
+  }
+
   container.appendChild(
     el('div', { className: 'banner banner-success' }, `Exported ${exported.length} file(s)`),
   );
@@ -246,31 +260,32 @@ function showExportResults(exported) {
         el('button', {
           className: 'btn btn-sm',
           onClick: () => saveFileAs(`/api/audio/download?path=${encodeURIComponent(path)}`, name),
-        }, 'Download'),
+        }, 'Save'),
       ),
     );
   }
 }
 
-async function downloadZip() {
-  const checkedEls = document.querySelectorAll('#export-items input[type="checkbox"]:checked');
-  const items = Array.from(checkedEls).map(el => el.value);
-  if (!items.length) return;
+async function _downloadZipFromPaths(paths) {
+  const res = await fetch('/api/export/download-zip', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: paths }),
+  });
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'stemforge_export.zip';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
+}
 
+async function downloadZip() {
+  if (!_lastExportedPaths.length) return;
   try {
-    const res = await fetch('/api/export/download-zip', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items }),
-    });
-    const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'stemforge_export.zip';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
+    await _downloadZipFromPaths(_lastExportedPaths);
   } catch (err) {
     alert(`ZIP download failed: ${err.message}`);
   }
