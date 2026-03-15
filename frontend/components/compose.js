@@ -819,7 +819,7 @@ function buildRightColumn() {
 
   // Project save/load
   const projStatus = el('span', { id: 'compose-project-status', className: 'compose-project-status' });
-  const projFileInput = el('input', { type: 'file', id: 'compose-project-file', accept: '.json', className: 'hidden' });
+  const projFileInput = el('input', { type: 'file', id: 'compose-project-file', accept: '.wrgl,.json', className: 'hidden' });
   const projSaveBtn = el('button', { className: 'compose-ghost-btn', type: 'button' }, 'Save Project');
   const projLoadBtn = el('button', { className: 'compose-ghost-btn', type: 'button' }, 'Load Project');
   projSaveBtn.addEventListener('click', _saveProject);
@@ -1233,6 +1233,13 @@ function _setSliderValue(id, value) {
 }
 
 function _applyProject(proj) {
+  // Switch mode and subtab first so the correct panels are visible for field population
+  if (proj.mode && ['create', 'rework', 'analyze', 'voice'].includes(proj.mode)) switchMode(proj.mode);
+  if (proj.createTab) switchCreateTab(proj.createTab);
+  if (proj.approach) switchApproach(proj.approach);
+  if (proj.reworkApproach) switchApproach(proj.reworkApproach);
+  if (proj.analyzeMode) switchAnalyzeMode(proj.analyzeMode);
+
   // Lyrics & style
   const lyrics = _id('compose-lyrics-text');
   if (lyrics) lyrics.value = proj.lyrics || '';
@@ -1296,12 +1303,6 @@ function _applyProject(proj) {
   const cfgEnd = _id('compose-cfg-end'); if (cfgEnd && proj.cfgEnd != null) cfgEnd.value = proj.cfgEnd;
   _setSliderValue('compose-cover-noise', proj.coverNoiseStrength);
 
-  // Mode & tabs
-  if (proj.mode) switchMode(proj.mode);
-  if (proj.createTab) switchCreateTab(proj.createTab);
-  if (proj.approach) switchApproach(proj.approach);
-  if (proj.analyzeMode) switchAnalyzeMode(proj.analyzeMode);
-
   // Last seed recall
   if (proj.lastSeed != null) {
     _lastSeed = proj.lastSeed;
@@ -1316,11 +1317,68 @@ function _saveProject() {
   const blob = new Blob([JSON.stringify(proj, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${name}.json`;
+  a.download = `${name}.wrgl`;
   a.click();
   URL.revokeObjectURL(a.href);
   const status = _id('compose-project-status');
   if (status) { status.textContent = 'Saved'; setTimeout(() => { status.textContent = ''; }, 2000); }
+}
+
+/** Convert a song metadata JSON (from /download/.../json) into a project object. */
+function _songMetaToProject(song) {
+  const p = song.params || {};
+  // Split combined key like "C major" into root + mode
+  let keyRoot = '', keyMode = 'major';
+  if (p.key) {
+    const parts = p.key.trim().split(/\s+/);
+    keyRoot = parts[0] || '';
+    keyMode = parts[1] || 'major';
+  }
+  // Map use_adg bool → guidanceMode string ('apg' = Standard, 'adg' = Precise)
+  const guidanceMode = p.use_adg ? 'adg' : 'apg';
+
+  // Determine mode and subtab from task_type
+  let mode = 'create', createTab = 'my-lyrics', reworkApproach = 'cover';
+  if (p.task_type === 'cover' || p.task_type === 'repaint') {
+    mode = 'rework';
+    reworkApproach = p.task_type;
+  } else if (p.sample_query) {
+    createTab = 'ai-lyrics';
+  }
+
+  return {
+    _version: 1,
+    _imported_from: 'song-metadata',
+    mode,
+    createTab,
+    lyrics:   p.lyrics || '',
+    style:    p.style || '',
+    tags:     [],
+    bpm:      p.bpm != null ? String(p.bpm) : '',
+    keyRoot,
+    keyMode,
+    timeSig:  p.time_signature || '4/4',
+    duration:        p.duration != null ? p.duration : 30,
+    lyricAdherence:  p.lyric_adherence != null ? p.lyric_adherence : 1,
+    creativity:      p.creativity != null ? p.creativity : 50,
+    quality:         p.quality != null ? p.quality : 1,
+    genModel:    p.gen_model || 'turbo',
+    batchSize:   p.batch_size != null ? p.batch_size : 1,
+    scheduler:   p.scheduler || 'euler',
+    audioFormat: p.audio_format || 'mp3',
+    guidanceLyric:  p.guidance_scale_raw,
+    guidanceAudio:  p.audio_guidance_scale,
+    inferenceSteps: p.inference_steps_raw,
+    seed:     '',
+    lastSeed: p.seed,
+    aiDescription: p.sample_query || '',
+    aiLanguage:    p.vocal_language || 'en',
+    guidanceMode,
+    cfgStart:           p.cfg_interval_start != null ? p.cfg_interval_start : 0,
+    cfgEnd:             p.cfg_interval_end != null ? p.cfg_interval_end : 1,
+    reworkApproach,
+    coverNoiseStrength: p.cover_noise_strength,
+  };
 }
 
 async function _loadProject() {
@@ -1331,12 +1389,23 @@ async function _loadProject() {
   const status = _id('compose-project-status');
   try {
     const text = await file.text();
-    const proj = JSON.parse(text);
-    if (!proj._version) throw new Error('Not a valid project file');
+    const data = JSON.parse(text);
+    let proj, label;
+    if (data._version) {
+      // Native project file (.wrgl or legacy .json)
+      proj = data;
+      label = 'Loaded project: ' + file.name;
+    } else if (data.params && data.generated_at) {
+      // Song metadata JSON from a generation result
+      proj = _songMetaToProject(data);
+      label = 'Imported song settings: ' + file.name;
+    } else {
+      throw new Error('Unrecognized file format');
+    }
     _applyProject(proj);
-    if (status) { status.textContent = 'Loaded: ' + file.name; setTimeout(() => { status.textContent = ''; }, 3000); }
+    if (status) { status.textContent = label; setTimeout(() => { status.textContent = ''; }, 3000); }
   } catch {
-    if (status) { status.textContent = 'Invalid project file'; setTimeout(() => { status.textContent = ''; }, 3000); }
+    if (status) { status.textContent = 'Not a valid project or song file'; setTimeout(() => { status.textContent = ''; }, 3000); }
   }
 }
 
