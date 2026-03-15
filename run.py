@@ -2,12 +2,43 @@
 
 import argparse
 import atexit
+import fcntl
 import os
 import signal
 import subprocess
+import sys
+from pathlib import Path
 
 from dotenv import load_dotenv
 import uvicorn
+
+# Cross-process GPU lock — prevents StemForge and Wrangler from running
+# simultaneously.  Uses fcntl.flock() which is kernel-enforced and
+# automatically released on process exit (even on crash).
+_GPU_LOCK_PATH = Path.home() / ".local" / "share" / "stemforge" / "gpu.lock"
+
+
+def _acquire_gpu_lock() -> object:
+    """Acquire exclusive GPU lock.  Returns the open file handle (must stay open)."""
+    _GPU_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(_GPU_LOCK_PATH, "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        # Another app holds the lock — read who
+        try:
+            with open(_GPU_LOCK_PATH) as rf:
+                holder = rf.read().strip() or "another GPU application"
+        except OSError:
+            holder = "another GPU application"
+        print(f"\n  ERROR: GPU is locked by {holder}")
+        print("  Only one GPU application (StemForge or Wrangler) can run at a time.")
+        print("  Stop the other application first, then try again.\n")
+        fh.close()
+        sys.exit(1)
+    fh.write(f"StemForge (PID {os.getpid()})\n")
+    fh.flush()
+    return fh
 
 load_dotenv(override=False)
 
@@ -125,6 +156,9 @@ def _print_banner(
 
 def main() -> None:
     args = _parse_args()
+
+    # --- GPU exclusion lock (must be first — before any heavy imports) ---
+    _gpu_lock_fh = _acquire_gpu_lock()  # noqa: F841  (must stay open)
 
     # --- Model cache directory (must be set before any model imports) ---
     if args.model_dir:
