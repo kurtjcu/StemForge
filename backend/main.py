@@ -19,7 +19,7 @@ from utils.logging_utils import configure_logging
 
 from backend.api import system, audio, separate, midi, generate, mix, export, compose, sfx, voice, enhance
 from backend.services.session_store import registry
-from backend.services.job_manager import job_manager
+from backend.services.job_manager import job_manager, JobLimitError
 
 configure_logging()
 log = logging.getLogger("stemforge")
@@ -35,6 +35,9 @@ MAX_JOBS_PER_USER = int(os.environ.get("MAX_JOBS_PER_USER", "3"))
 SESSION_TIMEOUT_MIN = int(os.environ.get("SESSION_TIMEOUT_MINUTES", "60"))
 JOB_TTL_MIN = int(os.environ.get("JOB_TTL_MINUTES", "120"))
 
+# Wire rate limit into job manager (atomic enforcement inside create_job)
+job_manager.max_jobs_per_user = MAX_JOBS_PER_USER
+
 
 # ---------------------------------------------------------------------------
 # User middleware — inject request.state.user from reverse proxy header
@@ -46,28 +49,38 @@ async def inject_user(request: Request, call_next):
 
     Falls back to "local" for single-user dev mode.  Enforces capacity
     limits when MAX_USERS > 0.
+
+    Uses ``try_admit()`` for atomic check-and-create so two simultaneous
+    new users cannot both slip past the capacity gate.
     """
     user = request.headers.get("x-auth-user", "local")
     request.state.user = user
 
-    # Capacity enforcement (skip for "local" — single-user dev mode)
     if user != "local" and MAX_USERS > 0:
-        timeout = SESSION_TIMEOUT_MIN * 60
-        # Check if this is a new user and we're at capacity
-        existing_users = registry.list_users()
-        if user not in existing_users:
-            active = registry.active_count(timeout)
-            if active >= MAX_USERS:
-                return JSONResponse(
-                    status_code=503,
-                    content={"detail": "Server is at capacity. Try again later."},
-                )
-
-    # Touch session (creates if new, updates last_seen)
-    registry.get(user)
+        session = registry.try_admit(user, MAX_USERS, SESSION_TIMEOUT_MIN * 60)
+        if session is None:
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "Server is at capacity. Try again later."},
+            )
+    else:
+        # Single-user or unlimited mode — just touch the session
+        registry.get(user)
 
     response = await call_next(request)
     return response
+
+
+@app.exception_handler(JobLimitError)
+async def _job_limit_handler(request: Request, exc: JobLimitError):
+    """Convert JobLimitError → HTTP 429 so callers don't need try/except."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": f"Too many active jobs ({exc.active}/{exc.limit}). "
+                      "Wait for a job to finish.",
+        },
+    )
 
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):

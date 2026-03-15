@@ -340,6 +340,27 @@ class SessionRegistry:
                 del self._sessions[u]
             return expired
 
+    def try_admit(self, user: str, max_users: int, timeout_seconds: float) -> SessionStore | None:
+        """Atomically check capacity and create/return session.
+
+        Returns the user's SessionStore if admitted (or already known).
+        Returns None if this is a new user and the server is at capacity.
+        """
+        with self._lock:
+            if user not in self._sessions:
+                if max_users > 0:
+                    now = time.monotonic()
+                    active = sum(
+                        1 for s in self._sessions.values()
+                        if now - s.last_seen < timeout_seconds
+                    )
+                    if active >= max_users:
+                        return None
+                self._sessions[user] = SessionStore(user=user)
+            s = self._sessions[user]
+            s.last_seen = time.monotonic()
+            return s
+
     def list_users(self) -> list[str]:
         with self._lock:
             return list(self._sessions.keys())

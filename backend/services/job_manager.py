@@ -17,6 +17,16 @@ from typing import Any, Callable
 log = logging.getLogger("stemforge.jobs")
 
 
+class JobLimitError(Exception):
+    """Raised when a user exceeds their active job limit."""
+
+    def __init__(self, user: str, active: int, limit: int) -> None:
+        self.user = user
+        self.active = active
+        self.limit = limit
+        super().__init__(f"User '{user}' has {active} active jobs (limit: {limit})")
+
+
 @dataclass
 class JobState:
     job_id: str
@@ -36,11 +46,25 @@ class JobManager:
     def __init__(self) -> None:
         self._jobs: dict[str, JobState] = {}
         self._lock = threading.Lock()
+        self.max_jobs_per_user: int = 0  # 0 = unlimited; set by main.py
 
     def create_job(self, job_type: str, user: str = "local") -> str:
+        """Create a new job, enforcing per-user rate limits atomically.
+
+        Raises ``JobLimitError`` if *user* already has too many active jobs.
+        The check-and-insert happens under a single lock acquisition so
+        there is no TOCTOU window between counting and creating.
+        """
         job_id = uuid.uuid4().hex[:12]
         job = JobState(job_id=job_id, job_type=job_type, user=user)
         with self._lock:
+            if self.max_jobs_per_user > 0 and user != "local":
+                active = sum(
+                    1 for j in self._jobs.values()
+                    if j.user == user and j.status in ("pending", "running")
+                )
+                if active >= self.max_jobs_per_user:
+                    raise JobLimitError(user, active, self.max_jobs_per_user)
             self._jobs[job_id] = job
         return job_id
 
