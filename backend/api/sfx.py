@@ -288,6 +288,37 @@ def available_clips(exclude_id: str | None = Query(None)) -> dict:
     return {"clips": clips}
 
 
+class DeleteSoundRequest(BaseModel):
+    path: str
+
+
+@router.post("/delete-sound")
+def delete_sound(req: DeleteSoundRequest) -> dict:
+    """Delete a generated or imported sound file from disk."""
+    p = pathlib.Path(req.path)
+    # Only allow deleting files inside MUSICGEN_DIR or SFX_DIR/imports
+    allowed = False
+    try:
+        p.resolve().relative_to(MUSICGEN_DIR.resolve())
+        allowed = True
+    except ValueError:
+        pass
+    if not allowed:
+        imports_dir = SFX_DIR / "imports"
+        try:
+            p.resolve().relative_to(imports_dir.resolve())
+            allowed = True
+        except ValueError:
+            pass
+    if not allowed:
+        raise HTTPException(403, "Cannot delete files outside of sound directories")
+    if not p.exists():
+        raise HTTPException(404, "File not found")
+    p.unlink()
+    session.unkeep_clip(str(p))
+    return {"ok": True}
+
+
 class KeepClipRequest(BaseModel):
     path: str
     keep: bool = True

@@ -653,13 +653,24 @@ async function showSoundBrowser() {
         className: 'sound-browser-item',
         style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', cursor: 'pointer' },
       });
-      row.appendChild(el('span', { style: { flex: '1', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, s.name));
       const addBtn = el('button', { className: 'btn btn-sm btn-primary', style: { flexShrink: '0' } }, 'Add');
       addBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         _showSoundAsResult(s.path, s.name);
       });
+      const delBtn = el('button', { className: 'btn btn-sm btn-danger', style: { flexShrink: '0' } }, '\u2715');
+      delBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await api('/sfx/delete-sound', { method: 'POST', body: JSON.stringify({ path: s.path }) });
+          row.remove();
+        } catch (err) {
+          alert(`Delete failed: ${err.message}`);
+        }
+      });
       row.appendChild(addBtn);
+      row.appendChild(el('span', { style: { flex: '1', fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, s.name));
+      row.appendChild(delBtn);
       list.appendChild(row);
     }
   } catch (err) {
