@@ -165,7 +165,6 @@ let _currentSfxId = null;
 let _canvasPlayer = null;      // createStemPlayer instance for canvas playback
 let _alignAudioPath = null;    // resolved audio path for reference lane
 let _alignStemType = null;     // 'audio' | 'midi'
-let _alignPeaks = [];          // downsampled waveform peaks for reference lane
 let _refPlayer = null;         // createStemPlayer instance for reference stem
 let _timelineDurationMs = 0;   // current canvas duration in ms
 let _alignedStemPaths = {};    // label → path, from stemsReady (audio, green)
@@ -843,7 +842,6 @@ async function deleteSfx() {
     _currentSfxId = null;
     _alignAudioPath = null;
     _alignStemType = null;
-    _alignPeaks = [];
     _timelineDurationMs = 0;
     _refPlayer = null;
     document.getElementById('sfx-section').classList.add('hidden');
@@ -942,12 +940,6 @@ async function onAlignSelectChange() {
     // Store for timeline rendering
     _alignAudioPath = audioPath;
     _alignStemType = stemType;
-
-    // Fetch waveform peaks for reference lane visualization
-    try {
-      const waveData = await api(`/audio/waveform?path=${encodeURIComponent(audioPath)}&points=500`);
-      _alignPeaks = waveData.peaks || [];
-    } catch { _alignPeaks = []; }
 
     // Create reference stem player
     const refLabel = select.selectedOptions[0]?.text || 'Reference';
@@ -1072,27 +1064,6 @@ function packPlacements(placements) {
   return rows;
 }
 
-/**
- * Draw waveform peaks on a canvas inside the reference lane.
- */
-function drawRefWaveform(canvas, peaks, isMidi) {
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  if (!peaks.length) return;
-
-  const mid = h / 2;
-  const color = isMidi ? 'rgba(168, 85, 247, 0.7)' : 'rgba(34, 197, 94, 0.7)';
-  ctx.fillStyle = color;
-
-  const barW = w / peaks.length;
-  for (let i = 0; i < peaks.length; i++) {
-    const amp = Math.min(1, Math.abs(peaks[i]));
-    const barH = amp * mid * 0.9;
-    ctx.fillRect(i * barW, mid - barH, Math.max(1, barW), barH * 2);
-  }
-}
 
 /**
  * Render the DAW-style timeline: ruler ticks, reference lane, clip lanes.
@@ -1121,7 +1092,7 @@ function renderTimeline(manifest) {
     ruler.appendChild(tick);
   }
 
-  // Reference lane with waveform visualization (if align is set)
+  // Reference lane (label-only bar — playable waveform lives in the ref player above)
   if (_alignAudioPath) {
     const isMidi = _alignStemType === 'midi';
     const refLane = el('div', { className: 'sfx-lane sfx-lane-ref' });
@@ -1131,23 +1102,10 @@ function renderTimeline(manifest) {
     refBlock.style.left = '0';
     refBlock.style.width = '100%';
 
-    const waveCanvas = document.createElement('canvas');
-    waveCanvas.className = 'sfx-ref-waveform';
-    refBlock.appendChild(waveCanvas);
-
     const stemLabel = document.getElementById('sfx-align-select').selectedOptions[0]?.text || 'Reference';
     refBlock.appendChild(el('span', { className: 'sfx-clip-label' }, stemLabel));
     refLane.appendChild(refBlock);
     lanesContainer.appendChild(refLane);
-
-    // Draw after layout so clientWidth/Height are available
-    if (_alignPeaks.length) {
-      requestAnimationFrame(() => {
-        waveCanvas.width = refBlock.clientWidth;
-        waveCanvas.height = refBlock.clientHeight;
-        drawRefWaveform(waveCanvas, _alignPeaks, isMidi);
-      });
-    }
   }
 
   // Clip lanes
