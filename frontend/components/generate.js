@@ -242,8 +242,8 @@ export function initGenerate() {
   );
 
   const genRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
-    el('button', { className: 'btn btn-primary', id: 'gen-start' }, 'Generate'),
-    el('button', { className: 'btn btn-sm', id: 'sfx-add-sound-btn' }, '+ Add Sound'),
+    el('button', { className: 'btn btn-primary', id: 'gen-start', style: { flex: '1' } }, 'Generate'),
+    el('button', { className: 'btn', id: 'sfx-add-sound-btn', style: { flex: '1' } }, '+ Add Sound'),
     el('input', { type: 'file', id: 'sfx-add-sound-input', accept: '.wav,.flac,.mp3,.ogg,.aiff', style: { display: 'none' } }),
   );
 
