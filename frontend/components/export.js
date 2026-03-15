@@ -1,91 +1,79 @@
 /**
- * Export tab — select artifacts, choose format, download.
+ * Export tab — preview artifacts, choose format, export with auto-download.
  */
 
-import { appState, api, pollJob, el, saveFileAs } from '../app.js';
+import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
+import { createWaveform } from './waveform.js';
+import { transportLoad, transportStop } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
 
 const _LOSSY_FORMATS = new Set(['mp3', 'ogg', 'm4a']);
-let _lastExportedPaths = [];
+
+/** Active waveform players for exclusive playback. */
+let _players = [];
+
+function _stopOtherPlayers(except) {
+  for (const p of _players) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
+      p.playBtn.textContent = '\u25B6 Play';
+    }
+  }
+}
 
 export function initExport() {
   const panel = document.getElementById('panel-export');
-  const layout = el('div', { className: 'two-col' });
 
-  // ─── Left: controls ───
-  const left = el('div', { className: 'col-left' });
-
-  const itemsSection = el('div', { className: 'form-group' },
-    el('label', {}, 'Available artifacts'),
-    el('div', { className: 'checkbox-group', id: 'export-items' },
-      el('span', { className: 'text-dim' }, 'Load a file to get started'),
-    ),
+  // ─── Top bar: format, bitrate, export button ───
+  const formatSelect = el('select', { id: 'export-format' },
+    el('option', { value: 'wav' }, 'WAV (lossless)'),
+    el('option', { value: 'flac' }, 'FLAC (lossless)'),
+    el('option', { value: 'aiff' }, 'AIFF (lossless)'),
+    el('option', { value: 'mp3' }, 'MP3'),
+    el('option', { value: 'ogg' }, 'OGG Opus'),
+    el('option', { value: 'm4a' }, 'M4A (AAC)'),
   );
 
-  const formatGroup = el('div', { className: 'form-group' },
-    el('label', {}, 'Output format'),
-    el('select', { id: 'export-format' },
-      el('option', { value: 'wav' }, 'WAV (lossless)'),
-      el('option', { value: 'flac' }, 'FLAC (lossless)'),
-      el('option', { value: 'aiff' }, 'AIFF (lossless)'),
-      el('option', { value: 'mp3' }, 'MP3'),
-      el('option', { value: 'ogg' }, 'OGG Opus'),
-      el('option', { value: 'm4a' }, 'M4A (AAC)'),
-    ),
+  const bitrateSlider = el('input', {
+    type: 'range', id: 'export-bitrate', min: '64', max: '320', step: '32', value: '192',
+  });
+  const bitrateLabel = el('span', { id: 'export-bitrate-value' }, '192 kbps');
+  const bitrateGroup = el('span', { className: 'export-bitrate-inline hidden', id: 'export-bitrate-group' },
+    bitrateLabel, bitrateSlider,
   );
 
-  // Bitrate control — shown only for lossy formats
-  const bitrateGroup = el('div', { className: 'form-group hidden', id: 'export-bitrate-group' },
-    el('label', { htmlFor: 'export-bitrate' },
-      'Bitrate: ',
-      el('span', { id: 'export-bitrate-value' }, '192 kbps'),
-    ),
-    el('input', {
-      type: 'range', id: 'export-bitrate', min: '64', max: '320', step: '32', value: '192',
-    }),
+  const exportBtn = el('button', { className: 'btn btn-primary', id: 'export-start', disabled: 'true' }, 'Export Selected');
+
+  const topBar = el('div', { className: 'export-top-bar' },
+    el('label', {}, 'Format: ', formatSelect),
+    bitrateGroup,
+    exportBtn,
   );
 
-  const exportBtn = el('button', { className: 'btn btn-primary', id: 'export-start', disabled: 'true' }, 'Export');
-  const zipBtn = el('button', { className: 'btn', id: 'export-zip', disabled: 'true', style: { marginTop: '8px' } }, 'Re-download as ZIP');
-
-  left.append(itemsSection, formatGroup, bitrateGroup, exportBtn, zipBtn);
-
-  // ─── Right: results ───
-  const right = el('div', { className: 'col-right' });
-
-  const progressCard = el('div', { className: 'card hidden', id: 'export-progress' },
-    el('div', { className: 'progress-container' },
-      el('div', { className: 'progress-bar' },
-        el('div', { className: 'progress-fill', id: 'export-progress-fill' }),
-      ),
-      el('div', { className: 'progress-label' },
-        el('span', { id: 'export-stage' }, ''),
-        el('span', { id: 'export-pct' }, '0%'),
-      ),
-    ),
+  // ─── Progress bar (hidden by default) ───
+  const progressBar = el('div', { className: 'export-progress-bar hidden', id: 'export-progress' },
+    el('div', { className: 'progress-fill', id: 'export-progress-fill' }),
   );
 
-  const resultsContainer = el('div', { id: 'export-results' });
+  // ─── Artifact preview area ───
+  const previewArea = el('div', { id: 'export-previews', className: 'export-previews' },
+    el('span', { className: 'text-dim' }, 'Load a file to get started'),
+  );
 
-  right.append(progressCard, resultsContainer);
-  layout.append(left, right);
-  panel.appendChild(layout);
+  panel.append(topBar, progressBar, previewArea);
 
   // ─── Wire events ───
-  document.getElementById('export-start').addEventListener('click', startExport);
-  document.getElementById('export-zip').addEventListener('click', downloadZip);
+  exportBtn.addEventListener('click', startExport);
 
-  // Format change → toggle bitrate control + set sensible default
-  document.getElementById('export-format').addEventListener('change', () => {
-    const fmt = document.getElementById('export-format').value;
+  formatSelect.addEventListener('change', () => {
+    const fmt = formatSelect.value;
     const bg = document.getElementById('export-bitrate-group');
     const slider = document.getElementById('export-bitrate');
     if (_LOSSY_FORMATS.has(fmt)) {
       bg.classList.remove('hidden');
-      // Opus sounds great at lower bitrates than MP3/AAC
       const defaultBr = fmt === 'ogg' ? 128 : 192;
       slider.value = defaultBr;
       _updateBitrateLabel();
@@ -94,18 +82,18 @@ export function initExport() {
     }
   });
 
-  document.getElementById('export-bitrate').addEventListener('input', _updateBitrateLabel);
+  bitrateSlider.addEventListener('input', _updateBitrateLabel);
 
   // Listen for all ready events
-  appState.on('fileLoaded', refreshArtifacts);
-  appState.on('stemsReady', refreshArtifacts);
-  appState.on('midiReady', refreshArtifacts);
-  appState.on('generateReady', refreshArtifacts);
-  appState.on('composeReady', refreshArtifacts);
-  appState.on('mixReady', refreshArtifacts);
-  appState.on('sfxReady', refreshArtifacts);
-  appState.on('transformReady', refreshArtifacts);
-  appState.on('enhanceReady', refreshArtifacts);
+  appState.on('fileLoaded', refreshPreviews);
+  appState.on('stemsReady', refreshPreviews);
+  appState.on('midiReady', refreshPreviews);
+  appState.on('generateReady', refreshPreviews);
+  appState.on('composeReady', refreshPreviews);
+  appState.on('mixReady', refreshPreviews);
+  appState.on('sfxReady', refreshPreviews);
+  appState.on('transformReady', refreshPreviews);
+  appState.on('enhanceReady', refreshPreviews);
 }
 
 function _updateBitrateLabel() {
@@ -113,8 +101,14 @@ function _updateBitrateLabel() {
   document.getElementById('export-bitrate-value').textContent = v + ' kbps';
 }
 
-function refreshArtifacts() {
-  const container = document.getElementById('export-items');
+// ─── Preview players ──────────────────────────────────────────────────
+
+function refreshPreviews() {
+  const container = document.getElementById('export-previews');
+
+  // Destroy old players
+  for (const p of _players) { try { p.ws.destroy(); } catch {} }
+  _players = [];
   clearChildren(container);
 
   const items = collectArtifacts();
@@ -127,12 +121,60 @@ function refreshArtifacts() {
   document.getElementById('export-start').disabled = false;
 
   for (const item of items) {
-    container.appendChild(
-      el('label', {},
-        el('input', { type: 'checkbox', value: item.path, checked: 'true' }),
-        `${item.label} (${item.type})`,
+    const streamUrl = `/api/audio/stream?path=${encodeURIComponent(item.path)}`;
+
+    const checkbox = el('input', { type: 'checkbox', checked: 'true', 'data-path': item.path });
+    const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
+    const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0');
+    const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA');
+    const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+    const header = el('div', { className: 'stem-card-header' },
+      el('label', { className: 'export-check-label' }, checkbox,
+        el('span', { className: 'stem-label' }, `${item.label}  `, el('span', { className: 'text-dim' }, `(${item.type})`)),
+      ),
+      el('div', { className: 'stem-actions' },
+        playBtn, stopBtn, rewindBtn, timeLabel,
       ),
     );
+
+    const waveContainer = el('div', { className: 'stem-waveform' });
+    const card = el('div', { className: 'stem-card' }, header, waveContainer);
+    container.appendChild(card);
+
+    const ws = createWaveform(waveContainer, { height: 50 });
+    ws.load(streamUrl);
+    _players.push({ ws, playBtn });
+
+    playBtn.addEventListener('click', () => {
+      if (ws.isPlaying()) {
+        ws.pause();
+        playBtn.textContent = '\u25B6 Play';
+      } else {
+        _stopOtherPlayers(ws);
+        ws.play();
+        playBtn.textContent = '\u23F8 Pause';
+        transportLoad(streamUrl, item.label, false, 'Export');
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      ws.stop();
+      transportStop();
+      playBtn.textContent = '\u25B6 Play';
+    });
+
+    rewindBtn.addEventListener('click', () => ws.setTime(0));
+
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+      transportStop();
+    });
   }
 }
 
@@ -185,23 +227,24 @@ function collectArtifacts() {
   return items;
 }
 
+// ─── Export ───────────────────────────────────────────────────────────
+
 async function startExport() {
-  const checkedEls = document.querySelectorAll('#export-items input[type="checkbox"]:checked');
-  const items = Array.from(checkedEls).map(el => el.value);
+  const checkedEls = document.querySelectorAll('#export-previews input[type="checkbox"]:checked');
+  const items = Array.from(checkedEls).map(cb => cb.dataset.path);
   const format = document.getElementById('export-format').value;
 
   if (!items.length) return;
 
-  // Include bitrate for lossy formats
   const body = { items, format };
   if (_LOSSY_FORMATS.has(format)) {
     body.bitrate = parseInt(document.getElementById('export-bitrate').value, 10);
   }
 
-  const progressCard = document.getElementById('export-progress');
-  const resultsContainer = document.getElementById('export-results');
-  progressCard.classList.remove('hidden');
-  clearChildren(resultsContainer);
+  const progressBar = document.getElementById('export-progress');
+  const fill = document.getElementById('export-progress-fill');
+  progressBar.classList.remove('hidden');
+  fill.style.width = '0%';
 
   try {
     const { job_id } = await api('/export', {
@@ -210,63 +253,31 @@ async function startExport() {
     });
 
     pollJob(job_id, {
-      onProgress(progress, stage) {
-        document.getElementById('export-progress-fill').style.width = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('export-pct').textContent = `${(progress * 100).toFixed(0)}%`;
-        document.getElementById('export-stage').textContent = stage;
+      onProgress(progress) {
+        fill.style.width = `${(progress * 100).toFixed(0)}%`;
       },
       async onDone(result) {
-        progressCard.classList.add('hidden');
+        progressBar.classList.add('hidden');
         const exported = result.exported || [];
-        _lastExportedPaths = exported;
-        showExportResults(exported);
         // Auto-download: single file → save dialog, multiple → zip
         if (exported.length === 1) {
           const name = exported[0].split('/').pop();
           await saveFileAs(`/api/audio/download?path=${encodeURIComponent(exported[0])}`, name);
         } else if (exported.length > 1) {
-          await _downloadZipFromPaths(exported);
+          await _downloadZip(exported);
         }
       },
       onError(msg) {
-        progressCard.classList.add('hidden');
-        resultsContainer.appendChild(
-          el('div', { className: 'banner banner-error' }, `Export failed: ${msg}`),
-        );
+        progressBar.classList.add('hidden');
+        alert(`Export failed: ${msg}`);
       },
     });
-  } catch (err) {
-    progressCard.classList.add('hidden');
+  } catch {
+    progressBar.classList.add('hidden');
   }
 }
 
-function showExportResults(exported) {
-  const container = document.getElementById('export-results');
-
-  // Enable re-download zip button when multiple files exported
-  if (exported.length > 1) {
-    document.getElementById('export-zip').disabled = false;
-  }
-
-  container.appendChild(
-    el('div', { className: 'banner banner-success' }, `Exported ${exported.length} file(s)`),
-  );
-
-  for (const path of exported) {
-    const name = path.split('/').pop();
-    container.appendChild(
-      el('div', { className: 'export-item' },
-        el('span', { className: 'item-name' }, name),
-        el('button', {
-          className: 'btn btn-sm',
-          onClick: () => saveFileAs(`/api/audio/download?path=${encodeURIComponent(path)}`, name),
-        }, 'Save'),
-      ),
-    );
-  }
-}
-
-async function _downloadZipFromPaths(paths) {
+async function _downloadZip(paths) {
   const res = await fetch('/api/export/download-zip', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -280,13 +291,4 @@ async function _downloadZipFromPaths(paths) {
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1000);
-}
-
-async function downloadZip() {
-  if (!_lastExportedPaths.length) return;
-  try {
-    await _downloadZipFromPaths(_lastExportedPaths);
-  } catch (err) {
-    alert(`ZIP download failed: ${err.message}`);
-  }
 }
