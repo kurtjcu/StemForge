@@ -55,6 +55,16 @@ export function initSeparate() {
   const helpBtn = el('button', { className: 'btn btn-sm', id: 'sep-help' }, 'Help me choose');
   const helpResult = el('div', { id: 'sep-help-result', className: 'hidden banner banner-info' });
 
+  // Quality selector (Roformer only)
+  const qualityGroup = el('div', { className: 'form-group hidden', id: 'sep-quality-group' },
+    el('label', {}, 'Quality'),
+    el('select', { id: 'sep-quality' },
+      el('option', { value: '2' }, 'Balanced (default)'),
+      el('option', { value: '4' }, 'High'),
+      el('option', { value: '8' }, 'Maximum (slow)'),
+    ),
+  );
+
   // Stem checkboxes (single mode) / radio buttons (batch mode)
   const stemChecks = el('div', { className: 'form-group' },
     el('label', {}, 'Stems'),
@@ -66,7 +76,7 @@ export function initSeparate() {
     'Separate',
   );
 
-  left.append(engineGroup, aceBanner, modelGroup, helpBtn, helpResult, stemChecks, sepBtn);
+  left.append(engineGroup, aceBanner, modelGroup, helpBtn, helpResult, qualityGroup, stemChecks, sepBtn);
 
   // ─── Right column: results ───
   const right = el('div', { className: 'col-right' });
@@ -141,18 +151,24 @@ function updateModelOptions() {
   const modelGroup = select.closest('.form-group');
   const helpBtn = document.getElementById('sep-help');
   const aceBanner = document.getElementById('sep-ace-banner');
+  const qualityGroup = document.getElementById('sep-quality-group');
   clearChildren(select);
 
   if (engine === 'ace') {
-    // ACE mode: hide model selector and help button, show info banner
+    // ACE mode: hide model selector, help button, and quality selector; show info banner
     select.appendChild(el('option', { value: 'acestep-extract' }, 'ACE-Step Extract'));
     if (modelGroup) modelGroup.classList.add('hidden');
     if (helpBtn) helpBtn.classList.add('hidden');
     if (aceBanner) aceBanner.classList.remove('hidden');
+    if (qualityGroup) qualityGroup.classList.add('hidden');
   } else {
     if (modelGroup) modelGroup.classList.remove('hidden');
     if (helpBtn) helpBtn.classList.remove('hidden');
     if (aceBanner) aceBanner.classList.add('hidden');
+    if (qualityGroup) {
+      if (engine === 'roformer') qualityGroup.classList.remove('hidden');
+      else qualityGroup.classList.add('hidden');
+    }
     const list = models[engine] || [];
     for (const m of list) {
       select.appendChild(el('option', { value: m.model_id }, m.display_name));
@@ -318,9 +334,13 @@ async function startSeparation() {
   document.getElementById('sep-start').disabled = true;
 
   try {
+    const numOverlap = engine === 'roformer'
+      ? parseInt(document.getElementById('sep-quality').value, 10)
+      : undefined;
+
     const { job_id } = await api('/separate', {
       method: 'POST',
-      body: JSON.stringify({ engine, model_id: modelId, stems }),
+      body: JSON.stringify({ engine, model_id: modelId, stems, num_overlap: numOverlap }),
     });
 
     pollJob(job_id, {
@@ -683,6 +703,10 @@ async function startBatchSeparation() {
   document.getElementById('sep-start').disabled = true;
 
   try {
+    const numOverlap = engine === 'roformer'
+      ? parseInt(document.getElementById('sep-quality').value, 10)
+      : undefined;
+
     const { job_id } = await api('/separate/batch', {
       method: 'POST',
       body: JSON.stringify({
@@ -690,6 +714,7 @@ async function startBatchSeparation() {
         model_id: modelId,
         stem,
         files: batchFiles.map(f => ({ filename: f.filename, path: f.path })),
+        num_overlap: numOverlap,
       }),
     });
 

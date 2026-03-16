@@ -23,8 +23,9 @@ Split a track into individual stems using one of three AI engines:
 **Demucs / BS-Roformer workflow:**
 1. Choose an engine and model.
 2. Optionally click **Help me choose** — StemForge analyses your audio and recommends the best engine and model automatically.
-3. Check the stems you want to extract (all selected by default).
-4. Click **Separate**. A progress bar tracks the job. When done, each stem appears as a playable waveform and is passed automatically to the MIDI and Mix tabs.
+3. For BS-Roformer models, a **Quality** selector appears: **Balanced** (default, fastest), **High** (~2× slower), or **Maximum — slow** (~4× slower). Higher settings produce smoother blending at chunk boundaries, most noticeable on dense or rapidly-changing material. There is no quality penalty to using higher settings other than processing time.
+4. Check the stems you want to extract (all selected by default).
+5. Click **Separate**. A progress bar tracks the job. When done, each stem appears as a playable waveform and is passed automatically to the MIDI and Mix tabs.
 
 **ACE-Step workflow:**
 1. Select **ACE-Step** as the engine. The model selector is replaced by an info banner.
@@ -79,23 +80,40 @@ Apply the same enhancement preset to multiple files at once.
 
 ### Tune (Auto-Tune)
 
-Pitch-correct vocals using CREPE neural pitch detection and Praat TD-PSOLA resynthesis. Preserves vocal formants — no metallic artifacts.
+Pitch-correct vocals using CREPE neural pitch detection. Preserves vocal formants — no metallic artifacts.
 
 **Controls:**
 - **Key** — root note (C through B). Determines the tonal center for scale snapping.
 - **Scale** — chromatic, major, minor, major pentatonic, minor pentatonic, or blues. Notes are snapped to the nearest scale degree.
 - **Correction strength** — 0% (no correction) to 100% (hard snap to nearest note). Default: 80%. Lower values preserve more natural pitch variation.
-- **Humanize** — 0% (robotic precision) to 100% (loose, natural feel). Adds random micro-detuning (Gaussian ±50 cents) to avoid the "T-Pain effect". Default: 15%.
+- **Humanize** — 0% (robotic precision) to 100% (loose, natural feel). Adds random micro-detuning to avoid the "T-Pain effect". Default: 15%.
+- **Method** — resynthesis engine:
+  - **WORLD** — WORLD vocoder (`pyworld`). Best quality on lossless audio (WAV, FLAC). Preserves vocal character faithfully.
+  - **STFT** — STFT phase vocoder with formant preservation (`stftpitchshift`). Better choice for compressed sources (MP3, OGG) where WORLD may struggle.
 
 **Workflow:**
 1. Select a vocal stem from the dropdown.
-2. Set key, scale, correction strength, and humanize.
-3. Click **Process**. CREPE analyses the pitch contour, scale snapping is applied, and the WORLD vocoder resynthesizes the corrected audio.
+2. Set key, scale, correction strength, humanize, and method.
+3. Click **Process**. CREPE analyses the pitch contour, scale snapping is applied, and the selected vocoder resynthesizes the corrected audio.
 4. The tuned result appears as a playable waveform and is added to Mix and Export.
 
-### Effects (coming soon)
+### Effects
 
-Placeholder for Phase 2 — custom DSP effects chain (parametric EQ, compression, convolution reverb, delay) built on scipy.signal.
+Apply a per-stem channel strip with up to four effect types. Each effect can be enabled or disabled independently.
+
+- **EQ** — 3-band parametric equaliser (low shelf, mid peak, high shelf) with adjustable frequency, gain, and Q. Implemented with `scipy.signal`.
+- **Compressor** — dynamics control with threshold, ratio, attack, and release. Two methods selectable:
+  - **DSP** — standard feed-forward compressor
+  - **LA-2A** — neural optical compressor emulation (micro-TCN model, Apache 2.0)
+- **Noise Gate** — reduce low-level noise between phrases. Two methods:
+  - **DSP** — spectral gating via `torchgating`
+  - **Spectral** — alternative spectral method
+- **Stereo Width** — Mid/Side processing to narrow or widen the stereo image. 0% = mono, 100% = original, above 100% = widened.
+
+**Workflow:**
+1. Select a source audio file from the dropdown.
+2. Enable the effects you want and configure each one.
+3. Click **Process**. The result appears as a playable waveform and is added to Mix and Export.
 
 ---
 

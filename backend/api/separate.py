@@ -23,6 +23,7 @@ class SeparateRequest(BaseModel):
     engine: str = "demucs"            # "demucs" or "roformer"
     model_id: str = "htdemucs"
     stems: list[str] | None = None    # None = all available
+    num_overlap: int | None = None    # Roformer only: 1–8 (None = model default)
 
 
 class BatchSeparateRequest(BaseModel):
@@ -30,6 +31,7 @@ class BatchSeparateRequest(BaseModel):
     model_id: str = "htdemucs"
     stem: str                         # single stem to extract
     files: list[dict]                 # [{filename, path}, ...]
+    num_overlap: int | None = None    # Roformer only: 1–8 (None = model default)
 
 
 class BatchSaveAllRequest(BaseModel):
@@ -50,6 +52,7 @@ def _run_separation(
     audio_path: pathlib.Path,
     job_id: str,
     session: SessionStore,
+    num_overlap: int | None = None,
 ) -> dict:
     """Execute separation pipeline (runs in background thread)."""
     pipeline_cb = _make_pipeline_cb(job_id)
@@ -72,6 +75,11 @@ def _run_separation(
                     raise ValueError(f"{model_id} is not a Roformer model")
 
                 stems_out = user_dir(STEMS_DIR, session.user)
+                effective_overlap = (
+                    max(1, min(8, num_overlap))
+                    if num_overlap is not None
+                    else spec.default_num_overlap
+                )
                 config = RoformerConfig(
                     model_id=model_id,
                     stems=stems or list(spec.available_stems),
@@ -79,7 +87,7 @@ def _run_separation(
                     sample_rate=source_sr,
                     bit_depth=source_bd,
                     chunk_size=spec.default_chunk_size,
-                    num_overlap=spec.default_num_overlap,
+                    num_overlap=effective_overlap,
                 )
                 pipeline.configure(config)
                 pipeline.set_progress_callback(pipeline_cb)
@@ -141,6 +149,7 @@ def start_separation(req: SeparateRequest, session: SessionStore = Depends(get_u
         audio_path,
         job_id,
         session,
+        req.num_overlap,
     )
     return {"job_id": job_id}
 
@@ -177,6 +186,7 @@ def _run_batch_separation(
     files: list[dict],
     job_id: str,
     session: SessionStore,
+    num_overlap: int | None = None,
 ) -> dict:
     """Separate one stem from each file in the batch (runs in background thread)."""
     total = len(files)
@@ -203,6 +213,12 @@ def _run_batch_separation(
             if not isinstance(spec, RoformerSpec):
                 raise ValueError(f"{model_id} is not a Roformer model")
 
+            effective_overlap = (
+                max(1, min(8, num_overlap))
+                if num_overlap is not None
+                else spec.default_num_overlap
+            )
+
             def _configure():
                 config = RoformerConfig(
                     model_id=model_id,
@@ -211,7 +227,7 @@ def _run_batch_separation(
                     sample_rate=source_sr,
                     bit_depth=source_bd,
                     chunk_size=spec.default_chunk_size,
-                    num_overlap=spec.default_num_overlap,
+                    num_overlap=effective_overlap,
                 )
                 pipeline.configure(config)
         else:
@@ -303,6 +319,7 @@ def start_batch_separation(req: BatchSeparateRequest, session: SessionStore = De
         req.files,
         job_id,
         session,
+        req.num_overlap,
     )
     return {"job_id": job_id}
 
