@@ -160,7 +160,7 @@ Sync environment:
 
 Run the app:
 
-    uv run python run.py
+    uv run stemforge
 
 Then open http://localhost:8765 in your browser.
 
