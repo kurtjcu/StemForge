@@ -1,0 +1,4 @@
+#!/bin/bash
+# Sync all submodules (including nested) after every git pull.
+# Covers: StemForge → Ace-Step-Wrangler → vendor/ACE-Step-1.5
+git submodule update --init --recursive
