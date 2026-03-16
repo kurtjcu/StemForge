@@ -166,6 +166,42 @@ Then open http://localhost:8765 in your browser.
 
 ---
 
+## Keeping Submodules in Sync
+
+StemForge has a nested submodule chain: **StemForge → Ace-Step-Wrangler → vendor/ACE-Step-1.5**.
+A plain `git pull` updates StemForge's submodule pointer in the index but does **not**
+automatically check out the new commits inside the submodule directories. Left unattended
+this causes confusing `modified: Ace-Step-Wrangler (new commits)` noise in `git status`.
+
+### Recommended: one-time hook setup per workstation
+
+StemForge ships a `post-merge` hook that runs `git submodule update --init --recursive`
+automatically after every `git pull`. Activate it once on each workstation:
+
+    git config core.hooksPath scripts/hooks
+
+After that, pulling StemForge will always bring the full submodule chain into sync with
+no extra steps.
+
+### Manual sync (without the hook)
+
+If you prefer not to use the hook, sync manually after every pull:
+
+    git submodule update --init --recursive
+
+### Submodule ownership
+
+| Submodule | Owner | Policy |
+|---|---|---|
+| `Ace-Step-Wrangler/` | Project (tsondo) | First-party — can be freely modified |
+| `Ace-Step-Wrangler/vendor/ACE-Step-1.5/` | Upstream | Read-only — pull upstream changes only |
+
+If Ace-Step-Wrangler needs changes to integrate better with StemForge, make them in the
+Wrangler repo and pull the updated submodule pointer into StemForge. Do not edit Wrangler
+files directly from within the StemForge working tree.
+
+---
+
 ## Code Quality
 
 StemForge uses:
