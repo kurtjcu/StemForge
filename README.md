@@ -416,8 +416,7 @@ StemForge is evolving into a musical playground where you can regenerate and rem
     ├── docs/
     │   ├── INSTRUCTIONS.md             # User guide — how to use each tab
     │   ├── CURRENT_STATE.md             # Current state and design values
-    │   ├── FUTURE_PLANS.md             # Roadmap: voice training, effects, packaging, DAW integration
-    │   └── MIGRATION_PLAN.md           # DearPyGUI → FastAPI migration plan (complete)
+    │   └── FUTURE_PLANS.md             # Roadmap: voice training, effects, packaging, DAW integration
     │
     ├── backend/
     │   ├── main.py                     # FastAPI app, router registration, static mount

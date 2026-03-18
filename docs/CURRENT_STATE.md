@@ -21,7 +21,7 @@ StemForge v1.0.0 is published and actively developed post-release. All core pipe
 **What's working:**
 - Demucs + BS-Roformer stem separation (10 models total), batch mode, auto engine recommendation
 - MIDI extraction for instruments (BasicPitch) and vocals (faster-whisper + PYIN)
-- Enhance tab with three-mode bar: Clean Up (8 UVR presets), Tune (CREPE + Praat auto-tune), Effects (stub)
+- Enhance tab with three-mode bar: Clean Up (8 UVR presets), Tune (CREPE + WORLD/STFT auto-tune), Effects (EQ, Compressor with DSP/LA-2A neural, Noise Gate with DSP/Spectral, Stereo Width)
 - Stable Audio Open generation (Synth tab) — text + audio + MIDI conditioning, chunked to 600s
 - SFX Stem Builder — DAW timeline with clip placement, fades, align-to reference
 - AceStep composition (Compose tab) — 6 modes: Create, Rework, Lego, Complete, Voice, Train
@@ -31,7 +31,7 @@ StemForge v1.0.0 is published and actively developed post-release. All core pipe
 - LoRA browse detects nested `adapter/` subdirectory structure from training exports
 - RVC voice conversion with 14 built-in voices + HuggingFace model search
 - Mix tab with multi-track preview, per-track volume, FLAC render
-- Export panel with 4 formats and zip download
+- Export panel with 6 formats (WAV, FLAC, AIFF, MP3, OGG Opus, M4A), sample rate conversion (22050–96000 Hz), bit depth selection (16/24/32-bit for lossless), bitrate control (lossy), standalone file loader for format conversion, per-artifact source info badges, zip download
 - Global transport bar with "Now Playing (source)" context labels
 - Upload supports audio + video files (FFmpeg extraction)
 
@@ -50,7 +50,7 @@ Known issues / technical debt:
 
 On the horizon
 
-Phase 2 Effects Chain: Custom DSP effects (parametric EQ, compression, convolution reverb, delay) via scipy.signal — stubbed in the Enhance tab mode bar as "Effects".
+Effects Chain improvements: Convolution reverb (IR loading), delay, and chorus effects to complement the shipped EQ/compressor/gate/stereo-width chain.
 RVC voice model training: Train custom voice models from audio samples within StemForge. Architecture evaluated, ~15–22 hours implementation. See FUTURE_PLANS.md.
 DAW connectivity: Options ranging from drag-and-drop export to REST bridge plugins.
 macOS support: MPS acceleration works via `pyproject.toml.MAC`. Further polish needed.
@@ -75,7 +75,7 @@ Prefers complete, ready-to-use deliverables (full files, full specs) over partia
 Provides direct corrections when an approach falls short (e.g., supplying GitHub URLs directly when search failed).
 Follows established codebase patterns (CLAUDE.md conventions, existing router/job patterns) when adding new features.
 Backend specs are completed and tested via API before frontend UI work begins.
-Documentation is maintained rigorously: CLAUDE.md, README.md, GENERATE.md, FUTURE_PLANS.md, MIGRATION_PLAN.md are all actively kept current.
+Documentation is maintained rigorously: CLAUDE.md, README.md, INSTRUCTIONS.md, FUTURE_PLANS.md are all actively kept current.
 Job submission + polling pattern for long-running ML tasks in the FastAPI backend.
 
 

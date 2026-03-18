@@ -272,12 +272,32 @@ Click **Render Mix** to bounce all enabled tracks to a stereo FLAC file. The res
 
 ---
 
-## 8. Export
+## 8. Export — Format Conversion & Download
 
-Select any combination of pipeline outputs and download them in your preferred format.
+The Export tab serves two purposes: downloading pipeline outputs in a different format, and standalone file conversion.
 
-- **Format** — WAV, FLAC, MP3, or OGG
-- **Select all / deselect all** — quick toggle for bulk export
-- Individual files can be downloaded separately or all selected files can be bundled as a **ZIP archive**
+### File loader
 
-Available outputs include all separated stems, enhanced audio, extracted MIDI files, Synth-generated audio, composed songs, voice-converted audio, SFX renders, and the final mix.
+Drop any audio or video file directly onto the Export tab's drop zone (or click to browse). Files added here appear in the artifact list alongside any session outputs. This lets you convert files without touching the other tabs — useful when you just need to change a file's format, sample rate, or bit depth.
+
+Multiple files can be dropped at once. Each upload is independent of the main session loaded in the Separate tab.
+
+### Artifact list
+
+All available outputs are shown as playable waveform cards with source info badges showing the current sample rate and bit depth (e.g. "44.1 kHz · 24-bit"). Check or uncheck items to include them in the export.
+
+Available outputs include: uploaded originals, separated stems, enhanced audio, auto-tuned vocals, effects-processed audio, extracted MIDI files, Synth-generated audio, composed songs, voice-converted audio, SFX renders, the final mix, and any files added directly via the Export drop zone.
+
+### Format & quality settings
+
+**Format** — WAV (lossless), FLAC (lossless), AIFF (lossless), MP3, OGG Opus, M4A (AAC).
+
+**Sample rate** — available for all formats. Choose Original to preserve the source rate, or pick a specific rate (22050, 44100, 48000, 88200, 96000 Hz). Useful for matching a target DAW project rate or downsampling for distribution.
+
+**Bit depth** — available for lossless formats only (WAV, FLAC, AIFF). Choose Original to preserve the source depth, or pick 16-bit, 24-bit, or 32-bit. Lossy formats don't use bit depth — their quality is controlled by bitrate.
+
+**Bitrate** — available for lossy formats only (MP3, OGG, M4A). Slider from 64 to 320 kbps.
+
+### Download
+
+Click **Export Selected**. A progress bar tracks the conversion. Single files trigger a save dialog; multiple files are bundled as a ZIP archive and downloaded automatically.

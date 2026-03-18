@@ -173,10 +173,10 @@ Custom adapter training is now live in the **Compose tab** as a 6th mode
 
 ---
 
-## Audio enhancement — Phase 2
+## Audio enhancement — remaining phases
 
-Phases 1 and 3 are shipped. The Enhance tab now has a three-mode bar:
-**Clean Up** (Phase 1) · **Tune** (Phase 3) · **Effects** (Phase 2 stub).
+Phases 1, 2, and 3 are shipped. The Enhance tab has a three-mode bar:
+**Clean Up** (Phase 1) · **Tune** (Phase 3) · **Effects** (Phase 2).
 
 ### Phase 1 — UVR Clean Up — IMPLEMENTED
 
@@ -255,22 +255,22 @@ conversion or mixing. New **Edit** mode in the Enhance tab mode bar
   artifacts that don't voice-swap well, attenuate bleed in specific
   sections, manual cleanup that automated presets can't target.
 
-### Phase 2 — Effects Chain (scipy.signal DSP) — planned
+### Phase 2 — Effects Chain — IMPLEMENTED
 
-Apply audio effects via custom DSP built on `scipy.signal` (BSD-licensed,
-already a transitive dependency). Non-destructive chain with drag-to-reorder
-and per-effect bypass. Stubbed as "Effects" in the Enhance tab mode bar.
+Per-stem channel strip with four effect types, each offering DSP and/or ML
+methods:
 
-Planned effects (all implementable with scipy + numpy):
+- **3-band Parametric EQ** — low shelf, mid peak, high shelf with
+  frequency/gain/Q via `scipy.signal`.
+- **Compressor** — DSP feed-forward compressor and LA-2A neural
+  optical compressor emulation (`vendor/micro_tcn`, Apache 2.0).
+- **Noise Gate** — DSP spectral gating (`torchgating`) and Spectral
+  method.
+- **Stereo Width** — Mid/Side processing to narrow or widen the
+  stereo image.
 
-- **Parametric EQ** — biquad filters via `scipy.signal.sosfilt`.
-  Configurable bands (low shelf, peaking, high shelf) with
-  frequency/gain/Q controls. Standard audio cookbook coefficients.
-- **Compressor** — envelope follower (peak or RMS) + gain reduction
-  with threshold, ratio, attack, release, and makeup gain. Implemented
-  as sample-by-sample envelope tracking with numpy vectorization.
-- **Limiter** — brickwall peak limiter (compressor variant with
-  ∞:1 ratio and fast attack).
+#### Future additions
+
 - **Convolution reverb** — `scipy.signal.fftconvolve` with bundled
   impulse responses (IR files). Dry/wet mix control. Optionally load
   custom IR WAVs.
@@ -278,11 +278,8 @@ Planned effects (all implementable with scipy + numpy):
   option. Simple numpy array indexing.
 - **Chorus** — modulated delay line with LFO (sine/triangle),
   depth, rate, and mix controls.
-- **Gain** — simple amplitude scaling with dB control.
-
 - **Draggable effect panels** — slidable panels for reordering effects in
-  the chain via pointer events (smoother than HTML5 drag-and-drop for
-  this kind of UI). Each panel represents one effect with inline controls.
+  the chain via pointer events.
 
 ---
 
