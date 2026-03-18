@@ -11,6 +11,7 @@ function clearChildren(elem) {
 }
 
 const _LOSSY_FORMATS = new Set(['mp3', 'ogg', 'm4a']);
+const _LOSSLESS_FORMATS = new Set(['wav', 'flac', 'aiff']);
 
 /** Files uploaded directly in the Export tab (independent of session). */
 let _exportFiles = [];
@@ -64,7 +65,7 @@ export function initExport() {
     exportFileInput.value = '';
   });
 
-  // ─── Top bar: format, bitrate, export button ───
+  // ─── Top bar: format, quality settings, export button ───
   const formatSelect = el('select', { id: 'export-format' },
     el('option', { value: 'wav' }, 'WAV (lossless)'),
     el('option', { value: 'flac' }, 'FLAC (lossless)'),
@@ -74,6 +75,7 @@ export function initExport() {
     el('option', { value: 'm4a' }, 'M4A (AAC)'),
   );
 
+  // Lossy: bitrate slider
   const bitrateSlider = el('input', {
     type: 'range', id: 'export-bitrate', min: '64', max: '320', step: '32', value: '192',
   });
@@ -82,11 +84,34 @@ export function initExport() {
     bitrateLabel, bitrateSlider,
   );
 
+  // Lossless: sample rate + bit depth
+  const sampleRateSelect = el('select', { id: 'export-sample-rate' },
+    el('option', { value: '' }, 'Original'),
+    el('option', { value: '22050' }, '22050 Hz'),
+    el('option', { value: '44100' }, '44100 Hz'),
+    el('option', { value: '48000' }, '48000 Hz'),
+    el('option', { value: '88200' }, '88200 Hz'),
+    el('option', { value: '96000' }, '96000 Hz'),
+  );
+
+  const bitDepthSelect = el('select', { id: 'export-bit-depth' },
+    el('option', { value: '' }, 'Original'),
+    el('option', { value: '16' }, '16-bit'),
+    el('option', { value: '24' }, '24-bit'),
+    el('option', { value: '32' }, '32-bit'),
+  );
+
+  const losslessGroup = el('span', { className: 'export-lossless-inline', id: 'export-lossless-group' },
+    el('label', {}, 'Rate: ', sampleRateSelect),
+    el('label', {}, 'Depth: ', bitDepthSelect),
+  );
+
   const exportBtn = el('button', { className: 'btn btn-primary', id: 'export-start', disabled: 'true' }, 'Export Selected');
 
   const topBar = el('div', { className: 'export-top-bar' },
     el('label', {}, 'Format: ', formatSelect),
     bitrateGroup,
+    losslessGroup,
     exportBtn,
   );
 
@@ -105,21 +130,11 @@ export function initExport() {
   // ─── Wire events ───
   exportBtn.addEventListener('click', startExport);
 
-  formatSelect.addEventListener('change', () => {
-    const fmt = formatSelect.value;
-    const bg = document.getElementById('export-bitrate-group');
-    const slider = document.getElementById('export-bitrate');
-    if (_LOSSY_FORMATS.has(fmt)) {
-      bg.classList.remove('hidden');
-      const defaultBr = fmt === 'ogg' ? 128 : 192;
-      slider.value = defaultBr;
-      _updateBitrateLabel();
-    } else {
-      bg.classList.add('hidden');
-    }
-  });
-
+  formatSelect.addEventListener('change', _updateFormatSettings);
   bitrateSlider.addEventListener('input', _updateBitrateLabel);
+
+  // Set initial visibility
+  _updateFormatSettings();
 
   // Listen for all ready events
   appState.on('fileLoaded', refreshPreviews);
@@ -165,9 +180,36 @@ async function _handleExportFiles(fileList) {
   }
 }
 
+function _updateFormatSettings() {
+  const fmt = document.getElementById('export-format').value;
+  const bitrateGroup = document.getElementById('export-bitrate-group');
+  const losslessGroup = document.getElementById('export-lossless-group');
+
+  if (_LOSSY_FORMATS.has(fmt)) {
+    bitrateGroup.classList.remove('hidden');
+    losslessGroup.classList.add('hidden');
+    const defaultBr = fmt === 'ogg' ? 128 : 192;
+    document.getElementById('export-bitrate').value = defaultBr;
+    _updateBitrateLabel();
+  } else {
+    bitrateGroup.classList.add('hidden');
+    losslessGroup.classList.remove('hidden');
+  }
+}
+
 function _updateBitrateLabel() {
   const v = document.getElementById('export-bitrate').value;
   document.getElementById('export-bitrate-value').textContent = v + ' kbps';
+}
+
+async function _fetchAudioInfo(path, badge) {
+  try {
+    const info = await api(`/audio/info?path=${encodeURIComponent(path)}`);
+    const parts = [];
+    if (info.sample_rate) parts.push(`${(info.sample_rate / 1000).toFixed(info.sample_rate % 1000 ? 1 : 0)} kHz`);
+    if (info.bit_depth) parts.push(`${info.bit_depth}-bit`);
+    if (parts.length) badge.textContent = parts.join(' · ');
+  } catch { /* non-critical */ }
 }
 
 // ─── Preview players ──────────────────────────────────────────────────
@@ -197,15 +239,20 @@ function refreshPreviews() {
     const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0');
     const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA');
     const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+    const infoBadge = el('span', { className: 'export-info-badge text-dim' });
 
     const header = el('div', { className: 'stem-card-header' },
       el('label', { className: 'export-check-label' }, checkbox,
         el('span', { className: 'stem-label' }, `${item.label}  `, el('span', { className: 'text-dim' }, `(${item.type})`)),
+        infoBadge,
       ),
       el('div', { className: 'stem-actions' },
         playBtn, stopBtn, rewindBtn, timeLabel,
       ),
     );
+
+    // Fetch source audio info (rate + depth) asynchronously
+    _fetchAudioInfo(item.path, infoBadge);
 
     const waveContainer = el('div', { className: 'stem-waveform' });
     const card = el('div', { className: 'stem-card' }, header, waveContainer);
@@ -313,6 +360,11 @@ async function startExport() {
   const body = { items, format };
   if (_LOSSY_FORMATS.has(format)) {
     body.bitrate = parseInt(document.getElementById('export-bitrate').value, 10);
+  } else if (_LOSSLESS_FORMATS.has(format)) {
+    const sr = document.getElementById('export-sample-rate').value;
+    const bd = document.getElementById('export-bit-depth').value;
+    if (sr) body.sample_rate = parseInt(sr, 10);
+    if (bd) body.bit_depth = parseInt(bd, 10);
   }
 
   const progressBar = document.getElementById('export-progress');
