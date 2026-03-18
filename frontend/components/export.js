@@ -75,16 +75,7 @@ export function initExport() {
     el('option', { value: 'm4a' }, 'M4A (AAC)'),
   );
 
-  // Lossy: bitrate slider
-  const bitrateSlider = el('input', {
-    type: 'range', id: 'export-bitrate', min: '64', max: '320', step: '32', value: '192',
-  });
-  const bitrateLabel = el('span', { id: 'export-bitrate-value' }, '192 kbps');
-  const bitrateGroup = el('span', { className: 'export-bitrate-inline hidden', id: 'export-bitrate-group' },
-    bitrateLabel, bitrateSlider,
-  );
-
-  // Lossless: sample rate + bit depth
+  // Sample rate — applies to all formats
   const sampleRateSelect = el('select', { id: 'export-sample-rate' },
     el('option', { value: '' }, 'Original'),
     el('option', { value: '22050' }, '22050 Hz'),
@@ -94,6 +85,16 @@ export function initExport() {
     el('option', { value: '96000' }, '96000 Hz'),
   );
 
+  // Lossy: bitrate slider
+  const bitrateSlider = el('input', {
+    type: 'range', id: 'export-bitrate', min: '64', max: '320', step: '32', value: '192',
+  });
+  const bitrateLabel = el('span', { id: 'export-bitrate-value' }, '192 kbps');
+  const bitrateGroup = el('span', { className: 'export-bitrate-inline hidden', id: 'export-bitrate-group' },
+    bitrateLabel, bitrateSlider,
+  );
+
+  // Lossless only: bit depth
   const bitDepthSelect = el('select', { id: 'export-bit-depth' },
     el('option', { value: '' }, 'Original'),
     el('option', { value: '16' }, '16-bit'),
@@ -101,8 +102,7 @@ export function initExport() {
     el('option', { value: '32' }, '32-bit'),
   );
 
-  const losslessGroup = el('span', { className: 'export-lossless-inline', id: 'export-lossless-group' },
-    el('label', {}, 'Rate: ', sampleRateSelect),
+  const bitDepthGroup = el('span', { className: 'export-lossless-inline', id: 'export-bit-depth-group' },
     el('label', {}, 'Depth: ', bitDepthSelect),
   );
 
@@ -110,8 +110,9 @@ export function initExport() {
 
   const topBar = el('div', { className: 'export-top-bar' },
     el('label', {}, 'Format: ', formatSelect),
+    el('label', {}, 'Rate: ', sampleRateSelect),
     bitrateGroup,
-    losslessGroup,
+    bitDepthGroup,
     exportBtn,
   );
 
@@ -183,17 +184,17 @@ async function _handleExportFiles(fileList) {
 function _updateFormatSettings() {
   const fmt = document.getElementById('export-format').value;
   const bitrateGroup = document.getElementById('export-bitrate-group');
-  const losslessGroup = document.getElementById('export-lossless-group');
+  const bitDepthGroup = document.getElementById('export-bit-depth-group');
 
   if (_LOSSY_FORMATS.has(fmt)) {
     bitrateGroup.classList.remove('hidden');
-    losslessGroup.classList.add('hidden');
+    bitDepthGroup.classList.add('hidden');
     const defaultBr = fmt === 'ogg' ? 128 : 192;
     document.getElementById('export-bitrate').value = defaultBr;
     _updateBitrateLabel();
   } else {
     bitrateGroup.classList.add('hidden');
-    losslessGroup.classList.remove('hidden');
+    bitDepthGroup.classList.remove('hidden');
   }
 }
 
@@ -358,12 +359,13 @@ async function startExport() {
   if (!items.length) return;
 
   const body = { items, format };
+  const sr = document.getElementById('export-sample-rate').value;
+  if (sr) body.sample_rate = parseInt(sr, 10);
+
   if (_LOSSY_FORMATS.has(format)) {
     body.bitrate = parseInt(document.getElementById('export-bitrate').value, 10);
   } else if (_LOSSLESS_FORMATS.has(format)) {
-    const sr = document.getElementById('export-sample-rate').value;
     const bd = document.getElementById('export-bit-depth').value;
-    if (sr) body.sample_rate = parseInt(sr, 10);
     if (bd) body.bit_depth = parseInt(bd, 10);
   }
 
