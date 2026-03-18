@@ -107,13 +107,13 @@ def _run_enhance(job_id: str, stem_path: str, preset: str,
         raise FileNotFoundError(f"Audio file not found: {stem_path}")
 
     enhance_out = user_dir(ENHANCE_DIR, session.user)
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_enhance()
+    with pipeline_manager.gpu_session(pipeline_hint="enhance") as ctx:
+        pipeline = pipeline_manager.get_enhance(ctx.gpu_index)
         pipeline.configure(EnhanceConfig(preset=preset, output_dir=enhance_out))
         try:
             result = pipeline.run(path, preset, progress_cb=progress_cb)
         finally:
-            pipeline_manager.evict("enhance")
+            pipeline_manager.evict("enhance", ctx.gpu_index)
 
     # Store in session
     label = f"{path.stem} ({result.label})"
@@ -182,8 +182,8 @@ def _run_batch_enhance(preset: str, files: list[dict], job_id: str, user: str = 
     batch_dir = user_dir(ENHANCE_DIR, user) / "batch"
     batch_dir.mkdir(parents=True, exist_ok=True)
 
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_enhance()
+    with pipeline_manager.gpu_session(pipeline_hint="enhance") as ctx:
+        pipeline = pipeline_manager.get_enhance(ctx.gpu_index)
         pipeline.configure(EnhanceConfig(preset=preset, output_dir=batch_dir))
 
         job_manager.update_progress(job_id, 0.02, "Loading model...")
@@ -217,7 +217,7 @@ def _run_batch_enhance(preset: str, files: list[dict], job_id: str, user: str = 
                         "error": str(exc),
                     })
         finally:
-            pipeline_manager.evict("enhance")
+            pipeline_manager.evict("enhance", ctx.gpu_index)
 
     job_manager.update_progress(job_id, 1.0, "Done")
     return {"results": results, "preset": preset}
@@ -296,8 +296,8 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
         raise FileNotFoundError(f"Audio file not found: {stem_path}")
 
     enhance_out = user_dir(ENHANCE_DIR, session.user)
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_autotune()
+    with pipeline_manager.gpu_session(pipeline_hint="autotune") as ctx:
+        pipeline = pipeline_manager.get_autotune(ctx.gpu_index)
         pipeline.configure(AutotuneConfig(
             key=key,
             scale=scale,
@@ -306,10 +306,11 @@ def _run_autotune(job_id: str, stem_path: str, key: str, scale: str,
             method=method,
             output_dir=enhance_out,
         ))
+        pipeline.load_model(device=ctx.device)
         try:
             result = pipeline.run(path, progress_cb=progress_cb)
         finally:
-            pipeline_manager.evict("autotune")
+            pipeline_manager.evict("autotune", ctx.gpu_index)
 
     # Use the actual key/scale (may have been auto-detected)
     actual_key = result.key
@@ -493,13 +494,14 @@ def _run_effects(job_id: str, stem_path: str, chain_dicts: list[dict],
         ))
 
     enhance_out = user_dir(ENHANCE_DIR, session.user)
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_effects()
+    with pipeline_manager.gpu_session(pipeline_hint="effects") as ctx:
+        pipeline = pipeline_manager.get_effects(ctx.gpu_index)
         pipeline.configure(EffectsConfig(chain=chain, output_dir=enhance_out))
+        pipeline.load_model(device=ctx.device)
         try:
             result = pipeline.run(path, progress_cb=progress_cb)
         finally:
-            pipeline_manager.evict("effects")
+            pipeline_manager.evict("effects", ctx.gpu_index)
 
     # Store in session
     label = f"{path.stem} (FX: {result.chain_summary})"

@@ -21,7 +21,8 @@ def health() -> dict:
 @router.get("/device")
 def device_info() -> dict:
     import torch
-    from utils.device import get_device
+    from utils.device import get_device, enumerate_gpus
+    from backend.services.pipeline_manager import get_scheduler
 
     dev = get_device()
     info: dict = {"device": str(dev)}
@@ -30,6 +31,25 @@ def device_info() -> dict:
         info["gpu_name"] = torch.cuda.get_device_name(0)
         total = torch.cuda.get_device_properties(0).total_memory
         info["vram_gb"] = round(total / (1024 ** 3), 1)
+
+        # Multi-GPU details
+        gpus = enumerate_gpus()
+        if len(gpus) > 1:
+            scheduler = get_scheduler()
+            info["gpus"] = [
+                {
+                    "index": g.index,
+                    "name": g.name,
+                    "total_vram_mb": g.total_vram_mb,
+                    "free_vram_mb": g.free_vram_mb,
+                }
+                for g in gpus
+            ]
+            info["scheduler"] = {
+                "pool_slots": scheduler.slot_count,
+                "excluded_indices": sorted(scheduler.excluded_indices),
+                "slots": scheduler.slot_info(),
+            }
     elif dev.type == "mps":
         info["gpu_name"] = "Apple Silicon (MPS)"
 

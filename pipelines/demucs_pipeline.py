@@ -195,8 +195,14 @@ class DemucsPipeline:
     # Model management
     # ------------------------------------------------------------------
 
-    def load_model(self) -> None:
+    def load_model(self, device: "torch.device | None" = None) -> None:
         """Load the Demucs model weights specified in the current configuration.
+
+        Parameters
+        ----------
+        device:
+            Target device (e.g. ``cuda:1``).  When ``None``, auto-detects
+            via :func:`~utils.device.get_device`.
 
         Fetches the checkpoint from the local cache (downloading it first if
         absent), verifies its checksum, and retains the loaded model in
@@ -233,7 +239,7 @@ class DemucsPipeline:
             ) from exc
 
         # Move model to best available device once at load time so each run() call is fast.
-        _device = get_device()
+        _device = device if device is not None else get_device()
         self._device = _device.type
         self._model = self._model.to(_device)
         log.info("DemucsPipeline: model '%s' on %s", self._config.model_name, self._device)

@@ -143,8 +143,8 @@ def _run_midi_extraction(
     def _midi_cb(pct):
         job_manager.update_progress(job_id, pct / 100.0, "Extracting MIDI...")
 
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_midi()
+    with pipeline_manager.gpu_session(pipeline_hint="midi") as ctx:
+        pipeline = pipeline_manager.get_midi(ctx.gpu_index)
         config = MidiConfig(**config_kwargs)
         pipeline.configure(config)
 

@@ -63,13 +63,13 @@ def _run_separation(
     source_bd = audio_info.get("bit_depth") or 24
 
     pipeline_name = "roformer" if engine == "roformer" else "demucs"
-    with pipeline_manager.gpu_session():
+    with pipeline_manager.gpu_session(pipeline_hint=pipeline_name) as ctx:
         try:
             if engine == "roformer":
                 from pipelines.roformer_pipeline import RoformerConfig
                 from models.registry import get_spec, RoformerSpec
 
-                pipeline = pipeline_manager.get_roformer()
+                pipeline = pipeline_manager.get_roformer(ctx.gpu_index)
                 spec = get_spec(model_id)
                 if not isinstance(spec, RoformerSpec):
                     raise ValueError(f"{model_id} is not a Roformer model")
@@ -92,13 +92,13 @@ def _run_separation(
                 pipeline.configure(config)
                 pipeline.set_progress_callback(pipeline_cb)
                 pipeline_cb(5, "Loading model...")
-                pipeline.load_model()
+                pipeline.load_model(device=ctx.device)
                 result = pipeline.run(audio_path)
             else:
                 from pipelines.demucs_pipeline import DemucsConfig
 
                 stems_out = user_dir(STEMS_DIR, session.user)
-                pipeline = pipeline_manager.get_demucs()
+                pipeline = pipeline_manager.get_demucs(ctx.gpu_index)
                 config = DemucsConfig(
                     model_name=model_id,
                     stems=stems or ["vocals", "drums", "bass", "other"],
@@ -109,10 +109,10 @@ def _run_separation(
                 pipeline.configure(config)
                 pipeline.set_progress_callback(pipeline_cb)
                 pipeline_cb(5, "Loading model...")
-                pipeline.load_model()
+                pipeline.load_model(device=ctx.device)
                 result = pipeline.run(audio_path)
         finally:
-            pipeline_manager.evict(pipeline_name)
+            pipeline_manager.evict(pipeline_name, ctx.gpu_index)
 
     # Store stem paths in session and auto-add mix tracks
     stem_paths = dict(result.stem_paths)
@@ -203,12 +203,12 @@ def _run_batch_separation(
 
     # Load model once, reuse for all files
     pipeline_name = "roformer" if engine == "roformer" else "demucs"
-    with pipeline_manager.gpu_session():
+    with pipeline_manager.gpu_session(pipeline_hint=pipeline_name) as ctx:
         if engine == "roformer":
             from pipelines.roformer_pipeline import RoformerConfig
             from models.registry import get_spec, RoformerSpec
 
-            pipeline = pipeline_manager.get_roformer()
+            pipeline = pipeline_manager.get_roformer(ctx.gpu_index)
             spec = get_spec(model_id)
             if not isinstance(spec, RoformerSpec):
                 raise ValueError(f"{model_id} is not a Roformer model")
@@ -233,7 +233,7 @@ def _run_batch_separation(
         else:
             from pipelines.demucs_pipeline import DemucsConfig
 
-            pipeline = pipeline_manager.get_demucs()
+            pipeline = pipeline_manager.get_demucs(ctx.gpu_index)
 
             def _configure():
                 config = DemucsConfig(
@@ -247,7 +247,7 @@ def _run_batch_separation(
 
         job_manager.update_progress(job_id, 0.02, "Loading model...")
         _configure()
-        pipeline.load_model()
+        pipeline.load_model(device=ctx.device)
 
         try:
             for i, finfo in enumerate(files):
@@ -298,7 +298,7 @@ def _run_batch_separation(
                         "error": str(exc),
                     })
         finally:
-            pipeline_manager.evict(pipeline_name)
+            pipeline_manager.evict(pipeline_name, ctx.gpu_index)
 
     job_manager.update_progress(job_id, 1.0, "Done")
     return {"results": results, "stem": stem}

@@ -157,14 +157,15 @@ def _run_voice_convert(
     def _cb(pct, stage=""):
         job_manager.update_progress(job_id, pct, stage)
 
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_rvc()
+    # RVC is vendored — always uses default GPU (can't inject device)
+    with pipeline_manager.gpu_session(pipeline_hint="rvc") as ctx:
+        pipeline = pipeline_manager.get_rvc(ctx.gpu_index)
         pipeline.configure(config)
         pipeline.set_progress_callback(_cb)
         job_manager.update_progress(job_id, 0.1, "Loading RVC engine...")
         pipeline.load_model()
         result = pipeline.run(pathlib.Path(req.audio_path))
-        pipeline_manager.evict("rvc")
+        pipeline_manager.evict("rvc", ctx.gpu_index)
 
     # Store in session for cross-tab integration
     label = f"Voice ({req.model_name})"

@@ -225,7 +225,7 @@ def _apply_compressor_dsp(audio: np.ndarray, sr: int, params: dict) -> np.ndarra
 # Compressor — LA-2A (neural, micro-tcn)
 # ---------------------------------------------------------------------------
 
-def _get_la2a_model():
+def _get_la2a_model(device_str: str | None = None):
     """Load or return cached LA-2A TCN model."""
     global _la2a_model
     if _la2a_model is not None:
@@ -260,7 +260,7 @@ def _get_la2a_model():
         log.info("LA-2A checkpoint saved to %s", ckpt_path)
 
     # Load checkpoint — it's a pytorch_lightning checkpoint with state_dict under "state_dict"
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = device_str if device_str else ("cuda" if torch.cuda.is_available() else "cpu")
     checkpoint = torch.load(str(ckpt_path), map_location=device, weights_only=False)
 
     # Extract hyperparams from checkpoint
@@ -299,12 +299,13 @@ def _get_la2a_model():
     return model
 
 
-def _apply_compressor_la2a(audio: np.ndarray, sr: int, params: dict) -> np.ndarray:
+def _apply_compressor_la2a(audio: np.ndarray, sr: int, params: dict,
+                           device_str: str | None = None) -> np.ndarray:
     """Apply LA-2A style compression via micro-tcn neural model."""
     import torch
     import soxr
 
-    model = _get_la2a_model()
+    model = _get_la2a_model(device_str)
     device = next(model.parameters()).device
 
     peak_reduction = params.get("peak_reduction", 50.0) / 100.0  # normalize to 0-1
@@ -427,7 +428,8 @@ def _apply_gate_dsp(audio: np.ndarray, sr: int, params: dict) -> np.ndarray:
 # Noise Gate — Spectral (TorchGating, GPU-accelerated)
 # ---------------------------------------------------------------------------
 
-def _apply_gate_spectral(audio: np.ndarray, sr: int, params: dict) -> np.ndarray:
+def _apply_gate_spectral(audio: np.ndarray, sr: int, params: dict,
+                         device_str: str | None = None) -> np.ndarray:
     """GPU-accelerated spectral noise gate via TorchGating."""
     import torch
     from torchgating import TorchGating
@@ -435,7 +437,7 @@ def _apply_gate_spectral(audio: np.ndarray, sr: int, params: dict) -> np.ndarray
     stationary = params.get("stationary", True)
     threshold_scale = params.get("threshold_scale", 1.5)
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = device_str if device_str else ("cuda" if torch.cuda.is_available() else "cpu")
     tg = TorchGating(sr, nonstationary=not stationary, n_std_thresh_stationary=threshold_scale).to(device)
 
     def _process_channel(signal: np.ndarray) -> np.ndarray:
@@ -575,6 +577,9 @@ _EFFECT_DISPATCH = {
     ("stereo_width", "dsp"): _apply_stereo_width,
 }
 
+# Effects that use GPU and accept an optional device_str kwarg
+_GPU_EFFECTS = {("compressor", "la2a"), ("gate", "spectral")}
+
 
 # ---------------------------------------------------------------------------
 # Pipeline
@@ -585,13 +590,14 @@ class EffectsPipeline:
 
     def __init__(self) -> None:
         self._config: EffectsConfig | None = None
+        self._device_str: str | None = None  # e.g. "cuda:1"
 
     def configure(self, config: EffectsConfig) -> None:
         self._config = config
 
-    def load_model(self) -> None:
-        """No-op — models are loaded lazily on first use."""
-        pass
+    def load_model(self, device: "torch.device | None" = None) -> None:
+        """Store device hint for GPU-backed effects (LA-2A, spectral gate)."""
+        self._device_str = str(device) if device is not None else None
 
     def run(
         self,
@@ -628,7 +634,11 @@ class EffectsPipeline:
                 log.warning("Unknown effect: %s/%s — skipping", slot.effect_type, slot.method)
                 continue
 
-            audio = fn(audio, sr, slot.params)
+            # GPU-backed effects accept an optional device_str kwarg
+            if key in _GPU_EFFECTS and self._device_str:
+                audio = fn(audio, sr, slot.params, device_str=self._device_str)
+            else:
+                audio = fn(audio, sr, slot.params)
             summary_parts.append(display)
 
         if progress_cb:

@@ -137,7 +137,10 @@ dependencies = [
 # Dependency groups (PEP 735) — uv dev tooling
 # ---------------------------------------------------------------------------
 [dependency-groups]
-dev = ["pip"]
+dev = [
+    "pip",
+    "pytest>=9.0.2",
+]
 
 # ---------------------------------------------------------------------------
 # Optional dependency groups (PEP 508 extras)

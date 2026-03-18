@@ -88,6 +88,7 @@ class RoformerPipeline:
         self._progress_cb: Callable[[float, str], None] | None = None
         self._cancel: threading.Event = threading.Event()
         self._last_device: str = "?"  # "GPU" or "CPU", updated during _infer
+        self._device_hint: torch.device | None = None  # set by load_model(device=)
 
     @property
     def last_device(self) -> str:
@@ -105,8 +106,17 @@ class RoformerPipeline:
     def is_loaded(self) -> bool:
         return self._model is not None
 
-    def load_model(self) -> None:
-        """Download weights if needed and instantiate the model."""
+    def load_model(self, device: "torch.device | None" = None) -> None:
+        """Download weights if needed and instantiate the model.
+
+        Parameters
+        ----------
+        device:
+            Target device hint (e.g. ``cuda:1``).  Stored and passed to
+            ``_select_device()`` during inference.  When ``None``,
+            auto-detects.
+        """
+        self._device_hint = device
         if self._config is None:
             raise PipelineExecutionError("roformer", "Call configure() before load_model().")
         try:
@@ -249,7 +259,7 @@ class RoformerPipeline:
             window = np.pad(window, (0, chunk_size - window.shape[0]), constant_values=window[-1])
         window = window[:chunk_size].astype(np.float32)
 
-        device = self._select_device()
+        device = self._select_device(self._device_hint)
         self._last_device = "GPU" if device.type == "cuda" else "CPU"
         self._model.to(device)  # type: ignore[union-attr]
 
@@ -327,7 +337,7 @@ class RoformerPipeline:
             window = np.pad(window, (0, chunk_size - window.shape[0]), constant_values=window[-1])
         window = window[:chunk_size].astype(np.float32)
 
-        device = self._select_device()
+        device = self._select_device(self._device_hint)
         self._last_device = "GPU" if device.type == "cuda" else "CPU"
         self._model.to(device)  # type: ignore[union-attr]
 
@@ -373,8 +383,11 @@ class RoformerPipeline:
     # Helpers
     # ------------------------------------------------------------------
 
-    def _select_device(self) -> torch.device:
+    def _select_device(self, hint: torch.device | None = None) -> torch.device:
         """Return CUDA if a quick probe succeeds; CPU otherwise.
+
+        If *hint* is given and is a CUDA device, the probe runs on that
+        specific GPU.  Otherwise falls back to the default GPU.
 
         torch 2.10+cu128 has a cublasSgemv bug on CUDA 12.9 that breaks the
         3D×1D batch matmul used by hyper-connections inside BSRoformer.
@@ -382,12 +395,12 @@ class RoformerPipeline:
         """
         if not torch.cuda.is_available():
             return torch.device("cpu")
+        target = hint if (hint is not None and hint.type == "cuda") else torch.device("cuda")
         try:
-            # Probe the exact 3D×1D pattern that cublasSgemv uses inside hyper-connections
-            a = torch.zeros(1, 8, 16, device="cuda")
-            b = torch.zeros(16, device="cuda")
-            _ = a @ b  # fails on torch 2.10+cu128 vs CUDA 12.9
-            return torch.device("cuda")
+            a = torch.zeros(1, 8, 16, device=target)
+            b = torch.zeros(16, device=target)
+            _ = a @ b
+            return target
         except RuntimeError:
             log.info("cuBLAS 3D×1D matmul probe failed — running BS-Roformer on CPU")
             return torch.device("cpu")

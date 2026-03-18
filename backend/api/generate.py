@@ -77,16 +77,16 @@ def _run_generation(req: GenerateRequest, job_id: str, session: SessionStore) ->
     def _gen_cb(pct, stage=""):
         job_manager.update_progress(job_id, pct / 100.0, stage)
 
-    with pipeline_manager.gpu_session():
-        pipeline = pipeline_manager.get_musicgen()
+    with pipeline_manager.gpu_session(pipeline_hint="musicgen") as ctx:
+        pipeline = pipeline_manager.get_musicgen(ctx.gpu_index)
         pipeline.configure(config)
         pipeline.set_progress_callback(_gen_cb)
         job_manager.update_progress(job_id, 0.05, "Loading model...")
-        pipeline.load_model()
+        pipeline.load_model(device=ctx.device)
         try:
             result = pipeline.run(req.prompt)
         finally:
-            pipeline_manager.evict("musicgen")
+            pipeline_manager.evict("musicgen", ctx.gpu_index)
 
     # Rename from timestamp to prompt-based name for identifiability
     clip_name = _clip_name_from_prompt(req.prompt)

@@ -250,7 +250,7 @@ class MusicGenPipeline:
     # Model management
     # ------------------------------------------------------------------
 
-    def load_model(self) -> None:
+    def load_model(self, device: "torch.device | None" = None) -> None:
         if self._config is None:
             raise PipelineExecutionError(
                 "configure() must be called before load_model().",
@@ -258,7 +258,9 @@ class MusicGenPipeline:
             )
         if self.is_loaded and self._loader.is_cached(self._config.model_name):
             return
-        self._pipeline, self._model_config = self._loader.load(self._config.model_name)
+        self._pipeline, self._model_config = self._loader.load(
+            self._config.model_name, device=device,
+        )
         self.is_loaded = True
 
     # ------------------------------------------------------------------

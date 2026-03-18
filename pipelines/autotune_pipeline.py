@@ -161,13 +161,14 @@ class AutotunePipeline:
 
     def __init__(self) -> None:
         self._config: AutotuneConfig | None = None
+        self._device_str: str | None = None
 
     def configure(self, config: AutotuneConfig) -> None:
         self._config = config
 
-    def load_model(self) -> None:
-        """No-op — torchcrepe and pyworld load lazily."""
-        pass
+    def load_model(self, device: "torch.device | None" = None) -> None:
+        """Store device hint for torchcrepe pitch detection."""
+        self._device_str = str(device) if device is not None else None
 
     def run(
         self,
@@ -196,7 +197,9 @@ class AutotunePipeline:
             progress_cb(0.10, "Detecting pitch with CREPE...")
 
         # --- Pitch detection via torchcrepe ---
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        device = self._device_str if self._device_str else (
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
         hop_size = 128  # ~2.9 ms at 44100 Hz — fine resolution for pitch correction
         audio_tensor = torch.FloatTensor(mono).unsqueeze(0).to(device)
 

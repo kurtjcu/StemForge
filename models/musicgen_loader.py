@@ -47,7 +47,7 @@ class MusicGenModelLoader:
     # Public API
     # ------------------------------------------------------------------
 
-    def load(self, model_name: str) -> tuple[Any, dict]:
+    def load(self, model_name: str, device: "torch.device | None" = None) -> tuple[Any, dict]:
         """Return ``(pipeline, model_config)`` for *model_name*, loading if needed.
 
         On first call downloads weights from HuggingFace Hub (~2 GB) and
@@ -83,7 +83,7 @@ class MusicGenModelLoader:
                 model_name=model_name,
             ) from exc
 
-        device = get_device()
+        device = device if device is not None else get_device()
         # MPS does not support float16 reliably; use float32 on MPS and CPU.
         dtype  = torch.float16 if device.type == "cuda" else torch.float32
 
