@@ -873,6 +873,34 @@ input[type="range"]::-moz-range-track {
   cursor: pointer;
 }
 
+.export-drop-zone {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 14px 20px;
+  text-align: center;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  margin-bottom: 8px;
+}
+
+.export-drop-zone:hover, .export-drop-zone.dragover {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.export-drop-zone .drop-text {
+  font-size: 13px;
+  display: block;
+}
+
+.export-drop-zone .drop-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+  display: block;
+}
+
 /* ─── Toggle switch ──────────────────────────────────────────────────── */
 
 .toggle {

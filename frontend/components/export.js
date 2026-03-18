@@ -2,7 +2,7 @@
  * Export tab — preview artifacts, choose format, export with auto-download.
  */
 
-import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
+import { appState, api, apiUpload, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
 import { transportLoad, transportStop } from './audio-player.js';
 
@@ -11,6 +11,9 @@ function clearChildren(elem) {
 }
 
 const _LOSSY_FORMATS = new Set(['mp3', 'ogg', 'm4a']);
+
+/** Files uploaded directly in the Export tab (independent of session). */
+let _exportFiles = [];
 
 /** Active waveform players for exclusive playback. */
 let _players = [];
@@ -26,6 +29,40 @@ function _stopOtherPlayers(except) {
 
 export function initExport() {
   const panel = document.getElementById('panel-export');
+
+  // ─── File loader (convert any file without touching other tabs) ───
+  const exportFileInput = el('input', {
+    type: 'file',
+    accept: '.wav,.flac,.mp3,.ogg,.aiff,.aif,.m4a,.mp4,.mkv,.webm,.avi,.mov,.m4v,.flv',
+    multiple: 'true',
+    style: { display: 'none' },
+    id: 'export-file-input',
+  });
+
+  const dropZone = el('div', { className: 'export-drop-zone', id: 'export-drop-zone' },
+    el('span', { className: 'drop-text' }, 'Drop files here to convert, or click to browse'),
+    el('span', { className: 'drop-hint' }, 'WAV, FLAC, MP3, OGG, AIFF, M4A — or video'),
+  );
+
+  dropZone.addEventListener('click', () => exportFileInput.click());
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) _handleExportFiles(files);
+  });
+
+  exportFileInput.addEventListener('change', () => {
+    const files = Array.from(exportFileInput.files);
+    if (files.length) _handleExportFiles(files);
+    exportFileInput.value = '';
+  });
 
   // ─── Top bar: format, bitrate, export button ───
   const formatSelect = el('select', { id: 'export-format' },
@@ -63,7 +100,7 @@ export function initExport() {
     el('span', { className: 'text-dim' }, 'Load a file to get started'),
   );
 
-  panel.append(topBar, progressBar, previewArea);
+  panel.append(exportFileInput, dropZone, topBar, progressBar, previewArea);
 
   // ─── Wire events ───
   exportBtn.addEventListener('click', startExport);
@@ -94,6 +131,38 @@ export function initExport() {
   appState.on('sfxReady', refreshPreviews);
   appState.on('transformReady', refreshPreviews);
   appState.on('enhanceReady', refreshPreviews);
+}
+
+async function _handleExportFiles(fileList) {
+  const dropZone = document.getElementById('export-drop-zone');
+
+  clearChildren(dropZone);
+  dropZone.appendChild(el('span', { className: 'drop-text' }, `Uploading ${fileList.length} file${fileList.length > 1 ? 's' : ''}...`));
+
+  let added = 0;
+  for (const file of fileList) {
+    try {
+      const info = await apiUpload('/upload', file);
+      _exportFiles.push({ label: info.filename, path: info.path });
+      added++;
+    } catch (err) {
+      console.error(`Export upload failed for ${file.name}:`, err);
+    }
+  }
+
+  clearChildren(dropZone);
+  if (added > 0) {
+    dropZone.append(
+      el('span', { className: 'drop-text' }, `\u2713 ${added} file${added > 1 ? 's' : ''} added`),
+      el('span', { className: 'drop-hint' }, 'Drop more files to add'),
+    );
+    refreshPreviews();
+  } else {
+    dropZone.append(
+      el('span', { className: 'drop-text', style: { color: 'var(--error)' } }, 'Upload failed'),
+      el('span', { className: 'drop-hint' }, 'Try again'),
+    );
+  }
 }
 
 function _updateBitrateLabel() {
@@ -222,6 +291,11 @@ function collectArtifacts() {
   // Mix
   if (appState.mixPath) {
     items.push({ label: 'Mix', path: appState.mixPath, type: 'mix' });
+  }
+
+  // Files added directly in the Export tab
+  for (const f of _exportFiles) {
+    items.push({ label: f.label, path: f.path, type: 'convert' });
   }
 
   return items;
