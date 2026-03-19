@@ -301,9 +301,16 @@ def recommend_separator(profile: AudioProfile) -> Recommendation:
                 "busier vocal textures well."
             )
         conf = _margin(vn - 0.65, 0.35 - dir_risk)
+        license_warn = ""
+        if model_id == "roformer-kj-vocals":
+            license_warn = (
+                "This model's weights are licensed under GPL-3.0 (copyleft) — "
+                "MIT-licensed alternatives exist (ViperX, ZFTurbo)."
+            )
         return Recommendation(
             engine="BS-Roformer", model_id=model_id,
             reason=reason, confidence=_cap(conf),
+            license_warning=license_warn,
         )
 
     # ── Roformer B: Harmonic-rich instruments, low drum risk ─────────────────

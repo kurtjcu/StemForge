@@ -696,6 +696,11 @@ ROFORMER_KJ = _register(RoformerSpec(
     available_stems=("vocals", "other"),
     default_chunk_size=352_800,
     default_num_overlap=2,
+    license_warning=(
+        "These model weights are licensed under GPL-3.0 (copyleft). "
+        "Using them may impose GPL obligations on derivative works. "
+        "MIT-licensed alternatives exist (ViperX, ZFTurbo)."
+    ),
 ))
 
 ROFORMER_ZFTURBO_4STEM = _register(RoformerSpec(
