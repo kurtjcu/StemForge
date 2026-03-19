@@ -147,7 +147,7 @@ export function initCompose() {
 async function checkHealth(panel) {
   try {
     const health = await api('/compose/health');
-    if (health.acestep_status === 'disabled') {
+    if (health.compose_status === 'disabled') {
       panel.appendChild(
         el('div', { className: 'compose-unavailable' },
           el('div', { className: 'compose-unavailable-icon' }, '\u266A'),
@@ -156,7 +156,7 @@ async function checkHealth(panel) {
       );
       return;
     }
-    if (health.acestep_status === 'crashed') {
+    if (health.compose_status === 'crashed') {
       panel.appendChild(
         el('div', { className: 'compose-unavailable' },
           el('div', { className: 'compose-unavailable-icon' }, '\u26A0'),
@@ -167,7 +167,7 @@ async function checkHealth(panel) {
     }
     // "ready" and "running" both proceed to build the UI normally.
     // "ready" means AceStep will start on first generate.
-    _aceStepRunning = (health.acestep_status === 'running');
+    _aceStepRunning = (health.compose_status === 'running');
   } catch {
     // Server not yet ready — build UI anyway, endpoints will check health
   }
@@ -3616,7 +3616,7 @@ function buildPayload() {
  */
 async function ensureAceStep() {
   const health = await api('/compose/health');
-  const status = health.acestep_status;
+  const status = health.compose_status;
 
   if (status === 'running') return;
   if (status === 'disabled') throw new Error('AceStep is disabled (start without --no-acestep)');
@@ -3658,9 +3658,9 @@ async function ensureAceStep() {
     while (true) {
       await new Promise(r => setTimeout(r, POLL_INTERVAL));
       const h = await api('/compose/health');
-      if (h.acestep_status === 'running') return;
-      if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
-      if (h.acestep_status === 'disabled') throw new Error('AceStep is disabled');
+      if (h.compose_status === 'running') return;
+      if (h.compose_status === 'crashed') throw new Error('AceStep crashed during startup');
+      if (h.compose_status === 'disabled') throw new Error('AceStep is disabled');
     }
   } finally {
     clearInterval(elapsedTimer);
