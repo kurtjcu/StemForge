@@ -18,9 +18,16 @@ router = APIRouter(prefix="/api", tags=["audio"])
 
 _UPLOAD_DIR = OUTPUT_BASE / "uploads"
 
+# AceStep generates audio into its own cache tree inside the submodule.
+# Allow streaming from there so compose results are accessible before
+# the user explicitly sends them to session/mix.
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
+_ACESTEP_AUDIO_TMP = _PROJECT_ROOT / "Ace-Step-Wrangler" / "vendor" / "ACE-Step-1.5" / ".cache" / "acestep" / "tmp"
+
 # Directories from which we allow file streaming (security)
 _ALLOWED_ROOTS = [
     OUTPUT_BASE, STEMS_DIR, MIDI_DIR, MUSICGEN_DIR, MIX_DIR, EXPORT_DIR, COMPOSE_DIR, SFX_DIR, _UPLOAD_DIR,
+    _ACESTEP_AUDIO_TMP,
 ]
 
 

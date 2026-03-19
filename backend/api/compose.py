@@ -337,12 +337,17 @@ def _ensure_in_tmp(path: str) -> str:
 
 
 def _task_status_to_dict(ts: TaskStatus) -> dict:
-    """Convert a TaskStatus to the wire format the frontend expects."""
+    """Convert a TaskStatus to the wire format the frontend expects.
+
+    AceStep returns audio as ``/v1/audio?path=/actual/path.flac``.
+    Resolve to the real filesystem path so all StemForge endpoints
+    (stream, info, mix, export) can serve the file without proxying.
+    """
     return {
         "status": ts.status,
         "results": [
             {
-                "audio_url": r.audio_url,
+                "audio_url": _resolve_audio_path(r.audio_url),
                 "meta": r.meta,
                 "prompt": r.prompt,
                 "lyrics": r.lyrics,
