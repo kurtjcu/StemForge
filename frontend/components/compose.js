@@ -949,7 +949,7 @@ function buildAdvancedPanel() {
       el('option', { value: 'none' }, 'None'),
       el('option', { value: '0.6b' }, 'Small'),
       el('option', { value: '1.7b', selected: 'true' }, 'Medium (default)'),
-      el('option', { value: '4b' }, 'Large'),
+      el('option', { value: '4b' }, 'Large (32GB+ VRAM)'),
     ),
   ));
 
@@ -2969,6 +2969,23 @@ function updateBatchLimit() {
       note.classList.add('hidden');
     }
   }
+  // Lock out LM options that exceed the selected VRAM tier.
+  // Large (4B) requires 32GB+; if the current selection is now disabled,
+  // drop back to the largest still-available model.
+  const lmSel = _id('compose-lm-model');
+  if (lmSel) {
+    const tierNum = parseInt(tier, 10) || 16;
+    for (const opt of lmSel.options) {
+      if (opt.value === '4b') opt.disabled = tierNum < 32;
+    }
+    if (lmSel.options[lmSel.selectedIndex]?.disabled) {
+      // Snap down to largest enabled option
+      for (let i = lmSel.options.length - 1; i >= 0; i--) {
+        if (!lmSel.options[i].disabled) { lmSel.selectedIndex = i; break; }
+      }
+    }
+  }
+
   // ADG compat check — turbo doesn't support Precise guidance
   checkAdgCompat();
 }

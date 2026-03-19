@@ -69,6 +69,13 @@ _pending: dict[str, dict] = {}
 _uploads: dict[str, dict] = {}
 _upload_dir = Path(tempfile.mkdtemp(prefix="stemforge-compose-"))
 
+# StemForge-internal task tracking.
+# Maps stable SF task UUID → current AceStep task ID.
+# Allows transparent LM fallback without the frontend seeing a new task_id.
+_sf_to_acestep: dict[str, str] = {}
+# Maps SF task UUID → lm_model key currently in use ("4b", "1.7b", etc.)
+_sf_task_lm: dict[str, str] = {}
+
 # ---------------------------------------------------------------------------
 # Parameter mapping tables
 # ---------------------------------------------------------------------------
@@ -93,6 +100,14 @@ _LM_MODEL = {
     "0.6b": "acestep-5Hz-lm-0.6B",
     "1.7b": "acestep-5Hz-lm-1.7B",
     "4b": "acestep-5Hz-lm-4B",
+}
+
+# Ordered fallback chain: if a model fails to load, try the next smaller one.
+_LM_FALLBACK: dict[str, str | None] = {
+    "4b": "1.7b",
+    "1.7b": "0.6b",
+    "0.6b": None,
+    "none": None,
 }
 
 _LANG_LABELS: dict[str, str] = {
@@ -505,25 +520,68 @@ async def generate(req: GenerateRequest, _tenant: str = Depends(require_acestep_
         req = req.model_copy(update=updates)
     payload = _build_payload(req)
     try:
-        task_id = await backend.generate(GenerateParams(extra=payload))
+        acestep_id = await backend.generate(GenerateParams(extra=payload))
     except Exception as exc:
         raise HTTPException(502, f"Compose backend error: {exc}")
 
-    _pending[task_id] = {"params": req.model_dump(), "format": req.audio_format}
-    return {"task_id": task_id}
+    sf_id = str(uuid.uuid4())
+    _sf_to_acestep[sf_id] = acestep_id
+    _sf_task_lm[sf_id] = req.lm_model
+    _pending[sf_id] = {"params": req.model_dump(), "format": req.audio_format}
+    return {"task_id": sf_id}
 
 
 @router.get("/status/{task_id}")
 async def status(task_id: str):
     await _require_backend()
     backend = get_compose_backend()
+
+    # Resolve SF task_id → current AceStep task_id (transparent fallback support)
+    acestep_id = _sf_to_acestep.get(task_id, task_id)
+
     try:
-        ts = await backend.poll_task(task_id)
+        ts = await backend.poll_task(acestep_id)
     except Exception as exc:
         raise HTTPException(502, f"Compose backend error: {exc}")
 
+    if ts.status == "error":
+        # LM model fallback: try the next smaller model before giving up.
+        lm_model = _sf_task_lm.get(task_id, "none")
+        fallback = _LM_FALLBACK.get(lm_model)
+        if fallback is not None:
+            # Re-submit with smaller model — frontend keeps polling same SF task_id
+            pending = _pending.get(task_id, {})
+            params = pending.get("params", {})
+            try:
+                new_req = GenerateRequest(**{**params, "lm_model": fallback})
+                new_payload = _build_payload(new_req)
+                new_acestep_id = await backend.generate(GenerateParams(extra=new_payload))
+                _sf_to_acestep[task_id] = new_acestep_id
+                _sf_task_lm[task_id] = fallback
+                # Return processing so the frontend keeps polling
+                return {"status": "processing", "lm_fallback": fallback}
+            except Exception:
+                pass  # Fall through to real error below
+
+        # No fallback available — fail with a clear explanation
+        lm_label = {"4b": "Large (4B)", "1.7b": "Medium (1.7B)", "0.6b": "Small (0.6B)"}.get(
+            _sf_task_lm.get(task_id, ""), ""
+        )
+        detail = (
+            f"Generation failed. The {lm_label} planning model could not be loaded "
+            f"(insufficient VRAM). Try a smaller planning model or reduce batch size."
+            if lm_label else "Generation failed. Try reducing batch size or planning model size."
+        )
+        # Clean up tracking state
+        _sf_to_acestep.pop(task_id, None)
+        _sf_task_lm.pop(task_id, None)
+        _pending.pop(task_id, None)
+        return {"status": "error", "detail": detail}
+
     if ts.status == "done" and task_id not in _jobs:
         pending = _pending.pop(task_id, {})
+        _sf_to_acestep.pop(task_id, None)
+        _sf_task_lm.pop(task_id, None)
         _jobs[task_id] = {
             "results": _task_status_to_dict(ts)["results"] or [],
             "params": pending.get("params", {}),
