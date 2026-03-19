@@ -99,6 +99,11 @@ class EmbeddedComposeBackend:
         # Set while a generation or training job is active, cleared on completion.
         self._gpu_active = threading.Event()
 
+        # Configure the subprocess state machine so launch() works when called.
+        # This sets _launch_config and transitions status to "ready".
+        from backend.services import acestep_state
+        acestep_state.configure(port, gpu)
+
         # Ensure training directories exist (same dirs compose.py creates at import).
         for _d in (_TRAIN_DIR, _TRAIN_TENSOR_DIR, _TRAIN_OUTPUT_DIR, _TRAIN_SNAPSHOTS_DIR):
             _d.mkdir(parents=True, exist_ok=True)

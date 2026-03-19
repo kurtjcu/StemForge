@@ -71,7 +71,22 @@ def _parse_args() -> argparse.Namespace:
         "--no-acestep",
         action="store_true",
         default=False,
-        help="Disable the AceStep subprocess (Compose tab unavailable)",
+        help="Disable the AceStep subprocess (Compose tab unavailable). "
+             "Equivalent to --compose-mode disabled.",
+    )
+    parser.add_argument(
+        "--compose-mode",
+        choices=["embedded", "remote", "disabled"],
+        default=os.environ.get("COMPOSE_MODE", "embedded"),
+        help="Compose backend mode: embedded (default, local subprocess), "
+             "remote (standalone Wrangler at --compose-url), or disabled.",
+    )
+    parser.add_argument(
+        "--compose-url",
+        type=str,
+        default=os.environ.get("COMPOSE_URL"),
+        help="URL of a remote Wrangler instance for --compose-mode remote "
+             "(e.g. http://192.168.1.50:8001).",
     )
     parser.add_argument(
         "--gpu",
@@ -124,12 +139,19 @@ def _parse_args() -> argparse.Namespace:
 def _print_banner(
     port: int,
     acestep_port: int,
-    acestep_enabled: bool,
+    compose_mode: str,
     gpu: str | None,
     model_dir: str,
+    compose_url: str | None = None,
 ) -> None:
     gpu_display = gpu if gpu else "auto"
-    acestep_display = f"ready (port {acestep_port}, starts on first use)" if acestep_enabled else "disabled"
+    if compose_mode == "embedded":
+        compose_display = f"embedded (port {acestep_port}, starts on first use)"
+    elif compose_mode == "remote":
+        compose_display = f"remote ({compose_url})"
+        gpu_display = f"{gpu_display} (AceStep on remote host)"
+    else:
+        compose_display = "disabled"
     active_overrides = {
         k: os.environ[k] for k in _ACESTEP_PASSTHROUGH_VARS if k in os.environ
     }
@@ -139,13 +161,13 @@ def _print_banner(
     print("=" * 60)
     print(f"  Server:     http://localhost:{port}")
     print(f"  Models:     {model_dir}")
-    print(f"  AceStep:    {acestep_display}")
+    print(f"  Compose:    {compose_display}")
     print(f"  GPU:        {gpu_display}")
     max_users = int(os.environ.get("MAX_USERS", "0"))
     if max_users > 0:
         session_timeout = int(os.environ.get("SESSION_TIMEOUT_MINUTES", "60"))
         print(f"  Users:      max {max_users} (timeout {session_timeout}m)")
-    if active_overrides:
+    if active_overrides and compose_mode == "embedded":
         print("-" * 60)
         print("  AceStep env overrides:")
         for k, v in active_overrides.items():
@@ -181,18 +203,34 @@ def main() -> None:
     if args.job_ttl is not None:
         os.environ["JOB_TTL_MINUTES"] = str(args.job_ttl)
 
-    from backend.services import acestep_state
+    # --no-acestep takes precedence over --compose-mode for backward compat.
+    compose_mode_str = "disabled" if args.no_acestep else args.compose_mode
 
-    if args.no_acestep:
+    from backend.compose_backend import configure_compose_backend
+    from backend.compose_backend.protocol import BackendMode
+
+    configure_compose_backend(
+        mode=BackendMode(compose_mode_str),
+        port=args.acestep_port,
+        gpu=args.gpu,
+        remote_url=args.compose_url,
+    )
+
+    # Disabled mode: also set acestep_state directly so the existing compose
+    # router (pre-Step-7) reports "disabled" correctly via its _require_acestep().
+    if compose_mode_str == "disabled":
+        from backend.services import acestep_state
         acestep_state.set_status("disabled", port=args.acestep_port)
-    else:
-        # Configure but don't spawn — AceStep starts on first use
-        acestep_state.configure(args.acestep_port, args.gpu)
 
-    _print_banner(args.port, args.acestep_port, not args.no_acestep, args.gpu, str(model_base))
+    _print_banner(
+        args.port, args.acestep_port, compose_mode_str,
+        args.gpu, str(model_base), args.compose_url,
+    )
 
-    # Graceful shutdown: terminate AceStep subprocess
+    # Graceful shutdown: terminate AceStep subprocess (embedded mode only).
+    # acestep_state is already configured by EmbeddedComposeBackend.__init__.
     def _kill_acestep() -> None:
+        from backend.services import acestep_state
         proc = acestep_state.get_process()
         if proc and proc.poll() is None:
             print("\n[stemforge] Stopping AceStep...")
