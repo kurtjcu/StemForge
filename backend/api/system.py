@@ -20,6 +20,7 @@ def health() -> dict:
 
 @router.get("/device")
 def device_info() -> dict:
+    import asyncio
     import torch
     from utils.device import get_device, enumerate_gpus
     from backend.services.pipeline_manager import get_scheduler
@@ -52,6 +53,29 @@ def device_info() -> dict:
             }
     elif dev.type == "mps":
         info["gpu_name"] = "Apple Silicon (MPS)"
+
+    # Compose backend GPU state (device-independent)
+    try:
+        from backend.compose_backend import get_compose_backend, claimed_gpu_indices
+        from backend.compose_backend.protocol import BackendMode
+        backend = get_compose_backend()
+        if backend is not None:
+            claimed = sorted(claimed_gpu_indices())
+            loop = asyncio.new_event_loop()
+            try:
+                status = loop.run_until_complete(backend.get_status())
+            finally:
+                loop.close()
+            info["compose"] = {
+                "mode": status.mode.value,
+                "status": status.status,
+                "claimed_gpu_indices": claimed,
+                "gpu_busy": bool(claimed),
+            }
+        else:
+            info["compose"] = {"mode": BackendMode.DISABLED.value, "status": "disabled"}
+    except Exception:
+        pass
 
     return info
 
