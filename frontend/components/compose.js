@@ -7,7 +7,7 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import { transportLoad, transportStop, transportIsPlaying, transportPlayPause } from './audio-player.js';
+import { transportLoad, transportStop, transportIsPlaying, transportPlayPause, transportPause, transportPlay, transportSeekTo, transportOnTimeUpdate, transportOnStateChange } from './audio-player.js';
 import {
   getComputedColor as _getComputedColor,
   hexToRgb as _hexToRgb,
@@ -3911,6 +3911,30 @@ function showResults(taskId, results, payload) {
 /** All active result players — used for exclusive playback. */
 const _resultPlayers = [];
 
+// Transport ownership — tracks which result card is the active transport source.
+let _transportOwner = null;
+let _transportUnsub = null;
+
+/**
+ * Claim the transport bar for a result card.
+ * Unsubscribes the previous card's callbacks and subscribes this card's
+ * timeLabel and playBtn to transport events so they stay in sync.
+ */
+function _claimTransport(entry, timeLabel, playBtn) {
+  if (_transportUnsub) { _transportUnsub(); _transportUnsub = null; }
+  if (_transportOwner && _transportOwner !== entry) {
+    _transportOwner.playBtn.textContent = '\u25B6 Play';
+  }
+  _transportOwner = entry;
+  const unsubTime = transportOnTimeUpdate((time, dur) => {
+    if (_transportOwner === entry) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  });
+  const unsubState = transportOnStateChange((playing) => {
+    if (_transportOwner === entry) playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+  });
+  _transportUnsub = () => { unsubTime(); unsubState(); };
+}
+
 /** Stop all other result players except the given one. */
 function _stopOtherPlayers(except) {
   for (const p of _resultPlayers) {
@@ -3935,14 +3959,14 @@ async function _fetchAndRenderSections(lyrics, duration, bpm, timeSig) {
 
     // Apply to all current result players that have a section overlay
     for (const p of _resultPlayers) {
-      if (p.sectionOverlay) {
-        _renderSectionLabels(p.sectionOverlay, sections, duration, p.ws);
+      if (p.sectionOverlay && p.onSeek) {
+        _renderSectionLabels(p.sectionOverlay, sections, duration, p.onSeek);
       }
     }
   } catch { /* non-critical */ }
 }
 
-function _renderSectionLabels(container, sections, duration, ws) {
+function _renderSectionLabels(container, sections, duration, onSeek) {
   clearChildren(container);
   if (!sections.length || !duration) return;
 
@@ -3956,20 +3980,12 @@ function _renderSectionLabels(container, sections, duration, ws) {
       container.appendChild(tick);
     }
 
-    // Label pill
+    // Label pill — clicking seeks the transport to this section
     const pill = el('div', { className: 'compose-wf-section-label' }, sec.name);
     pill.style.left = pct + '%';
     pill.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (ws) {
-        _stopOtherPlayers(ws);
-        ws.setTime(sec.start);
-        ws.play();
-        // Update play button
-        for (const p of _resultPlayers) {
-          if (p.ws === ws && p.playBtn) p.playBtn.textContent = '\u23F8 Pause';
-        }
-      }
+      if (onSeek) onSeek(sec.start, duration);
     });
     container.appendChild(pill);
   }
@@ -4016,13 +4032,26 @@ function buildResultCard(taskId, index, total, result, fmt) {
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(audioSrc);
 
-    const playerEntry = { ws, playBtn, sectionOverlay, waveContainer };
+    // onSeek: called by section pill clicks to seek the transport to a position.
+    const onSeek = (start, dur) => {
+      const fraction = dur > 0 ? Math.min(start / dur, 1) : 0;
+      if (_transportOwner === playerEntry) {
+        transportSeekTo(fraction);
+        if (!transportIsPlaying()) transportPlay();
+      } else {
+        _claimTransport(playerEntry, timeLabel, playBtn);
+        transportLoad(audioSrc, label, true, 'Compose');
+      }
+    };
+
+    const playerEntry = { ws, playBtn, sectionOverlay, waveContainer, onSeek };
     _resultPlayers.push(playerEntry);
 
     closeBtn.addEventListener('click', () => {
       ws.destroy();
       const idx = _resultPlayers.indexOf(playerEntry);
       if (idx !== -1) _resultPlayers.splice(idx, 1);
+      if (_transportOwner === playerEntry) { _transportOwner = null; if (_transportUnsub) { _transportUnsub(); _transportUnsub = null; } }
       // Remove from composePaths so other tabs stop referencing it
       const ci = appState.composePaths.findIndex(c => c.path === audioPath);
       if (ci !== -1) appState.composePaths.splice(ci, 1);
@@ -4034,36 +4063,22 @@ function buildResultCard(taskId, index, total, result, fmt) {
     });
 
     playBtn.addEventListener('click', () => {
-      if (ws.isPlaying()) {
-        ws.pause();
-        playBtn.textContent = '\u25B6 Play';
+      if (_transportOwner === playerEntry && transportIsPlaying()) {
+        transportPause();
       } else {
-        _stopOtherPlayers(ws);
-        ws.play();
-        playBtn.textContent = '\u23F8 Pause';
-        // Load into global transport for cross-tab "Now Playing"
-        transportLoad(audioSrc, label, false, 'Compose');
+        _claimTransport(playerEntry, timeLabel, playBtn);
+        transportLoad(audioSrc, label, true, 'Compose');
       }
     });
 
     stopBtn.addEventListener('click', () => {
-      ws.stop();
       transportStop();
       playBtn.textContent = '\u25B6 Play';
     });
 
     rewindBtn.addEventListener('click', () => {
       ws.setTime(0);
-    });
-
-    ws.on('timeupdate', (time) => {
-      const dur = ws.getDuration();
-      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-    });
-
-    ws.on('finish', () => {
-      playBtn.textContent = '\u25B6 Play';
-      transportStop();
+      if (_transportOwner === playerEntry) transportSeekTo(0);
     });
   }
 
@@ -4456,35 +4471,29 @@ function showVoiceResult(result) {
     ws.destroy();
     const idx = _resultPlayers.indexOf(playerEntry);
     if (idx !== -1) _resultPlayers.splice(idx, 1);
+    if (_transportOwner === playerEntry) { _transportOwner = null; if (_transportUnsub) { _transportUnsub(); _transportUnsub = null; } }
     delete appState.voicePaths[label];
     card.remove();
   });
 
   playBtn.addEventListener('click', () => {
-    if (ws.isPlaying()) {
-      ws.pause();
-      playBtn.textContent = '\u25B6 Play';
+    if (_transportOwner === playerEntry && transportIsPlaying()) {
+      transportPause();
     } else {
-      _stopOtherPlayers(ws);
-      ws.play();
-      playBtn.textContent = '\u23F8 Pause';
-      transportLoad(audioSrc, label, false, 'Compose › Voice');
+      _claimTransport(playerEntry, timeLabel, playBtn);
+      transportLoad(audioSrc, label, true, 'Compose \u203A Voice');
     }
   });
 
   stopBtn.addEventListener('click', () => {
-    ws.stop();
     transportStop();
     playBtn.textContent = '\u25B6 Play';
   });
 
-  rewindBtn.addEventListener('click', () => ws.setTime(0));
-
-  ws.on('timeupdate', (time) => {
-    const dur = ws.getDuration();
-    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  rewindBtn.addEventListener('click', () => {
+    ws.setTime(0);
+    if (_transportOwner === playerEntry) transportSeekTo(0);
   });
-  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
 
   // Actions row
   const actions = el('div', { className: 'compose-card-actions' },
