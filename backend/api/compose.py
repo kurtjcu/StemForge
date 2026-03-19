@@ -1,4 +1,4 @@
-"""Compose endpoints — AceStep music generation, adapted from Wrangler's backend/main.py."""
+"""Compose endpoints — AceStep music generation via ComposeBackend adapter."""
 
 from __future__ import annotations
 
@@ -14,40 +14,12 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import parse_qs, urlparse
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from backend.api.acestep_wrapper import (
-    _LANG_LABELS,
-    create_sample,
-    dataset_auto_label_async,
-    dataset_auto_label_status,
-    dataset_load,
-    dataset_preprocess_async,
-    dataset_preprocess_status,
-    dataset_sample_update,
-    dataset_samples,
-    dataset_save,
-    dataset_scan,
-    format_input,
-    get_audio_bytes,
-    health_check,
-    lora_load as _lora_load,
-    lora_scale as _lora_scale,
-    lora_status as _lora_status,
-    lora_toggle as _lora_toggle,
-    lora_unload as _lora_unload,
-    query_result,
-    reinitialize_service,
-    release_task,
-    training_export,
-    training_start,
-    training_start_lokr,
-    training_status,
-    training_stop,
-)
+from backend.compose_backend import get_compose_backend
+from backend.compose_backend.protocol import GenerateParams, TaskStatus
 from backend.services import acestep_state
 from backend.services.session_store import SessionStore, get_user_session
 from utils.paths import COMPOSE_DIR, user_dir
@@ -77,6 +49,7 @@ def require_acestep_tenant(request: Request) -> str:
             f"AceStep is in use by another user ({current}). Try again later.",
         )
     return user
+
 
 # ---------------------------------------------------------------------------
 # LoRA adapter directory
@@ -120,6 +93,12 @@ _LM_MODEL = {
     "0.6b": "acestep-5Hz-lm-0.6B",
     "1.7b": "acestep-5Hz-lm-1.7B",
     "4b": "acestep-5Hz-lm-4B",
+}
+
+_LANG_LABELS: dict[str, str] = {
+    "en": "English", "zh": "Chinese", "ja": "Japanese", "ko": "Korean",
+    "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese",
+    "it": "Italian", "ru": "Russian", "ar": "Arabic", "hi": "Hindi",
 }
 
 # ---------------------------------------------------------------------------
@@ -197,25 +176,27 @@ class SendToSessionRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Guard
+# Guards
 # ---------------------------------------------------------------------------
 
 
-def _require_acestep() -> None:
-    """Raise 503 if AceStep is not running. Distinguishes disabled/ready/starting/crashed."""
-    state = acestep_state.get_status()
-    status = state["status"]
-    if status == "running":
+async def _require_backend():
+    """Raise 503 if the compose backend is not running."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled (start without --compose-mode disabled)")
+    status = await backend.get_status()
+    if status.status == "running":
         return
-    if status == "disabled":
-        raise HTTPException(503, "AceStep is disabled (start without --no-acestep)")
-    if status == "ready":
-        raise HTTPException(503, "AceStep is not started yet. Call POST /api/compose/start first.")
-    if status == "starting":
-        raise HTTPException(503, "AceStep is starting up — downloading models, please stand by")
-    if status == "crashed":
-        raise HTTPException(503, f"AceStep crashed: {state.get('error', 'unknown error')}")
-    raise HTTPException(503, f"AceStep is {status}")
+    if status.status == "disabled":
+        raise HTTPException(503, "Compose backend is disabled")
+    if status.status == "ready":
+        raise HTTPException(503, "Compose backend is not started yet. Call POST /api/compose/start first.")
+    if status.status == "starting":
+        raise HTTPException(503, "Compose backend is starting up — downloading models, please stand by")
+    if status.status == "crashed":
+        raise HTTPException(503, f"Compose backend crashed: {status.error or 'unknown error'}")
+    raise HTTPException(503, f"Compose backend is {status.status}")
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +336,23 @@ def _ensure_in_tmp(path: str) -> str:
     return tmp_path
 
 
+def _task_status_to_dict(ts: TaskStatus) -> dict:
+    """Convert a TaskStatus to the wire format the frontend expects."""
+    return {
+        "status": ts.status,
+        "results": [
+            {
+                "audio_url": r.audio_url,
+                "meta": r.meta,
+                "prompt": r.prompt,
+                "lyrics": r.lyrics,
+                "seed_value": r.seed_value,
+            }
+            for r in ts.results
+        ] if ts.results else None,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Duration estimation — heuristic fallback
 # ---------------------------------------------------------------------------
@@ -446,13 +444,24 @@ def _estimate_sections(
 
 @router.get("/health")
 async def compose_health():
-    state = acestep_state.get_status()
-    tenant = acestep_state.get_tenant()
-    result = {"acestep_status": state["status"], "port": state["port"], "tenant": tenant}
-    if state["status"] == "running":
+    backend = get_compose_backend()
+    if backend is None:
+        return {"compose_status": "disabled", "compose_mode": "disabled"}
+    status = await backend.get_status()
+    result: dict = {
+        "compose_status": status.status,
+        "compose_mode": status.mode.value,
+        "gpu_indices": status.gpu_indices,
+        "gpu_busy": status.gpu_busy,
+        "tenant": status.tenant,
+    }
+    if status.port:
+        result["port"] = status.port
+    if status.status == "running":
+        # Also fetch upstream health detail when available
         try:
-            upstream = await health_check()
-            result["acestep_health"] = upstream
+            from backend.api.acestep_wrapper import health_check
+            result["acestep_health"] = await health_check()
         except Exception as exc:
             result["acestep_health_error"] = str(exc)
     return result
@@ -460,23 +469,24 @@ async def compose_health():
 
 @router.post("/start")
 async def start_acestep():
-    """Launch the AceStep subprocess on demand (first use). Idempotent."""
-    state = acestep_state.get_status()
-    if state["status"] == "disabled":
-        raise HTTPException(400, "AceStep is disabled (started with --no-acestep)")
-    if state["status"] in ("starting", "running"):
-        return {"acestep_status": state["status"], "message": "Already started"}
-
-    launched = acestep_state.launch()
-    if not launched:
-        return {"acestep_status": acestep_state.get_status()["status"], "message": "Launch skipped"}
-
-    return {"acestep_status": "starting", "message": "AceStep is starting — downloading models if needed"}
+    """Launch the compose backend on demand (first use). Idempotent."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(400, "Compose is disabled (started with --compose-mode disabled)")
+    status = await backend.get_status()
+    if status.status in ("starting", "running"):
+        return {"compose_status": status.status, "message": "Already started"}
+    result_status = await backend.start()
+    return {
+        "compose_status": result_status.status,
+        "message": "Compose backend is starting — downloading models if needed",
+    }
 
 
 @router.post("/generate")
 async def generate(req: GenerateRequest, _tenant: str = Depends(require_acestep_tenant)):
-    _require_acestep()
+    await _require_backend()
+    backend = get_compose_backend()
     updates = {}
     if req.src_audio_path:
         safe = _ensure_in_tmp(req.src_audio_path)
@@ -490,9 +500,9 @@ async def generate(req: GenerateRequest, _tenant: str = Depends(require_acestep_
         req = req.model_copy(update=updates)
     payload = _build_payload(req)
     try:
-        task_id = await release_task(payload)
+        task_id = await backend.generate(GenerateParams(extra=payload))
     except Exception as exc:
-        raise HTTPException(502, f"AceStep error: {exc}")
+        raise HTTPException(502, f"Compose backend error: {exc}")
 
     _pending[task_id] = {"params": req.model_dump(), "format": req.audio_format}
     return {"task_id": task_id}
@@ -500,32 +510,34 @@ async def generate(req: GenerateRequest, _tenant: str = Depends(require_acestep_
 
 @router.get("/status/{task_id}")
 async def status(task_id: str):
-    _require_acestep()
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        data = await query_result(task_id)
+        ts = await backend.poll_task(task_id)
     except Exception as exc:
-        raise HTTPException(502, f"AceStep error: {exc}")
+        raise HTTPException(502, f"Compose backend error: {exc}")
 
-    if data["status"] == "done" and task_id not in _jobs:
+    if ts.status == "done" and task_id not in _jobs:
         pending = _pending.pop(task_id, {})
         _jobs[task_id] = {
-            "results": data["results"],
+            "results": _task_status_to_dict(ts)["results"] or [],
             "params": pending.get("params", {}),
             "format": pending.get("format", "mp3"),
         }
-    return data
+    return _task_status_to_dict(ts)
 
 
 @router.get("/audio")
 async def audio_proxy(path: str):
-    _require_acestep()
+    await _require_backend()
+    backend = get_compose_backend()
     resolved = _resolve_audio_path(path)
     fp = Path(resolved)
     if fp.is_file():
         ct = mimetypes.guess_type(str(fp))[0] or "audio/mpeg"
         return FileResponse(str(fp), media_type=ct)
     try:
-        data, content_type = await get_audio_bytes(path)
+        data, content_type = await backend.get_audio(path)
     except Exception as exc:
         raise HTTPException(502, f"Audio fetch error: {exc}")
     return Response(content=data, media_type=content_type)
@@ -537,8 +549,11 @@ async def download_audio(job_id: str, index: int):
     if not job or index >= len(job["results"]):
         raise HTTPException(404, "Result not found")
     audio_url = job["results"][index]["audio_url"]
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        data, content_type = await get_audio_bytes(audio_url)
+        data, content_type = await backend.get_audio(audio_url)
     except Exception as exc:
         raise HTTPException(502, f"Audio fetch error: {exc}")
     fmt = job["format"]
@@ -570,35 +585,36 @@ async def download_json(job_id: str, index: int):
 
 @router.post("/generate-lyrics")
 async def generate_lyrics(req: GenerateLyricsRequest):
-    _require_acestep()
+    await _require_backend()
+    backend = get_compose_backend()
     if not req.description.strip():
         raise HTTPException(422, "Description cannot be empty")
     try:
-        task_id = await create_sample(req.description, req.vocal_language)
+        task_id = await backend.create_sample(req.description, req.vocal_language)
     except Exception as exc:
-        raise HTTPException(502, f"AceStep error: {exc}")
+        raise HTTPException(502, f"Compose backend error: {exc}")
 
     for _ in range(300):
         await asyncio.sleep(2)
         try:
-            data = await query_result(task_id)
+            ts = await backend.poll_task(task_id)
         except Exception as exc:
-            raise HTTPException(502, f"AceStep poll error: {exc}")
+            raise HTTPException(502, f"Compose backend poll error: {exc}")
 
-        if data["status"] == "done":
-            results = data.get("results") or []
+        if ts.status == "done":
+            results = ts.results or []
             if not results:
                 raise HTTPException(502, "No results returned")
             result = results[0]
-            meta = result.get("meta") or {}
-            raw_audio_url = result.get("audio_url", "")
+            meta = result.meta or {}
+            raw_audio_url = result.audio_url
             audio_path = ""
             if raw_audio_url:
                 parsed = parse_qs(urlparse(raw_audio_url).query)
                 audio_path = parsed.get("path", [""])[0]
             return {
-                "caption": result.get("prompt", ""),
-                "lyrics": result.get("lyrics", ""),
+                "caption": result.prompt,
+                "lyrics": result.lyrics,
                 "bpm": meta.get("bpm"),
                 "key_scale": meta.get("keyscale", ""),
                 "time_signature": meta.get("timesignature", "4/4"),
@@ -606,7 +622,7 @@ async def generate_lyrics(req: GenerateLyricsRequest):
                 "audio_url": raw_audio_url,
                 "audio_path": audio_path,
             }
-        elif data["status"] == "error":
+        elif ts.status == "error":
             raise HTTPException(502, "Lyrics generation failed")
 
     raise HTTPException(504, "Lyrics generation timed out")
@@ -616,23 +632,24 @@ async def generate_lyrics(req: GenerateLyricsRequest):
 async def estimate_duration(req: EstimateDurationRequest):
     bpm = req.bpm if req.bpm else 120
     if req.lm_model != "none" and req.lyrics.strip():
-        try:
-            _require_acestep()
-            result = await format_input(req.lyrics)
-            body = result if isinstance(result, dict) else {}
-            for key in ("data", "result"):
-                if isinstance(body.get(key), dict):
-                    body = body[key]
-                    break
-            if "duration" in body:
-                secs = float(body["duration"])
-                secs = round(secs / 5) * 5
-                secs = max(10.0, min(600.0, secs))
-                return {"seconds": secs, "method": "lm"}
-        except HTTPException:
-            pass  # AceStep unavailable — fall through to heuristic
-        except Exception:
-            pass
+        backend = get_compose_backend()
+        if backend is not None:
+            try:
+                status = await backend.get_status()
+                if status.status == "running":
+                    result = await backend.format_lyrics(req.lyrics)
+                    body = result if isinstance(result, dict) else {}
+                    for key in ("data", "result"):
+                        if isinstance(body.get(key), dict):
+                            body = body[key]
+                            break
+                    if "duration" in body:
+                        secs = float(body["duration"])
+                        secs = round(secs / 5) * 5
+                        secs = max(10.0, min(600.0, secs))
+                        return {"seconds": secs, "method": "lm"}
+            except Exception:
+                pass  # Fall through to heuristic
 
     secs = _heuristic_seconds(req.lyrics, bpm, req.time_signature)
     resp: dict = {"seconds": secs, "method": "heuristic"}
@@ -660,42 +677,43 @@ async def analyze_audio(req: AnalyzeAudioRequest):
     discrete codes, then the LLM reverse-engineers metadata from the codes.
     No audio generation occurs — this is analysis only.
     """
-    _require_acestep()
+    await _require_backend()
+    backend = get_compose_backend()
     if not req.audio_path:
         raise HTTPException(422, "audio_path is required")
 
     safe_path = _ensure_in_tmp(req.audio_path)
     try:
-        task_id = await release_task({
+        task_id = await backend.generate(GenerateParams(extra={
             "full_analysis_only": True,
             "src_audio_path": safe_path,
-        })
+        }))
     except Exception as exc:
-        raise HTTPException(502, f"AceStep error: {exc}")
+        raise HTTPException(502, f"Compose backend error: {exc}")
 
     for _ in range(150):  # 150 × 2s = 5 min timeout
         await asyncio.sleep(2)
         try:
-            data = await query_result(task_id)
+            ts = await backend.poll_task(task_id)
         except Exception as exc:
-            raise HTTPException(502, f"AceStep poll error: {exc}")
+            raise HTTPException(502, f"Compose backend poll error: {exc}")
 
-        if data["status"] == "done":
-            results = data.get("results") or []
+        if ts.status == "done":
+            results = ts.results or []
             if not results:
                 raise HTTPException(502, "No results returned")
             result = results[0]
-            meta = result.get("meta") or {}
+            meta = result.meta or {}
             return {
-                "caption": result.get("prompt", ""),
-                "lyrics": result.get("lyrics", ""),
+                "caption": result.prompt,
+                "lyrics": result.lyrics,
                 "bpm": meta.get("bpm"),
                 "key_scale": meta.get("keyscale", ""),
                 "time_signature": meta.get("timesignature", "4/4"),
                 "vocal_language": meta.get("language", ""),
                 "duration": meta.get("duration"),
             }
-        elif data["status"] == "error":
+        elif ts.status == "error":
             raise HTTPException(502, "Audio analysis failed")
 
     raise HTTPException(504, "Audio analysis timed out")
@@ -703,7 +721,7 @@ async def analyze_audio(req: AnalyzeAudioRequest):
 
 @router.post("/upload-audio")
 async def upload_audio(file: UploadFile):
-    # No _require_acestep() — upload is local file I/O, not an AceStep call
+    # No _require_backend() — upload is local file I/O, not a backend call
     if not file.content_type or not file.content_type.startswith("audio/"):
         raise HTTPException(422, "Only audio files are supported")
     upload_id = uuid.uuid4().hex[:12]
@@ -757,7 +775,7 @@ async def rework_sources(session: SessionStore = Depends(get_user_session)):
 
 @router.post("/send-to-session")
 async def send_to_session(body: SendToSessionRequest, session: SessionStore = Depends(get_user_session)):
-    """Download composed audio from AceStep, save to COMPOSE_DIR, set as session audio."""
+    """Download composed audio from backend, save to COMPOSE_DIR, set as session audio."""
     resolved = _resolve_audio_path(body.audio_path)
     fp = Path(resolved)
 
@@ -765,8 +783,11 @@ async def send_to_session(body: SendToSessionRequest, session: SessionStore = De
         data = fp.read_bytes()
         ext = fp.suffix or ".mp3"
     else:
+        backend = get_compose_backend()
+        if backend is None:
+            raise HTTPException(503, "Compose is disabled")
         try:
-            data, content_type = await get_audio_bytes(body.audio_path)
+            data, content_type = await backend.get_audio(body.audio_path)
         except Exception as exc:
             raise HTTPException(502, f"Audio fetch error: {exc}")
         ext_map = {"audio/mpeg": ".mp3", "audio/wav": ".wav", "audio/flac": ".flac"}
@@ -819,44 +840,60 @@ class LoRAScaleRequest(BaseModel):
 
 @router.post("/lora/load")
 async def lora_load_route(req: LoRALoadRequest, _tenant: str = Depends(require_acestep_tenant)):
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        return await _lora_load(req.lora_path, req.adapter_name)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        return await backend.load_adapter(req.lora_path, req.adapter_name)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/lora/unload")
 async def lora_unload_route(_tenant: str = Depends(require_acestep_tenant)):
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        return await _lora_unload()
+        return await backend.unload_adapter()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/lora/toggle")
 async def lora_toggle_route(req: LoRAToggleRequest, _tenant: str = Depends(require_acestep_tenant)):
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        return await _lora_toggle(req.use_lora)
+        return await backend.toggle_adapter(req.use_lora)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/lora/scale")
 async def lora_scale_route(req: LoRAScaleRequest, _tenant: str = Depends(require_acestep_tenant)):
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        return await _lora_scale(req.scale, req.adapter_name)
+        return await backend.scale_adapter(req.scale, req.adapter_name)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/lora/status")
 async def lora_status_route():
+    backend = get_compose_backend()
+    if backend is None:
+        return {"loaded": False}
     try:
-        return await _lora_status()
+        status = await backend.adapter_status()
+        return {
+            "loaded": status.loaded,
+            "adapter_name": status.adapter_name,
+            "scale": status.scale,
+            "use_lora": status.use_lora,
+            **status.raw,
+        }
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/lora/browse")
@@ -905,10 +942,9 @@ _TRAIN_DIR = Path(os.environ.get(
 _TRAIN_AUDIO_DIR = _TRAIN_DIR / "audio"
 _TRAIN_TENSOR_DIR = _TRAIN_DIR / "tensors"
 _TRAIN_OUTPUT_DIR = _TRAIN_DIR / "output"
-_TRAIN_SNAPSHOTS_DIR = _TRAIN_DIR / "snapshots"
 _TRAIN_DATASET_FILE = _TRAIN_DIR / "dataset.json"
 
-for _d in (_TRAIN_DIR, _TRAIN_AUDIO_DIR, _TRAIN_TENSOR_DIR, _TRAIN_OUTPUT_DIR, _TRAIN_SNAPSHOTS_DIR):
+for _d in (_TRAIN_DIR, _TRAIN_AUDIO_DIR, _TRAIN_TENSOR_DIR, _TRAIN_OUTPUT_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 _SIDECAR_SUFFIX = ".stemforge.json"
@@ -922,8 +958,11 @@ async def _write_sidecars() -> int:
     Called after labeling completes or manual edits are saved so that
     captions survive re-scans and interruptions.
     """
+    backend = get_compose_backend()
+    if backend is None:
+        return 0
     try:
-        data = await dataset_samples()
+        data = await backend.dataset_samples()
     except Exception:
         return 0
     samples = data.get("samples", [])
@@ -947,8 +986,11 @@ async def _apply_sidecars() -> int:
 
     Called after scan so that previously labeled files keep their captions.
     """
+    backend = get_compose_backend()
+    if backend is None:
+        return 0
     try:
-        data = await dataset_samples()
+        data = await backend.dataset_samples()
     except Exception:
         return 0
     samples = data.get("samples", [])
@@ -969,7 +1011,7 @@ async def _apply_sidecars() -> int:
         if not meta:
             continue
         try:
-            await dataset_sample_update(i, meta)
+            await backend.dataset_sample_update(i, meta)
             applied += 1
         except Exception:
             pass
@@ -1073,266 +1115,256 @@ async def train_pipeline_state():
 
 @router.post("/train/scan")
 async def train_scan(req: TrainScanRequest, _tenant: str = Depends(require_acestep_tenant)):
-    """Load uploaded audio into AceStep dataset."""
+    """Load uploaded audio into backend dataset."""
+    await _require_backend()
+    backend = get_compose_backend()
     try:
         payload = {"audio_dir": str(_TRAIN_AUDIO_DIR)}
         if req.stems_mode:
             payload["stems_mode"] = True
-        result = await dataset_scan(payload)
+        result = await backend.dataset_scan(payload)
         # Restore captions from sidecar files written during previous labeling
         restored = await _apply_sidecars()
         if restored:
-            await dataset_save(str(_TRAIN_DATASET_FILE))
+            await backend.dataset_save(str(_TRAIN_DATASET_FILE))
             result["restored_captions"] = restored
         return result
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/label")
 async def train_label(req: TrainLabelRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Start async auto-labeling."""
+    await _require_backend()
+    backend = get_compose_backend()
     try:
         payload: dict = {"only_unlabeled": True}
         if req.lm_model_path:
             payload["lm_model_path"] = req.lm_model_path
         if req.stems_mode:
             payload["stems_mode"] = True
-        return await dataset_auto_label_async(payload)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        return await backend.dataset_auto_label(payload)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/train/label/status")
 async def train_label_status():
     """Poll auto-label progress."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        return await dataset_auto_label_status()
+        return await backend.dataset_auto_label_status()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/train/samples")
 async def train_samples():
     """List loaded dataset samples."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        return await dataset_samples()
+        return await backend.dataset_samples()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.put("/train/sample/{sample_idx}")
 async def train_sample_update(sample_idx: int, req: SampleUpdateRequest):
     """Update sample metadata, auto-save, and write caption sidecar."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        result = await dataset_sample_update(sample_idx, req.model_dump())
-        await dataset_save(str(_TRAIN_DATASET_FILE))
+        result = await backend.dataset_sample_update(sample_idx, req.model_dump())
+        await backend.dataset_save(str(_TRAIN_DATASET_FILE))
         await _write_sidecars()
         return result
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/save")
 async def train_save():
     """Save dataset to disk and write caption sidecars."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        result = await dataset_save(str(_TRAIN_DATASET_FILE))
+        result = await backend.dataset_save(str(_TRAIN_DATASET_FILE))
         await _write_sidecars()
         return result
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/load")
 async def train_load():
     """Load saved dataset from disk."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        return await dataset_load(str(_TRAIN_DATASET_FILE))
+        return await backend.dataset_load(str(_TRAIN_DATASET_FILE))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/preprocess")
 async def train_preprocess(_tenant: str = Depends(require_acestep_tenant)):
     """Start async preprocessing into tensors."""
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        return await dataset_preprocess_async(str(_TRAIN_TENSOR_DIR))
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        return await backend.dataset_preprocess(str(_TRAIN_TENSOR_DIR))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/train/preprocess/status")
 async def train_preprocess_status(task_id: Optional[str] = None):
     """Poll preprocessing progress."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        return await dataset_preprocess_status(task_id)
+        return await backend.dataset_preprocess_status(task_id)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/start")
 async def train_start(req: TrainStartRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Start LoRA/LoKR training."""
-    out_dir = req.output_dir or str(_TRAIN_OUTPUT_DIR)
-    payload = {
-        "lora_rank": req.lora_rank,
-        "lora_alpha": req.lora_alpha,
-        "lora_dropout": req.lora_dropout,
-        "learning_rate": req.learning_rate,
-        "train_epochs": req.train_epochs,
-        "train_batch_size": req.train_batch_size,
-        "gradient_accumulation": req.gradient_accumulation,
-        "save_every_n_epochs": req.save_every_n_epochs,
-        "training_seed": req.training_seed,
-        "gradient_checkpointing": req.gradient_checkpointing,
-        "tensor_dir": req.tensor_dir or str(_TRAIN_TENSOR_DIR),
-    }
+    await _require_backend()
+    backend = get_compose_backend()
+    from backend.compose_backend.protocol import TrainParams
+    params = TrainParams(
+        adapter_type=req.adapter_type,
+        lora_rank=req.lora_rank,
+        lora_alpha=req.lora_alpha,
+        lora_dropout=req.lora_dropout,
+        learning_rate=req.learning_rate,
+        train_epochs=req.train_epochs,
+        train_batch_size=req.train_batch_size,
+        gradient_accumulation=req.gradient_accumulation,
+        save_every_n_epochs=req.save_every_n_epochs,
+        training_seed=req.training_seed,
+        gradient_checkpointing=req.gradient_checkpointing,
+        tensor_dir=req.tensor_dir or None,
+        output_dir=req.output_dir or None,
+    )
     try:
-        if req.adapter_type == "lokr":
-            payload["output_dir"] = out_dir  # LoKR uses output_dir
-            return await training_start_lokr(payload)
-        payload["lora_output_dir"] = out_dir  # LoRA uses lora_output_dir
-        return await training_start(payload)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        return await backend.train_start(params)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/train/status")
 async def train_status():
     """Poll training status."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        return await training_status()
+        return await backend.train_status()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/stop")
 async def train_stop(_tenant: str = Depends(require_acestep_tenant)):
     """Stop current training run."""
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        return await training_stop()
+        return await backend.train_stop()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/export")
 async def train_export(req: TrainExportRequest, _tenant: str = Depends(require_acestep_tenant)):
     """Export trained adapter to loras/ directory."""
+    await _require_backend()
+    backend = get_compose_backend()
     try:
         export_path = str(_LORA_DIR / _safe_filename(req.name))
         lora_output_dir = req.output_dir or str(_TRAIN_OUTPUT_DIR)
-        return await training_export(export_path, lora_output_dir)
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        return await backend.train_export(export_path, lora_output_dir)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/reinitialize")
 async def train_reinitialize(_tenant: str = Depends(require_acestep_tenant)):
     """Reload the generation model after training."""
+    await _require_backend()
+    backend = get_compose_backend()
     try:
-        return await reinitialize_service()
+        return await backend.reinitialize()
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AceStep error: {exc}")
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.get("/train/snapshots")
 async def train_snapshots():
     """List saved snapshots."""
-    snapshots = []
-    if not _TRAIN_SNAPSHOTS_DIR.is_dir():
-        return {"snapshots": snapshots}
-
-    for entry in sorted(_TRAIN_SNAPSHOTS_DIR.iterdir()):
-        if not entry.is_dir():
-            continue
-        meta = {}
-        meta_file = entry / "meta.json"
-        if meta_file.exists():
-            try:
-                meta = json.loads(meta_file.read_text())
-            except Exception:
-                pass
-        size_bytes = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
-        snapshots.append({"name": entry.name, "meta": meta, "size_mb": round(size_bytes / 1_048_576, 1)})
-
-    return {"snapshots": snapshots}
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
+    try:
+        return await backend.train_snapshots_list()
+    except NotImplementedError as exc:
+        raise HTTPException(501, str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/snapshots/save")
 async def train_snapshot_save(req: SnapshotRequest):
     """Save current dataset + tensors as a named snapshot."""
-    safe_name = _safe_filename(req.name)
-    snap_dir = _TRAIN_SNAPSHOTS_DIR / safe_name
-    snap_dir.mkdir(parents=True, exist_ok=True)
-
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        await dataset_save(str(_TRAIN_DATASET_FILE))
-    except Exception:
-        pass
-
-    if _TRAIN_DATASET_FILE.exists():
-        shutil.copy2(_TRAIN_DATASET_FILE, snap_dir / "dataset.json")
-
-    snap_tensor_dir = snap_dir / "tensors"
-    if _TRAIN_TENSOR_DIR.is_dir():
-        if snap_tensor_dir.exists():
-            shutil.rmtree(snap_tensor_dir)
-        shutil.copytree(_TRAIN_TENSOR_DIR, snap_tensor_dir)
-
-    meta = {
-        "saved": datetime.now(timezone.utc).isoformat(),
-        "has_dataset": _TRAIN_DATASET_FILE.exists(),
-        "tensor_count": sum(1 for _ in _TRAIN_TENSOR_DIR.rglob("*.pt")) if _TRAIN_TENSOR_DIR.is_dir() else 0,
-    }
-    (snap_dir / "meta.json").write_text(json.dumps(meta, indent=2))
-    return {"name": safe_name, "meta": meta}
+        return await backend.train_snapshot_save(req.name)
+    except NotImplementedError as exc:
+        raise HTTPException(501, str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.post("/train/snapshots/load")
 async def train_snapshot_load(req: SnapshotRequest):
     """Load a named snapshot back into the working directory."""
-    safe_name = _safe_filename(req.name)
-    snap_dir = _TRAIN_SNAPSHOTS_DIR / safe_name
-    if not snap_dir.is_dir():
-        raise HTTPException(404, f"Snapshot not found: {safe_name}")
-
-    snap_dataset = snap_dir / "dataset.json"
-    if snap_dataset.exists():
-        shutil.copy2(snap_dataset, _TRAIN_DATASET_FILE)
-
-    snap_tensors = snap_dir / "tensors"
-    if snap_tensors.is_dir():
-        if _TRAIN_TENSOR_DIR.exists():
-            shutil.rmtree(_TRAIN_TENSOR_DIR)
-        shutil.copytree(snap_tensors, _TRAIN_TENSOR_DIR)
-
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
     try:
-        if _TRAIN_DATASET_FILE.exists():
-            await dataset_load(str(_TRAIN_DATASET_FILE))
-    except Exception:
-        pass
-
-    return {"name": safe_name, "restored": True}
+        return await backend.train_snapshot_load(req.name)
+    except NotImplementedError as exc:
+        raise HTTPException(501, str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(404, str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
 
 
 @router.delete("/train/snapshots/{name}")
 async def train_snapshot_delete(name: str):
     """Delete a named snapshot."""
-    safe_name = _safe_filename(name)
-    snap_dir = _TRAIN_SNAPSHOTS_DIR / safe_name
-    if snap_dir.is_dir():
-        shutil.rmtree(snap_dir)
-    return {"deleted": safe_name}
+    backend = get_compose_backend()
+    if backend is None:
+        raise HTTPException(503, "Compose is disabled")
+    try:
+        return await backend.train_snapshot_delete(name)
+    except NotImplementedError as exc:
+        raise HTTPException(501, str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Compose backend error: {exc}")
