@@ -285,32 +285,16 @@ def recommend_separator(profile: AudioProfile) -> Recommendation:
     # ── Roformer A: Vocal-forward, low drum risk ──────────────────────────────
     # High vocal naturalness + low drum risk = ideal Roformer conditions.
     if vn > 0.65 and dir_risk < 0.35:
-        if sf < 0.25:
-            model_id = "roformer-viperx-vocals"
-            reason = (
-                "Natural, smooth vocals with clean spectral envelope detected. "
-                "Low drum-intrusion risk — ViperX BS-Roformer (SDR 12.97) will produce "
-                "the cleanest vocal isolation. "
-                "If MIDI extraction is planned, this stem will be ideal for BasicPitch."
-            )
-        else:
-            model_id = "roformer-kj-vocals"
-            reason = (
-                "Natural vocals with moderate spectral complexity detected. "
-                "Low drum-intrusion risk — MelBand-Roformer (KimberleyJensen) handles "
-                "busier vocal textures well."
-            )
+        reason = (
+            "Natural vocals detected with low drum-intrusion risk. "
+            "ViperX BS-Roformer (SDR 12.97) will produce the cleanest "
+            "vocal isolation. "
+            "If MIDI extraction is planned, this stem will be ideal for BasicPitch."
+        )
         conf = _margin(vn - 0.65, 0.35 - dir_risk)
-        license_warn = ""
-        if model_id == "roformer-kj-vocals":
-            license_warn = (
-                "This model's weights are licensed under GPL-3.0 (copyleft) — "
-                "MIT-licensed alternatives exist (ViperX, ZFTurbo)."
-            )
         return Recommendation(
-            engine="BS-Roformer", model_id=model_id,
+            engine="BS-Roformer", model_id="roformer-viperx-vocals",
             reason=reason, confidence=_cap(conf),
-            license_warning=license_warn,
         )
 
     # ── Roformer B: Harmonic-rich instruments, low drum risk ─────────────────

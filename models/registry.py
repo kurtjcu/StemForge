@@ -659,50 +659,6 @@ ROFORMER_VIPERX = _register(RoformerSpec(
     default_num_overlap=4,
 ))
 
-ROFORMER_KJ = _register(RoformerSpec(
-    model_id="roformer-kj-vocals",
-    display_name="MelBand-Roformer (KimberleyJensen)",
-    version="1.0",
-    source="KimberleyJSN/MelBandRoformer",
-    device="auto",
-    gpu_capable=True,
-    device_fallback="cpu",
-    device_quirks="CUBLAS errors fall back to CPU per-chunk automatically.",
-    sample_rate=44_100,
-    hop_size=0,
-    chunk_size=352_800,
-    max_duration_seconds=0.0,
-    default_bpm=0.0,
-    default_key="",
-    default_time_signature="",
-    quantize_grid="none",
-    default_min_note_ms=0.0,
-    capabilities=_ROFORMER_CAPS,
-    cache_subdir="roformer",
-    description="sharper, more isolated vocals, but can sound slightly brittle or over-filtered on certain material",
-    preprocessing="Stereo 44.1 kHz; chunked overlap-add with linear fade.",
-    postprocessing="other = mix − vocals; write per-stem WAV files.",
-    architecture="mel_band_roformer",
-    checkpoint_url=(
-        "https://huggingface.co/KimberleyJSN/melbandroformer/resolve/main/"
-        "MelBandRoformer.ckpt"
-    ),
-    config_url=(
-        "https://raw.githubusercontent.com/ZFTurbo/Music-Source-Separation-Training/"
-        "main/configs/KimberleyJensen/config_vocals_mel_band_roformer_kj.yaml"
-    ),
-    target_instrument="vocals",
-    other_fix=True,
-    available_stems=("vocals", "other"),
-    default_chunk_size=352_800,
-    default_num_overlap=2,
-    license_warning=(
-        "These model weights are licensed under GPL-3.0 (copyleft). "
-        "Using them may impose GPL obligations on derivative works. "
-        "MIT-licensed alternatives exist (ViperX, ZFTurbo)."
-    ),
-))
-
 ROFORMER_ZFTURBO_4STEM = _register(RoformerSpec(
     model_id="roformer-zfturbo-4stem",
     display_name="BS-Roformer 4-Stem (ZFTurbo, SDR 9.66)",

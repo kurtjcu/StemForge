@@ -526,7 +526,6 @@ Some models have restrictions on commercial use:
 
 - **Stable Audio Open 1.0** — Stability AI Community License (commercial use
   free below $1 M annual revenue; otherwise requires a Stability AI Enterprise license)
-- **KimberleyJensen MelBandRoformer** — GPL-3.0 (copyleft)
 - **jarredou 6-stem BS-Roformer** — no license specified; use at your own risk
 
 Most other models (Demucs, AceStep, Whisper, BasicPitch, ViperX/ZFTurbo Roformer

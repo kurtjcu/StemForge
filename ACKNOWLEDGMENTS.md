@@ -27,10 +27,6 @@ High-quality separation models used alongside Demucs in the Separate tab.
 
 - **Model repository:** https://github.com/TRvlvr/model_repo
 
-### KimberleyJensen MelBand-Roformer vocal model
-
-- **Model repository:** https://huggingface.co/KimberleyJSN/melbandroformer
-
 ### ZFTurbo 4-stem BS-Roformer & Music-Source-Separation-Training — Roman Solovyev (ZFTurbo)
 
 - **Repository:** https://github.com/ZFTurbo/Music-Source-Separation-Training

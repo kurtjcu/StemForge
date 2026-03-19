@@ -21,7 +21,6 @@ rights required.
 |---|---|---|
 | Stable Audio Open 1.0 | Stability AI Community License | Free for revenue < $1 M/year; otherwise requires a separate Stability AI Enterprise license |
 | audiocraft (MusicGen/AudioGen weights) | CC-BY-NC 4.0 | Non-commercial only (StemForge uses only the audiocraft library code under MIT, not these weights) |
-| KimberleyJensen MelBandRoformer | GPL-3.0 | Copyleft; derivative works must be GPL-3.0 |
 | jarredou 6-stem BS-Roformer | Unknown | No license specified by the model author; use at your own risk |
 
 **Commercially-permissive alternatives** exist for separation (Demucs under MIT,
