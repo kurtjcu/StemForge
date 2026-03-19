@@ -388,13 +388,13 @@ async function startAceExtraction() {
   try {
     // Check AceStep status
     const health = await api('/compose/health');
-    if (health.acestep_status === 'disabled') {
+    if (health.compose_status === 'disabled') {
       throw new Error('AceStep is disabled (start without --no-acestep)');
     }
-    if (health.acestep_status === 'crashed') {
+    if (health.compose_status === 'crashed') {
       throw new Error('AceStep crashed - check terminal');
     }
-    if (health.acestep_status !== 'running') {
+    if (health.compose_status !== 'running') {
       // Try to start AceStep
       document.getElementById('sep-stage').textContent = 'Starting AceStep...';
       await fetch('/api/compose/start', { method: 'POST' });
@@ -402,9 +402,9 @@ async function startAceExtraction() {
       while (true) {
         await new Promise(r => setTimeout(r, 10000));
         const h = await api('/compose/health');
-        if (h.acestep_status === 'running') break;
-        if (h.acestep_status === 'crashed') throw new Error('AceStep crashed during startup');
-        if (h.acestep_status === 'disabled') throw new Error('AceStep is disabled');
+        if (h.compose_status === 'running') break;
+        if (h.compose_status === 'crashed') throw new Error('AceStep crashed during startup');
+        if (h.compose_status === 'disabled') throw new Error('AceStep is disabled');
       }
     }
 
