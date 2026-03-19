@@ -23,33 +23,21 @@ from backend.services.pipeline_manager import (
 # Fixtures
 # ---------------------------------------------------------------------------
 
-def _make_scheduler(
-    num_gpus: int,
-    excluded: set[int] | None = None,
-    free_vram: dict[int, int] | None = None,
-) -> GpuScheduler:
-    """Create a scheduler with mocked GPU state."""
-    excluded = excluded or set()
-    free_vram = free_vram or {}
-    default_free = 8 << 30  # 8 GiB
-    default_total = 16 << 30
+def _make_scheduler(num_gpus: int) -> GpuScheduler:
+    """Create a scheduler with mocked GPU state.
 
+    All GPUs go into the pool — no static exclusion.  Dynamic claiming is
+    tested by patching ``_get_compose_claimed_gpus`` on the scheduler instance.
+    """
     sched = GpuScheduler()
 
-    # Patch _do_init so it doesn't import acestep_state
     def _mock_init():
-        sched._excluded = excluded
-        if num_gpus == 0:
-            return
         for i in range(num_gpus):
-            if i in excluded:
-                continue
             sched._slots.append(GpuSlot(index=i))
 
     with patch.object(sched, "_do_init", _mock_init):
         sched._ensure_init()
 
-    # Patch torch.cuda calls used by _pick_slot
     return sched
 
 
@@ -170,17 +158,18 @@ def test_five_users_two_gpus():
 
 
 # ---------------------------------------------------------------------------
-# 4. AceStep exclusion
+# 4. All GPUs in pool — no static exclusion
 # ---------------------------------------------------------------------------
 
-def test_acestep_exclusion():
-    """3 GPUs, AceStep on GPU 1 — scheduler only offers 0 and 2."""
-    sched = _make_scheduler(3, excluded={1})
+def test_all_gpus_in_pool():
+    """All GPUs are in the pool regardless of compose backend config."""
+    sched = _make_scheduler(3)
 
-    assert sched.slot_count == 2
+    assert sched.slot_count == 3
     indices = {s.index for s in sched._slots}
-    assert indices == {0, 2}
-    assert 1 in sched.excluded_indices
+    assert indices == {0, 1, 2}
+    # No static exclusion — excluded_indices is always empty
+    assert sched.excluded_indices == set()
 
 
 # ---------------------------------------------------------------------------
@@ -326,3 +315,84 @@ def test_session_isolation():
     assert len(contexts) == 5
     # Each context is its own object (not shared)
     assert len(set(id(c) for c in contexts)) == 5
+
+
+# ---------------------------------------------------------------------------
+# 11. Dynamic GPU claiming — compose backend active
+# ---------------------------------------------------------------------------
+
+def test_dynamic_claiming_avoids_claimed_gpu():
+    """When compose claims GPU 0, scheduler picks GPU 1 for pipelines."""
+    sched = _make_scheduler(2)
+
+    def mock_mem_get_info(idx):
+        return (8 << 30, 16 << 30)
+
+    with patch.object(sched, "_get_compose_claimed_gpus", return_value={0}):
+        with patch("torch.cuda.mem_get_info", side_effect=mock_mem_get_info):
+            with sched.session() as ctx:
+                assert ctx.gpu_index == 1, "Should avoid compose-claimed GPU 0"
+
+
+def test_dynamic_claiming_fallback_when_all_claimed():
+    """When compose claims all GPUs, scheduler falls back to the full pool."""
+    sched = _make_scheduler(2)
+
+    def mock_mem_get_info(idx):
+        return (8 << 30, 16 << 30)
+
+    # Both GPUs claimed — scheduler must not deadlock or raise
+    with patch.object(sched, "_get_compose_claimed_gpus", return_value={0, 1}):
+        with patch("torch.cuda.mem_get_info", side_effect=mock_mem_get_info):
+            with sched.session() as ctx:
+                assert ctx.gpu_index in {0, 1}, "Should fall back to full pool"
+
+
+def test_dynamic_claiming_idle_uses_all_gpus():
+    """When compose is idle (claims nothing), all GPUs are candidates."""
+    sched = _make_scheduler(2)
+    gpu_indices: list[int] = []
+    lock = threading.Lock()
+    both_running = threading.Barrier(2, timeout=5)
+
+    def mock_mem_get_info(idx):
+        return (8 << 30, 16 << 30)
+
+    def worker():
+        with patch.object(sched, "_get_compose_claimed_gpus", return_value=set()):
+            with patch("torch.cuda.mem_get_info", side_effect=mock_mem_get_info):
+                with sched.session() as ctx:
+                    with lock:
+                        gpu_indices.append(ctx.gpu_index)
+                    both_running.wait()
+
+    t1 = threading.Thread(target=worker)
+    t2 = threading.Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+
+    assert len(set(gpu_indices)) == 2, "Both GPUs should be used when compose is idle"
+
+
+def test_dynamic_claiming_released_after_generation():
+    """GPU claim clears after generation completes — scheduler uses it again."""
+    sched = _make_scheduler(2)
+    claim: set[int] = {0}  # simulate compose claiming GPU 0
+
+    def mock_mem_get_info(idx):
+        return (8 << 30, 16 << 30)
+
+    # While claim is active, GPU 1 is chosen
+    with patch.object(sched, "_get_compose_claimed_gpus", return_value=claim):
+        with patch("torch.cuda.mem_get_info", side_effect=mock_mem_get_info):
+            with sched.session() as ctx:
+                assert ctx.gpu_index == 1
+
+    # After claim is cleared, GPU 0 is available again
+    claim.clear()
+    with patch.object(sched, "_get_compose_claimed_gpus", return_value=claim):
+        with patch("torch.cuda.mem_get_info", side_effect=mock_mem_get_info):
+            with sched.session() as ctx:
+                assert ctx.gpu_index in {0, 1}, "Both GPUs available after claim cleared"

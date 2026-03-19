@@ -66,32 +66,35 @@ class GpuScheduler:
             self._initialized = True
 
     def _do_init(self) -> None:
-        # Determine which GPU indices AceStep owns
-        from backend.services import acestep_state
-
-        gpu_str = acestep_state._launch_config.get("gpu")
-        if gpu_str:
-            try:
-                self._excluded = {int(gpu_str)}
-            except (ValueError, TypeError):
-                pass
-
+        # All GPUs go into the pool.  GPU assignment to the compose backend
+        # is handled dynamically by _get_compose_claimed_gpus() / _pick_slot()
+        # rather than being statically excluded at init time.
         if not torch.cuda.is_available():
             log.info("GpuScheduler: no CUDA — using CPU fallback lock")
             return
 
         count = torch.cuda.device_count()
         for i in range(count):
-            if i in self._excluded:
-                log.info("GpuScheduler: GPU %d excluded (AceStep)", i)
-                continue
             self._slots.append(GpuSlot(index=i))
 
         if self._slots:
             names = [torch.cuda.get_device_name(s.index) for s in self._slots]
             log.info("GpuScheduler: %d GPU slot(s): %s", len(self._slots), names)
         else:
-            log.info("GpuScheduler: all GPUs excluded — CPU fallback")
+            log.info("GpuScheduler: no CUDA GPUs found — CPU fallback")
+
+    def _get_compose_claimed_gpus(self) -> set[int]:
+        """Return GPU indices the compose backend is actively using right now.
+
+        Reads a threading.Event in EmbeddedComposeBackend — no asyncio bridge
+        needed.  Returns an empty set if the backend is idle, disabled, or
+        if the import fails for any reason.
+        """
+        try:
+            from backend.compose_backend import claimed_gpu_indices
+            return claimed_gpu_indices()
+        except Exception:
+            return set()
 
     # -- Acquire / release ---------------------------------------------
 
@@ -125,17 +128,27 @@ class GpuScheduler:
         """Choose the best GPU slot for the requested pipeline.
 
         Strategy:
+        0. Filter — exclude GPUs actively claimed by the compose backend.
+           If all are claimed, fall back to the full pool so pipelines are
+           never permanently starved.
         1. Affinity — a non-locked GPU that already has *hint* cached.
         2. Free VRAM — among non-locked GPUs, pick the one with most free VRAM.
         3. Block — if all are locked, block on the affinity GPU (if any) or
-           the slot with most total VRAM.
+           the first available slot.
         """
         if len(self._slots) == 1:
             return self._slots[0]
 
+        # 0) Filter out GPUs actively used by the compose backend.
+        claimed = self._get_compose_claimed_gpus()
+        available = [s for s in self._slots if s.index not in claimed] or self._slots
+
+        if len(available) == 1:
+            return available[0]
+
         # 1) Affinity: try non-blocking acquire on a slot that has the hint cached
         if hint:
-            for slot in self._slots:
+            for slot in available:
                 if hint in slot.pipelines and slot.lock.acquire(timeout=0.1):
                     slot.lock.release()  # we'll re-acquire in session()
                     return slot
@@ -143,7 +156,7 @@ class GpuScheduler:
         # 2) Free VRAM: pick unlocked slot with most free VRAM
         best_free: GpuSlot | None = None
         best_vram = -1
-        for slot in self._slots:
+        for slot in available:
             if slot.lock.acquire(blocking=False):
                 slot.lock.release()
                 try:
@@ -157,12 +170,12 @@ class GpuScheduler:
         if best_free is not None:
             return best_free
 
-        # 3) All busy — block on affinity slot or first slot
+        # 3) All busy — block on affinity slot or first available slot
         if hint:
-            for slot in self._slots:
+            for slot in available:
                 if hint in slot.pipelines:
                     return slot
-        return self._slots[0]
+        return available[0]
 
     # -- Pipeline cache per GPU ----------------------------------------
 
