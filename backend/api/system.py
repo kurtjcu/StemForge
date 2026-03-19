@@ -125,3 +125,51 @@ def get_session(
 def clear_session(session: SessionStore = Depends(get_user_session)) -> dict:
     session.clear()
     return {"status": "cleared"}
+
+
+# ── HuggingFace token management ──────────────────────────────────────────
+
+from utils.platform import get_data_dir
+from pydantic import BaseModel as _BaseModel
+
+_HF_TOKEN_PATH = get_data_dir() / "hf_token"
+
+
+class _HFTokenRequest(_BaseModel):
+    token: str
+
+
+@router.get("/hf-token")
+def hf_token_status() -> dict:
+    """Check whether a HuggingFace token is configured."""
+    # Check our own stored token first, then fall back to huggingface_hub
+    if _HF_TOKEN_PATH.is_file() and _HF_TOKEN_PATH.read_text().strip():
+        return {"has_token": True, "source": "stemforge"}
+    try:
+        from huggingface_hub import get_token
+        if get_token():
+            return {"has_token": True, "source": "huggingface-cli"}
+    except Exception:
+        pass
+    return {"has_token": False, "source": None}
+
+
+@router.post("/hf-token")
+def save_hf_token(req: _HFTokenRequest) -> dict:
+    """Save a user-provided HuggingFace token."""
+    token = req.token.strip()
+    if not token.startswith("hf_"):
+        from fastapi import HTTPException as _HE
+        raise _HE(422, "Invalid token format — HuggingFace tokens start with 'hf_'")
+    _HF_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _HF_TOKEN_PATH.write_text(token)
+    _HF_TOKEN_PATH.chmod(0o600)
+    return {"status": "saved"}
+
+
+@router.delete("/hf-token")
+def delete_hf_token() -> dict:
+    """Remove the stored HuggingFace token."""
+    if _HF_TOKEN_PATH.is_file():
+        _HF_TOKEN_PATH.unlink()
+    return {"status": "deleted"}

@@ -175,6 +175,52 @@ let _dragOffsetPct = 0;        // offset from left edge of dragged clip (0-1)
 
 export function initGenerate() {
   const panel = document.getElementById('panel-synth');
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // HuggingFace token setup banner (shown when no token is configured)
+  // ═══════════════════════════════════════════════════════════════════════
+  const hfBanner = el('div', { className: 'card hidden', id: 'hf-token-banner',
+    style: { marginBottom: '12px', border: '1px solid var(--accent)' } },
+    el('div', { className: 'card-header', style: { color: 'var(--accent)' } },
+      'HUGGINGFACE TOKEN REQUIRED'),
+    el('p', { style: { margin: '8px 0', fontSize: '13px', lineHeight: '1.5' } },
+      'The Synth tab uses ',
+      el('strong', {}, 'Stable Audio Open 1.0'),
+      ', a gated model that requires a free HuggingFace account:',
+    ),
+    el('ol', { style: { margin: '4px 0 8px 20px', fontSize: '13px', lineHeight: '1.7' } },
+      el('li', {},
+        'Create a free account at ',
+        el('a', { href: 'https://huggingface.co/join', target: '_blank',
+          style: { color: 'var(--accent)' } }, 'huggingface.co'),
+      ),
+      el('li', {},
+        'Visit the ',
+        el('a', { href: 'https://huggingface.co/stabilityai/stable-audio-open-1.0',
+          target: '_blank', style: { color: 'var(--accent)' } }, 'model page'),
+        ' and click ',
+        el('strong', {}, 'Agree and access repository'),
+      ),
+      el('li', {},
+        'Create a token with Read access at ',
+        el('a', { href: 'https://huggingface.co/settings/tokens', target: '_blank',
+          style: { color: 'var(--accent)' } }, 'Settings \u2192 Tokens'),
+      ),
+      el('li', {}, 'Paste the token below:'),
+    ),
+    el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } },
+      el('input', { type: 'password', id: 'hf-token-input',
+        placeholder: 'hf_\u2026',
+        style: { flex: '1', fontFamily: 'monospace' } }),
+      el('button', { className: 'btn btn-primary', id: 'hf-token-save' }, 'Save Token'),
+    ),
+    el('div', { id: 'hf-token-msg', style: { fontSize: '12px', marginTop: '6px' } }),
+  );
+  panel.appendChild(hfBanner);
+
+  // Check token status on init
+  _checkHfToken();
+
   const layout = el('div', { className: 'two-col' });
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -376,6 +422,9 @@ export function initGenerate() {
   });
   document.getElementById('gen-start').addEventListener('click', startGeneration);
 
+  // HuggingFace token save
+  document.getElementById('hf-token-save').addEventListener('click', _saveHfToken);
+
   // SFX controls
   document.getElementById('sfx-duration').addEventListener('input', (e) => {
     document.getElementById('sfx-duration-val').textContent = `${e.target.value}s`;
@@ -481,6 +530,46 @@ export function initGenerate() {
 
   // Load existing SFX canvases on init
   refreshSfxSelector();
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// HuggingFace token helpers
+// ═════════════════════════════════════════════════════════════════════════
+
+async function _checkHfToken() {
+  try {
+    const res = await api('/hf-token');
+    const banner = document.getElementById('hf-token-banner');
+    if (!res.has_token) {
+      banner.classList.remove('hidden');
+    } else {
+      banner.classList.add('hidden');
+    }
+  } catch {
+    // Silently ignore — token check is non-critical
+  }
+}
+
+async function _saveHfToken() {
+  const input = document.getElementById('hf-token-input');
+  const msg = document.getElementById('hf-token-msg');
+  const token = input.value.trim();
+  if (!token) { msg.textContent = 'Please enter a token.'; return; }
+  try {
+    await api('/hf-token', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    });
+    msg.style.color = 'var(--success, #4ade80)';
+    msg.textContent = 'Token saved successfully.';
+    input.value = '';
+    setTimeout(() => {
+      document.getElementById('hf-token-banner').classList.add('hidden');
+    }, 1500);
+  } catch (err) {
+    msg.style.color = 'var(--error, #ef4444)';
+    msg.textContent = err.message || 'Failed to save token.';
+  }
 }
 
 // ═════════════════════════════════════════════════════════════════════════
