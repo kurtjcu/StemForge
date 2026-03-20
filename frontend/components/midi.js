@@ -444,12 +444,27 @@ function buildMidiCard(label, info) {
   const detectKeyBtn = el('button', { className: 'btn btn-sm' }, 'Detect Key');
   const keyInfoSpan = el('span', { className: 'midi-key-info text-dim' });
 
-  // Transpose controls
+  // Transpose controls — mode selector + [-] [+] buttons
+  const transMode = el('select', { className: 'midi-sheet-select' },
+    el('option', { value: '1' }, 'Semitone'),
+    el('option', { value: 'm2' }, 'Minor 2nd'),
+    el('option', { value: 'M2' }, 'Major 2nd'),
+    el('option', { value: 'm3' }, 'Minor 3rd'),
+    el('option', { value: 'M3' }, 'Major 3rd'),
+    el('option', { value: 'P4' }, 'Perfect 4th'),
+    el('option', { value: 'A4' }, 'Tritone'),
+    el('option', { value: 'P5' }, 'Perfect 5th'),
+    el('option', { value: 'm6' }, 'Minor 6th'),
+    el('option', { value: 'M6' }, 'Major 6th'),
+    el('option', { value: 'm7' }, 'Minor 7th'),
+    el('option', { value: 'M7' }, 'Major 7th'),
+    el('option', { value: 'P8' }, 'Octave'),
+  );
   const transposeLabel = el('span', { className: 'midi-transpose-label text-dim' }, '0');
   const transDown = el('button', { className: 'btn btn-sm' }, '\u2212');
   const transUp = el('button', { className: 'btn btn-sm' }, '+');
   const transposeControls = el('div', { className: 'midi-transpose-controls' },
-    transDown, transposeLabel, transUp,
+    transMode, transDown, transposeLabel, transUp,
   );
 
   // Sheet Music dropdown
@@ -531,15 +546,33 @@ function buildMidiCard(label, info) {
     }
   });
 
-  async function doTranspose(semitones) {
+  // Semitone equivalents for offset tracking display
+  const _intervalSemitones = {
+    '1': 1, 'm2': 1, 'M2': 2, 'm3': 3, 'M3': 4,
+    'P4': 5, 'A4': 6, 'P5': 7, 'm6': 8, 'M6': 9,
+    'm7': 10, 'M7': 11, 'P8': 12,
+  };
+
+  async function doTranspose(direction) {
     transDown.disabled = true;
     transUp.disabled = true;
+    const mode = transMode.value;
+    const body = { stem_label: label };
+
+    if (mode === '1') {
+      // Semitone mode — send raw semitones
+      body.semitones = direction;
+    } else {
+      // Named interval mode — prefix with - for down
+      body.interval = direction < 0 ? `-${mode}` : mode;
+    }
+
     try {
       const res = await api('/midi/transpose', {
         method: 'POST',
-        body: JSON.stringify({ stem_label: label, semitones }),
+        body: JSON.stringify(body),
       });
-      transposeOffset += semitones;
+      transposeOffset += direction * (_intervalSemitones[mode] || 1);
       transposeLabel.textContent = transposeOffset > 0 ? `+${transposeOffset}` : String(transposeOffset);
       noteCountLabel.textContent = `${label} (${res.note_count} notes)`;
       // Re-render waveform
