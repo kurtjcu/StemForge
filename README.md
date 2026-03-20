@@ -14,7 +14,7 @@
 ![Stable Audio Open](https://img.shields.io/badge/Stable%20Audio%20Open-enabled-success)
 ![AceStep](https://img.shields.io/badge/AceStep-enabled-success)
 ![RVC Voice](https://img.shields.io/badge/RVC%20Voice-enabled-success)
-![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-blue)
+![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 
 StemForge is a local, GPU-accelerated web application that chains multiple AI music pipelines into a single creative workflow. Upload a song, separate it into stems, extract MIDI, generate new audio or compose entirely new songs, transform vocals with AI voice conversion, generate or load special effect sound tracks, mix everything together, and export — all from one interface, all running on your own hardware. No cloud uploads, no subscriptions, no per-track fees.
 
@@ -534,17 +534,13 @@ See [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) for the full list with links and re
 
 ## License
 
-StemForge is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE).
-Free for personal, educational, research, and other noncommercial use.
-
-**Commercial use requires a separate commercial license.**
-Contact [info@tsondo.com](mailto:info@tsondo.com) to discuss terms and pricing.
-See [LICENSE-COMMERCIAL](LICENSE-COMMERCIAL) for details.
+StemForge is licensed under the [Apache License 2.0](LICENSE).
+Free to use, modify, and distribute for any purpose, including commercial use.
 
 ### Third-party model licenses
 
 StemForge integrates third-party AI models that have their own upstream licenses.
-Some models have restrictions on commercial use:
+Some have restrictions independent of StemForge's own license:
 
 - **Stable Audio Open 1.0** — Stability AI Community License (commercial use
   free below $1 M annual revenue; otherwise requires a Stability AI Enterprise license)

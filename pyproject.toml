@@ -7,7 +7,7 @@ name = "stemforge"
 version = "0.1.0"
 description = "AI-powered stem separation, MIDI extraction, and music generation — web UI"
 readme = "README.md"
-license = { text = "LicenseRef-PolyForm-Noncommercial-1.0.0" }
+license = { text = "Apache-2.0" }
 requires-python = "==3.11.*"
 authors = [
     { name = "Todd Green", email = "info@tsondo.com" },

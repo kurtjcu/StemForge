@@ -1,8 +1,8 @@
 # Third-Party Notices
 
 StemForge integrates third-party source code, AI model weights, and library
-dependencies. **StemForge's own license (PolyForm Noncommercial 1.0.0) and any
-StemForge commercial license do not grant rights to these components.** Users must
+dependencies. **StemForge's Apache 2.0 license does not grant rights to these
+components.** Users must
 independently review and comply with each component's upstream license.
 
 ---
@@ -94,12 +94,11 @@ The vendored inference code (from DDSP-SVC) is MIT-licensed.
 
 This means:
 - **NonCommercial**: The pretrained weights may only be used for non-commercial
-  purposes, which is compatible with StemForge's PolyForm Noncommercial license.
+  purposes. StemForge itself is Apache 2.0 and permits commercial use, but these
+  specific weights do not — users must obtain separately licensed vocoder weights
+  or train their own for commercial applications.
 - **ShareAlike**: Derivative works using these weights must be shared under the
   same or a compatible license.
-- **Commercial license holders** seeking to use the Neural Vocoder method for
-  commercial purposes must obtain separately licensed vocoder weights or train
-  their own.
 
 The weights (~55 MB) are automatically downloaded on first use of the
 "Neural Vocoder (GPU)" method in the Tune tab.

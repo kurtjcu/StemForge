@@ -206,7 +206,7 @@ for higher-fidelity resynthesis, especially on compressed or noisy audio where
 WORLD and STFT show artifacts.
 
 **Best candidate: SiFi-GAN**
-- **License**: MIT — compatible with PolyForm NC + commercial dual-license
+- **License**: MIT — compatible with Apache 2.0
 - **Architecture**: F0-conditioned source-filter neural vocoder. Takes F0
   contour + mel spectrogram as input, generates waveform. The F0 conditioning
   makes it a natural fit: feed CREPE's corrected F0 directly, no ratio mapping.

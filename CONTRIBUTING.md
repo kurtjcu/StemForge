@@ -4,24 +4,12 @@ Thank you for your interest in contributing to StemForge!
 
 ---
 
-## Contribution License Grant
+## Contribution License
 
-StemForge uses a **dual-license model**: the public codebase is available under the
-PolyForm Noncommercial License 1.0.0, while commercial licenses are offered separately
-(see LICENSE-COMMERCIAL). For this to work, all contributed code must be licensable
-under both the open license and commercial terms.
-
-**By submitting a contribution (pull request, patch, or other code/documentation), you
-grant Todd Green a perpetual, irrevocable, worldwide, royalty-free, fully sublicensable
-license to use, reproduce, modify, distribute, and sublicense your contribution under
-any license, including commercial licenses.**
-
-This does not transfer your copyright -- you retain ownership of your contributions.
-It simply gives the project owner the right to include your work in all distribution
-channels, including commercial ones.
-
-If you are uncomfortable with this grant, you are welcome to use StemForge under its
-noncommercial license, but please do not submit contributions.
+StemForge is licensed under the **Apache License 2.0**. By submitting a contribution
+(pull request, patch, or other code/documentation), you agree that your contribution
+is made under the same Apache 2.0 terms. You retain copyright ownership of your
+contributions.
 
 ---
 
