@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from backend.services.job_manager import job_manager
 from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
+from models.registry import DrumMidiSpec, list_specs
 from utils.paths import MIDI_DIR
 
 router = APIRouter(prefix="/api/midi", tags=["midi"])
@@ -86,6 +87,14 @@ STEM_IS_DRUM: dict[str, bool] = {
     "Drums & percussion": True,
 }
 
+
+def _build_adt_model_list() -> list[dict]:
+    """Return a list of ADT model metadata dicts from the model registry."""
+    return [
+        {"model_id": s.model_id, "display_name": s.display_name, "tooltip": s.description}
+        for s in list_specs(DrumMidiSpec)
+    ]
+
 # ─── SoundFont discovery & state ─────────────────────────────────────────
 
 _SF2_SEARCH_PATHS = [
@@ -119,6 +128,7 @@ class ExtractRequest(BaseModel):
     onset_threshold: float = 0.5
     frame_threshold: float = 0.3
     min_note_ms: float = 58.0
+    adt_model: str = "adtof-drums"
 
 
 class RenderRequest(BaseModel):
@@ -346,11 +356,12 @@ def get_midi_stems(session: SessionStore = Depends(get_user_session)) -> dict:
 
 @router.get("/gm-programs")
 def get_gm_programs() -> dict:
-    """Return list of all 128 GM program names and smart defaults per stem label."""
+    """Return list of all 128 GM program names, smart defaults per stem label, and ADT models."""
     return {
         "programs": GM_PROGRAMS,
         "defaults": STEM_DEFAULT_PROGRAM,
         "drum_stems": STEM_IS_DRUM,
+        "adt_models": _build_adt_model_list(),
     }
 
 
