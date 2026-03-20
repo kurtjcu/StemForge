@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. `LarsNetSpec` is importable from `models/registry.py` and `list_specs()` returns the LarsNet entry with correct capabilities, cache subdir, and CC BY-NC 4.0 license metadata
   4. `scripts/download_larsnet_weights.sh` (or equivalent `gdown`-based helper) downloads all 5 checkpoint files to `~/.cache/stemforge/larsnet/` and a missing-weights import raises a clear error with download instructions rather than a silent hang
   5. `LARSNET_STEM_KEYS = ("kick", "snare", "toms", "hihat", "cymbals")` is defined as a single constant sourced from config.yaml — not derived from the ADTOF registry class_labels
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 05-01-PLAN.md — Vendor LarsNet source files, add LarsNetSpec to registry
 - [ ] 05-02-PLAN.md — LarsNetBackend load/evict, download script, gdown dependency
@@ -116,7 +116,7 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 5. LarsNet Registry and Loader Stub | 0/2 | Planning complete | - |
+| 5. LarsNet Registry and Loader Stub | 1/2 | In Progress|  |
 | 6. Onset Detection Backend | 0/1 | Planning complete | - |
 | 7. MidiModelLoader Extensions | 0/? | Not started | - |
 | 8. MidiPipeline Mode Dispatcher | 0/? | Not started | - |

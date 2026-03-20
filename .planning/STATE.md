@@ -1,63 +1,52 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: planning
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-20T21:43:08.647Z"
-last_activity: 2026-03-20 — Phase 2 complete, transitioning to Phase 3
+milestone: v2.0
+milestone_name: LarsNet Drum Sub-Separation
+status: in-progress
+stopped_at: Completed 06-onset-detection-backend 06-01-PLAN.md
+last_updated: "2026-03-21"
+last_activity: 2026-03-21 — Phase 06 Plan 01 complete (OnsetBackend)
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_phases: 7
+  completed_phases: 1
+  total_plans: 4
+  completed_plans: 3
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-20)
+See: .planning/PROJECT.md (updated 2026-03-21)
 
 **Core value:** Drum stem MIDI extraction produces accurate GM channel-10 output — playable through FluidSynth preview without manual correction
-**Current focus:** Phase 3 — Loader and Pipeline Wiring
+**Current focus:** Milestone v2.0 — LarsNet Drum Sub-Separation (Phase 6 complete, Phase 7 next)
 
 ## Current Position
 
-Phase: 3 of 4 (Loader and Pipeline Wiring)
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-03-20 — Phase 2 complete, transitioning to Phase 3
+Phase: 06-onset-detection-backend
+Plan: 01 (complete)
+Status: Phase 06 complete — OnsetBackend implemented and tested
+Last activity: 2026-03-21 — Phase 06 Plan 01 complete
 
-Progress: [████████████████████] 4/4 plans (100% of planned so far)
+Progress: [████░░░░░░░░░░░░░░░░] 3/7+ plans completed
 
 ## Performance Metrics
 
-**Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+**Velocity (from v1.0):**
+- Total plans completed: 8
+- Average duration: ~3 min/plan
+- Total execution time: ~25 min
 
-**By Phase:**
+**By Phase (v1.0):**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
-
-**Recent Trend:**
-- Last 5 plans: none yet
-- Trend: -
-
-*Updated after each plan completion*
-| Phase 01-foundation P02 | 3 | 2 tasks | 3 files |
-| Phase 01-foundation P01 | 4 | 2 tasks | 4 files |
-| Phase 02-adtof-backend P01 | 2 | 2 tasks | 2 files |
-| Phase 02-adtof-backend P02 | 3 | 2 tasks | 2 files |
-| Phase 03-loader-and-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
-| Phase 03-loader-and-pipeline-wiring P02 | 2 | 2 tasks | 2 files |
-| Phase 04-validation-and-ux-polish P01 | 208s | 2 tasks | 2 files |
-| Phase 04-validation-and-ux-polish P02 | 244 | 2 tasks | 1 files |
+| 01-foundation | 2 | ~7 min | ~3.5 min |
+| 02-adtof-backend | 2 | ~5 min | ~2.5 min |
+| 03-loader-and-pipeline-wiring | 2 | ~4 min | ~2 min |
+| 04-validation-and-ux-polish | 2 | ~7.5 min | ~3.75 min |
+| Phase 05-larsnet-registry-and-loader-stub P01 | 8 | 1 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -66,25 +55,26 @@ Progress: [████████████████████] 4/4 pla
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Pre-phase]: ADTOF-pytorch as sole v1 ADT backend — PyTorch-only, bundled weights, no new transitive deps
-- [Pre-phase]: Multi-backend abstraction from day one — `load/predict/evict` duck-typed interface so ADT_STR can be added later
-- [Pre-phase]: ADT_STR explicitly excluded — torch==2.8.0 pin and CLAP/numpy conflicts unresolved as of 2026-03-20
-- [Phase 01-foundation]: Used xavriley/ADTOF-pytorch (PyTorch-only) over MZehren/ADTOF (TensorFlow — numpy>=2.0 conflict)
-- [Phase 01-foundation]: adtof-pytorch pinned at commit 85c192e; checkpoint_url='' as weights are bundled; MAC deferred to Phase 2
-- [Phase 01-foundation]: is_drum appended as last keyword param to notes_to_midi() to preserve all existing callers
-- [Phase 01-foundation]: 60ms cap applied after degenerate-note guard; ADTOF_5CLASS_GM_NOTE preserves non-sequential model ordering
-- [Phase 02-adtof-backend]: adtof_pytorch imported inside load() not at module level — preserves lazy loading
-- [Phase 02-adtof-backend]: typing.Protocol structural subtyping over ABC — future ADT_STR backend can implement without inheriting
-- [Phase 02-adtof-backend]: Only InvalidInputError re-raised in predict() except clause — RuntimeError from model forward must reach PipelineExecutionError wrapper
-- [Phase 03-loader-and-pipeline-wiring]: Deferred import from pipelines.adtof_backend inside _ensure_adtof() body mirrors _ensure_whisper() pattern
-- [Phase 03-loader-and-pipeline-wiring]: evict_drum_model() public method enables selective ADTOF eviction without disturbing BasicPitch TF model
-- [Phase 03-loader-and-pipeline-wiring]: _DRUM_STEM_LABELS frozenset mirrors STEM_IS_DRUM in backend/api/midi.py for consistent label routing
-- [Phase 03-loader-and-pipeline-wiring]: 3-stage progress callbacks in drum branch prevent progress bar freeze during ADTOF model load
-- [Phase 03-loader-and-pipeline-wiring]: Post-loop evict_drum_model() inside MidiPipeline.run() frees VRAM; AdtofBackend.evict() handles torch.cuda.empty_cache() internally
-- [Phase 04-01]: adt_model field on ExtractRequest uses default adtof-drums for backward compatibility — field accepted but not wired to pipeline logic in this phase
-- [Phase 04-01]: list_specs(DrumMidiSpec) is the single source of truth for adt_models list — avoids hardcoding model IDs in API layer
-- [Phase 04-02]: Event delegation on #midi-stems container avoids re-render pitfall; syncAdtGroupVisibility() called at end of populateStemCheckboxes() for immediate visibility on stem load
-- [Phase 04-02]: adt_model fallback is adtof-drums in startExtraction() — backend accepts but ignores for v1, kept for future wiring
+- [v1.0]: ADTOF-pytorch as sole v1 ADT backend — PyTorch-only, bundled weights
+- [v1.0]: Multi-backend abstraction from day one — Protocol-based duck-typed interface
+- [v1.0]: typing.Protocol over ABC for ADT backends — structural subtyping
+- [v2.0]: LarsNet for drum sub-separation — 5 classes match ADTOF 1:1; vendored like python-audio-separator
+- [v2.0]: Three runtime modes — ADTOF-only, LarsNet+ADTOF, LarsNet+onset-detection
+- [v2.0]: Sub-stems exposed as playable audio — not just internal to MIDI pipeline
+- [v2.0]: CC BY-NC 4.0 acceptable for LarsNet weights
+- [v2.0]: LarsNet default device is CPU — 5 U-Net checkpoints (~700 MB VRAM) make GPU use risky alongside Demucs/Roformer
+- [v2.0]: Sub-stems stored under STEMS_DIR/drum_sub/{job_id}/ — never in stem_paths session field
+- [v2.0]: LarsNet evicted before ADTOF loads in LarsNet+ADTOF mode — VRAM safety contract enforced in loader, not pipeline
+- [Phase 05-larsnet-registry-and-loader-stub]: vendor/larsnet __init__.py adds package dir to sys.path so upstream flat imports work without patching upstream files
+- [Phase 05-larsnet-registry-and-loader-stub]: LARSNET_STEM_KEYS uses config.yaml names: 'toms'/'hihat'/'cymbals' (differs from ADTOF: 'tom'/'hi_hat'/'cymbal')
+
+### Critical Implementation Notes
+
+- LARSNET_STEM_KEYS = ("kick", "snare", "toms", "hihat", "cymbals") — sourced from config.yaml, NOT from ADTOF labels
+- config.yaml uses relative paths — must resolve to absolute at load time using __file__
+- Checkpoint paths inside config.yaml also relative — must be rewritten to absolute at load time
+- Phase 5 and Phase 6 can be developed in parallel once Phase 5 vendoring setup is complete
+- ADTOF-only baseline must be regression-tested in Phase 8 before any LarsNet modes are declared working
 
 ### Pending Todos
 
@@ -92,10 +82,14 @@ None yet.
 
 ### Blockers/Concerns
 
-None active.
+- numpy >=2.0 vs LarsNet's pinned 1.26.2: LarsNet's array usage appears safe but must be verified at first import in Phase 5
+- LarsNet Google Drive gdown file IDs must be extracted from LarsNet README at implementation time (not in research files)
+- Per-class onset delta values require empirical tuning on real drum audio during Phase 6 (no published values exist)
+- Tensor input path to larsnet(x) is non-documented but recommended — validate in Phase 5 against file-path input on reference drum stem
 
 ## Session Continuity
 
-Last session: 2026-03-20T21:43:08.645Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-03-20T23:51:08.564Z
+Stopped at: Completed 05-larsnet-registry-and-loader-stub 05-01-PLAN.md
 Resume file: None
+Next step: /gsd:plan-phase 5
