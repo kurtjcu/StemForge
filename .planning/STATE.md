@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-20T21:37:16.923Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-20T21:43:08.647Z"
 last_activity: 2026-03-20 — Phase 2 complete, transitioning to Phase 3
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 100
 ---
 
@@ -57,6 +57,7 @@ Progress: [████████████████████] 4/4 pla
 | Phase 03-loader-and-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
 | Phase 03-loader-and-pipeline-wiring P02 | 2 | 2 tasks | 2 files |
 | Phase 04-validation-and-ux-polish P01 | 208s | 2 tasks | 2 files |
+| Phase 04-validation-and-ux-polish P02 | 244 | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -82,6 +83,8 @@ Recent decisions affecting current work:
 - [Phase 03-loader-and-pipeline-wiring]: Post-loop evict_drum_model() inside MidiPipeline.run() frees VRAM; AdtofBackend.evict() handles torch.cuda.empty_cache() internally
 - [Phase 04-01]: adt_model field on ExtractRequest uses default adtof-drums for backward compatibility — field accepted but not wired to pipeline logic in this phase
 - [Phase 04-01]: list_specs(DrumMidiSpec) is the single source of truth for adt_models list — avoids hardcoding model IDs in API layer
+- [Phase 04-02]: Event delegation on #midi-stems container avoids re-render pitfall; syncAdtGroupVisibility() called at end of populateStemCheckboxes() for immediate visibility on stem load
+- [Phase 04-02]: adt_model fallback is adtof-drums in startExtraction() — backend accepts but ignores for v1, kept for future wiring
 
 ### Pending Todos
 
@@ -93,6 +96,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-20T21:37:16.921Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-20T21:43:08.645Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None
