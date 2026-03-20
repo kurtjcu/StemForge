@@ -61,7 +61,9 @@ Plans:
   2. In LarsNet+ADTOF mode, GPU memory measured after `separate_drums()` completes shows LarsNet weights are absent before `_ensure_adtof()` is called — eviction sequencing is enforced by the loader, not the pipeline
   3. `_ensure_larsnet()` follows the same lazy-load pattern as `_ensure_adtof()` — weights are not loaded at startup, only on first call, and load time is reported in logs
   4. All four new loader methods (`_ensure_larsnet`, `evict_larsnet`, `separate_drums`, `convert_drum_to_midi_with_larsnet`) are testable in isolation at the loader layer without invoking the pipeline
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 07-01-PLAN.md — TDD: LarsNet loader methods (_ensure_larsnet, evict_larsnet, separate_drums, convert_drum_to_midi_with_larsnet)
 
 ### Phase 8: MidiPipeline Mode Dispatcher
 **Goal**: All three drum MIDI modes work end-to-end at the pipeline layer and the existing ADTOF-only path is confirmed regression-free
@@ -118,7 +120,7 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 |-------|----------------|--------|-----------|
 | 5. LarsNet Registry and Loader Stub | 1/2 | In Progress|  |
 | 6. Onset Detection Backend | 1/1 | Complete   | 2026-03-20 |
-| 7. MidiModelLoader Extensions | 0/? | Not started | - |
+| 7. MidiModelLoader Extensions | 0/1 | Planned | - |
 | 8. MidiPipeline Mode Dispatcher | 0/? | Not started | - |
 | 9. Session Store and API Endpoints | 0/? | Not started | - |
 | 10. Frontend Mode Selector and Sub-Stem Cards | 0/? | Not started | - |
