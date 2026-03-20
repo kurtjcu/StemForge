@@ -59,7 +59,8 @@ full dependency tree.
 | torchcrepe | MIT | Max Morrison |
 | pyworld (WORLD vocoder) | MIT (wrapper) + Modified-BSD (C++ lib) | Pitch-corrected resynthesis |
 | NSF-HiFiGAN (openvpi/vocoders) | MIT (code, DDSP-SVC) / CC BY-NC-SA 4.0 (pretrained weights) | Neural vocoder for pitch correction; weights auto-downloaded on first use |
-| FluidSynth (pyfluidsynth) | LGPL-2.1 | Dynamically linked |
+| FluidSynth (pyfluidsynth) | LGPL-2.1 | Dynamically linked; optional |
+| jemalloc | BSD 2-Clause | Optional system allocator; loaded via LD_PRELOAD on Linux when installed |
 | wavesurfer.js | BSD-3-Clause | Frontend audio visualization |
 | FastAPI | MIT | Backend framework |
 | uvicorn | BSD-3-Clause | ASGI server |

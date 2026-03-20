@@ -133,6 +133,28 @@ On Fedora it installs to
 `/usr/share/soundfonts/FluidR3_GM.sf2`; use the Browse button on the Mix tab
 to point StemForge at a different `.sf2` file if needed.
 
+### jemalloc (optional, recommended for multi-user / long-running deployments)
+
+jemalloc is a memory allocator that reduces heap fragmentation and malloc lock
+contention under concurrent workloads. StemForge detects and uses it automatically
+at startup — no configuration needed. Particularly beneficial when running with
+multiple users (`--max-users`) or leaving the server up for extended periods.
+
+Fedora:
+
+    sudo dnf install jemalloc
+
+Ubuntu / Debian:
+
+    sudo apt install libjemalloc-dev
+
+Arch / Manjaro:
+
+    sudo pacman -S jemalloc
+
+Set `STEMFORGE_NO_JEMALLOC=1` in the environment to disable even when installed.
+macOS is not affected (jemalloc injection is Linux-only).
+
 ### GPU (recommended)
 - **NVIDIA GPU** with driver **580+** (required for CUDA 13.0 runtime)
 - Check your driver version: `nvidia-smi` → top-right shows "Driver Version"
