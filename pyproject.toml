@@ -135,6 +135,9 @@ dependencies = [
 
     # .env loading
     "python-dotenv>=1.0.0",
+
+    # LarsNet weight download helper
+    "gdown>=4.7.3",
 ]
 
 # ---------------------------------------------------------------------------
