@@ -13,7 +13,7 @@ This milestone adds a purpose-built drum transcription branch to StemForge's MID
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - GM drum maps, `is_drum` parameter on `notes_to_midi()`, and `DrumMidiSpec` in model registry (completed 2026-03-20)
-- [ ] **Phase 2: ADTOF Backend** - Isolated ADTOF-pytorch inference backend with in-memory onset matrix conversion
+- [x] **Phase 2: ADTOF Backend** - Isolated ADTOF-pytorch inference backend with in-memory onset matrix conversion (completed 2026-03-20)
 - [ ] **Phase 3: Loader and Pipeline Wiring** - `DrumMidiLoader`, `MidiModelLoader` extension, and `_DRUM_STEM_LABELS` routing branch
 - [ ] **Phase 4: Validation and UX Polish** - Integration tests, progress callbacks, and model selector caveat text
 
@@ -45,7 +45,7 @@ Plans:
   3. `AdtofBackend` never writes any file to disk during prediction — no MIDI, no temp files, no output directories created
   4. `AdtofBackend.evict()` releases the model from memory (subsequent `predict()` call forces a reload)
   5. A second backend implementing the same `load/predict/evict` interface can be registered alongside `AdtofBackend` without modifying `AdtofBackend`
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 02-01-PLAN.md — AdtofBackendProtocol and AdtofBackend load/evict lifecycle (TDD)
@@ -61,7 +61,11 @@ Plans:
   3. Uploading a non-drum stem (e.g., vocals or bass) still routes through the existing vocal or BasicPitch path unchanged — no regression
   4. The MIDI extraction job shows progress updates at recognizable stages (audio load, processing, done) rather than hanging silently at 0%
   5. After drum MIDI extraction completes, a second separation job (Demucs) starts without VRAM errors — the drum loader has been evicted
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 03-01-PLAN.md — MidiModelLoader ADTOF extension: _ensure_adtof(), convert_drum_to_midi(), evict (TDD)
+- [ ] 03-02-PLAN.md — MidiPipeline drum routing: _DRUM_STEM_LABELS, is_drum, progress, eviction (TDD)
 
 ### Phase 4: Validation and UX Polish
 **Goal**: The drum MIDI path is verified correct by test, and the model selector communicates ADTOF's known accuracy limits
@@ -82,6 +86,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-20 |
-| 2. ADTOF Backend | 1/2 | In Progress|  |
-| 3. Loader and Pipeline Wiring | 0/TBD | Not started | - |
+| 2. ADTOF Backend | 2/2 | Complete   | 2026-03-20 |
+| 3. Loader and Pipeline Wiring | 0/2 | Planning complete | - |
 | 4. Validation and UX Polish | 0/TBD | Not started | - |
