@@ -86,6 +86,7 @@ def notes_to_midi(
     ticks_per_beat: int = 480,
     tempo_bpm: float = 120.0,
     lyrics: list[LyricEvent] | None = None,
+    is_drum: bool = False,
 ) -> MidiData:
     """Convert a list of note events to a MIDI data object.
 
@@ -97,6 +98,13 @@ def notes_to_midi(
         MIDI ticks per quarter-note (resolution).
     tempo_bpm:
         Tempo in beats per minute for the generated MIDI file.
+    lyrics:
+        Optional list of ``(time_sec, word)`` lyric events to embed.
+    is_drum:
+        When ``True``, the instrument is routed to General MIDI channel 10
+        (percussion channel) and note durations are clamped to 60 ms.
+        When ``False`` (default), behavior is identical to pre-change
+        behaviour: Acoustic Grand Piano on a melodic channel.
 
     Returns
     -------
@@ -107,14 +115,23 @@ def notes_to_midi(
         resolution=int(ticks_per_beat),
         initial_tempo=float(tempo_bpm),
     )
-    instrument = pretty_midi.Instrument(
-        program=pretty_midi.instrument_name_to_program("Acoustic Grand Piano"),
-        name="StemForge",
-    )
+    if is_drum:
+        instrument = pretty_midi.Instrument(
+            program=0,
+            is_drum=True,
+            name="StemForge Drums",
+        )
+    else:
+        instrument = pretty_midi.Instrument(
+            program=pretty_midi.instrument_name_to_program("Acoustic Grand Piano"),
+            name="StemForge",
+        )
     for start, end, pitch, velocity in note_events:
         # Guard against degenerate notes (zero or negative duration).
         if end <= start:
             continue
+        if is_drum:
+            end = min(end, start + 0.06)  # 60 ms hard cap for percussion
         note = pretty_midi.Note(
             velocity=max(1, min(127, int(velocity))),
             pitch=max(0, min(127, int(pitch))),
