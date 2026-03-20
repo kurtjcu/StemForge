@@ -24,7 +24,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **REG-01**: `DrumMidiSpec` frozen dataclass added to model registry
 - [x] **REG-02**: ADTOF model registered with capabilities, cache subdir, class count, class labels
-- [ ] **REG-03**: User-facing ADT model selector in MIDI panel (like separation engine picker)
+- [x] **REG-03**: User-facing ADT model selector in MIDI panel (like separation engine picker)
 
 ### Pipeline Integration
 
@@ -82,7 +82,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | ADT-04 | Phase 2 | Complete |
 | REG-01 | Phase 1 | Complete |
 | REG-02 | Phase 1 | Complete |
-| REG-03 | Phase 4 | Pending |
+| REG-03 | Phase 4 | Complete |
 | PIPE-01 | Phase 3 | Complete |
 | PIPE-02 | Phase 3 | Complete |
 | PIPE-03 | Phase 3 | Complete |

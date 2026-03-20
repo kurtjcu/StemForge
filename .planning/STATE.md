@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-03-20T08:09:30.668Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-20T21:37:16.923Z"
 last_activity: 2026-03-20 — Phase 2 complete, transitioning to Phase 3
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 8
+  completed_plans: 7
   percent: 100
 ---
 
@@ -56,6 +56,7 @@ Progress: [████████████████████] 4/4 pla
 | Phase 02-adtof-backend P02 | 3 | 2 tasks | 2 files |
 | Phase 03-loader-and-pipeline-wiring P01 | 2 | 2 tasks | 2 files |
 | Phase 03-loader-and-pipeline-wiring P02 | 2 | 2 tasks | 2 files |
+| Phase 04-validation-and-ux-polish P01 | 208s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,8 @@ Recent decisions affecting current work:
 - [Phase 03-loader-and-pipeline-wiring]: _DRUM_STEM_LABELS frozenset mirrors STEM_IS_DRUM in backend/api/midi.py for consistent label routing
 - [Phase 03-loader-and-pipeline-wiring]: 3-stage progress callbacks in drum branch prevent progress bar freeze during ADTOF model load
 - [Phase 03-loader-and-pipeline-wiring]: Post-loop evict_drum_model() inside MidiPipeline.run() frees VRAM; AdtofBackend.evict() handles torch.cuda.empty_cache() internally
+- [Phase 04-01]: adt_model field on ExtractRequest uses default adtof-drums for backward compatibility — field accepted but not wired to pipeline logic in this phase
+- [Phase 04-01]: list_specs(DrumMidiSpec) is the single source of truth for adt_models list — avoids hardcoding model IDs in API layer
 
 ### Pending Todos
 
@@ -90,6 +93,6 @@ None active.
 
 ## Session Continuity
 
-Last session: 2026-03-20T08:09:30.665Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-03-20T21:37:16.921Z
+Stopped at: Completed 04-01-PLAN.md
 Resume file: None
