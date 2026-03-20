@@ -16,12 +16,51 @@ import logging
 import pathlib
 from typing import Protocol, runtime_checkable
 
+import soundfile as sf
 import torch
 
-from utils.errors import ModelLoadError
+from utils.errors import InvalidInputError, ModelLoadError, PipelineExecutionError
 from utils.midi_io import NoteEvent
 
 logger = logging.getLogger(__name__)
+
+NOTE_DURATION: float = 0.06       # 60ms — matches notes_to_midi() drum cap
+DEFAULT_VELOCITY: int = 100       # Fixed velocity; amplitude-based is v2 (ECLASS-02)
+_VALID_GM_NOTES: frozenset[int] = frozenset({35, 38, 42, 47, 49})
+
+
+def _peaks_to_note_events(
+    peaks: dict[int, list[float]],
+    duration: float = NOTE_DURATION,
+    velocity: int = DEFAULT_VELOCITY,
+) -> list[NoteEvent]:
+    """Convert PeakPicker output to sorted NoteEvent list.
+
+    Parameters
+    ----------
+    peaks:
+        ``{gm_note: [onset_time_sec, ...]}`` from ``PeakPicker.pick()``.
+    duration:
+        Fixed note duration in seconds.
+    velocity:
+        Fixed MIDI velocity (1-127).
+
+    Returns
+    -------
+    list[NoteEvent]
+        Sorted by onset time ascending.
+    """
+    events: list[NoteEvent] = []
+    for gm_note, times in peaks.items():
+        gm_note_int = int(gm_note)
+        assert gm_note_int in _VALID_GM_NOTES, (
+            f"Unexpected GM note {gm_note_int} from PeakPicker; "
+            f"expected one of {sorted(_VALID_GM_NOTES)}"
+        )
+        for onset in times:
+            events.append((onset, onset + duration, gm_note_int, velocity))
+    events.sort(key=lambda e: e[0])
+    return events
 
 
 @runtime_checkable
@@ -91,19 +130,58 @@ class AdtofBackend:
             raise ModelLoadError(str(exc), model_name="adtof-drums") from exc
 
     def predict(self, audio_path: pathlib.Path) -> list[NoteEvent]:
-        """Transcribe drum audio to NoteEvents.
-
-        .. note::
-            This method is implemented in Plan 02-02.  The stub is present
-            here so that the Protocol structural check passes (the method must
-            exist on the class).
+        """Transcribe drum audio and return NoteEvent tuples.
 
         Raises
         ------
-        NotImplementedError
-            Always — implementation deferred to Plan 02-02.
+        InvalidInputError
+            If the audio sample rate is not 44100 Hz.
+        PipelineExecutionError
+            If the model forward pass or onset detection fails.
+        RuntimeError
+            If called before ``load()``.
         """
-        raise NotImplementedError("predict() implemented in Plan 02-02")
+        # --- Sample rate guard (ADT-02) ---
+        info = sf.info(str(audio_path))
+        if info.samplerate != 44100:
+            raise InvalidInputError(
+                f"ADTOF requires 44100 Hz audio; got {info.samplerate} Hz: {audio_path}",
+                field="audio_path",
+            )
+
+        if self._model is None:
+            raise RuntimeError("Model not loaded — call load() first")
+
+        try:
+            from adtof_pytorch import (
+                load_audio_for_model,
+                PeakPicker,
+                FRAME_RNN_THRESHOLDS,
+                LABELS_5,
+            )
+
+            # --- Forward pass (ADT-01: zero disk writes) ---
+            x = load_audio_for_model(str(audio_path))
+            x = x.to(self._device)
+            with torch.no_grad():
+                pred = self._model(x).cpu().numpy()
+
+            # --- Onset detection (ADT-04) ---
+            picker = PeakPicker(thresholds=FRAME_RNN_THRESHOLDS, fps=100)
+            picked = picker.pick(pred, labels=LABELS_5, label_offset=0)[0]
+
+            # --- Convert to NoteEvent ---
+            events = _peaks_to_note_events(picked)
+            logger.info("ADTOF transcription: %d note events", len(events))
+            return events
+
+        except InvalidInputError:
+            raise
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"ADTOF prediction failed: {exc}",
+                pipeline_name="adtof_backend",
+            ) from exc
 
     def evict(self) -> None:
         """Release model weights from GPU/CPU memory.
