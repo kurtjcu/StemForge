@@ -12,7 +12,7 @@ This milestone adds a purpose-built drum transcription branch to StemForge's MID
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Foundation** - GM drum maps, `is_drum` parameter on `notes_to_midi()`, and `DrumMidiSpec` in model registry
+- [x] **Phase 1: Foundation** - GM drum maps, `is_drum` parameter on `notes_to_midi()`, and `DrumMidiSpec` in model registry (completed 2026-03-20)
 - [ ] **Phase 2: ADTOF Backend** - Isolated ADTOF-pytorch inference backend with in-memory onset matrix conversion
 - [ ] **Phase 3: Loader and Pipeline Wiring** - `DrumMidiLoader`, `MidiModelLoader` extension, and `_DRUM_STEM_LABELS` routing branch
 - [ ] **Phase 4: Validation and UX Polish** - Integration tests, progress callbacks, and model selector caveat text
@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. `utils/drum_map.py` exports `ADTOF_5CLASS_GM_NOTE` mapping `{0: 35, 1: 38, 2: 47, 3: 42, 4: 49}` — tom at index 2, hi-hat at index 3, non-sequential ordering preserved exactly
   4. `DrumMidiSpec` is importable from `models/registry.py` and `list_specs()` returns the ADTOF entry with correct capabilities and cache subdir
   5. ADTOF-pytorch appears as a git dependency in `pyproject.toml` and `uv sync` resolves cleanly
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 01-01-PLAN.md — GM drum map module and notes_to_midi is_drum parameter (TDD)
@@ -45,7 +45,11 @@ Plans:
   3. `AdtofBackend` never writes any file to disk during prediction — no MIDI, no temp files, no output directories created
   4. `AdtofBackend.evict()` releases the model from memory (subsequent `predict()` call forces a reload)
   5. A second backend implementing the same `load/predict/evict` interface can be registered alongside `AdtofBackend` without modifying `AdtofBackend`
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — AdtofBackendProtocol and AdtofBackend load/evict lifecycle (TDD)
+- [ ] 02-02-PLAN.md — predict() with 44100 Hz guard and NoteEvent conversion (TDD)
 
 ### Phase 3: Loader and Pipeline Wiring
 **Goal**: A user can upload a drum stem, click Extract MIDI, and receive a playable GM channel-10 MIDI file via FluidSynth preview
@@ -77,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/2 | Planning complete | - |
-| 2. ADTOF Backend | 0/TBD | Not started | - |
+| 1. Foundation | 2/2 | Complete    | 2026-03-20 |
+| 2. ADTOF Backend | 0/2 | Not started | - |
 | 3. Loader and Pipeline Wiring | 0/TBD | Not started | - |
 | 4. Validation and UX Polish | 0/TBD | Not started | - |
