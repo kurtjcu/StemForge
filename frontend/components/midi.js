@@ -707,7 +707,7 @@ function buildMidiCard(label, info) {
           stopOtherPlayers(ws);
           ws.play();
           playBtn.textContent = '\u23F8 Pause';
-          transportLoad(renderedUrl, label, false, 'MIDI');
+          transportLoad(renderedUrl, label, false, 'MIDI', { cardWs: ws });
         });
       } else {
         ws.once('ready', () => {
@@ -738,7 +738,7 @@ function buildMidiCard(label, info) {
       stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
-      transportLoad(renderedUrl, label, false, 'MIDI');
+      transportLoad(renderedUrl, label, false, 'MIDI', { cardWs: ws });
     }
   });
 

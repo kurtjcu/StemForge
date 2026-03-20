@@ -120,7 +120,7 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
       const currentUrl = getUrl ? getUrl() : url;
-      transportLoad(currentUrl, _getLabel(), false, 'Synth');
+      transportLoad(currentUrl, _getLabel(), false, 'Synth', { cardWs: ws });
     }
   });
 

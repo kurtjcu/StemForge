@@ -74,7 +74,7 @@ function _createPlayer(label, url, audioPath, source) {
       _stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
-      transportLoad(url, label, false, source || 'Enhance');
+      transportLoad(url, label, false, source || 'Enhance', { cardWs: ws });
     }
   });
 

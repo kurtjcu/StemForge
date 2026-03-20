@@ -57,6 +57,13 @@ def remove_track(track_id: str, session: SessionStore = Depends(get_user_session
     return {"status": "removed"}
 
 
+@router.post("/clear")
+def clear_tracks(session: SessionStore = Depends(get_user_session)) -> dict:
+    """Remove all mix tracks. Called on page load so Mix rebuilds from scratch."""
+    session.mix_tracks = []
+    return {"status": "cleared"}
+
+
 class AddByPathRequest(BaseModel):
     path: str
     label: str = ""

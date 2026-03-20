@@ -23,7 +23,7 @@ let _playingAll = false;   // when true, suppress exclusive playback
 function _stopOtherPlayers(except) {
   if (_playingAll) return;   // multi-track preview active — don't stop siblings
   for (const p of _players) {
-    if (p.ws !== except && p.ws.isPlaying()) {
+    if (p.ws && p.ws !== except && p.ws.isPlaying()) {
       p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
     }
@@ -73,7 +73,7 @@ function createMixPlayer(label, url, audioPath) {
       _stopOtherPlayers(ws);
       ws.play();
       playBtn.textContent = '\u23F8 Pause';
-      transportLoad(url, label, false, 'Mix');
+      transportLoad(url, label, false, 'Mix', { cardWs: ws });
     }
   });
 
@@ -200,6 +200,10 @@ export function initMix() {
       refreshTracks();
     } catch (err) { alert(`Error: ${err.message}`); }
   });
+
+  // Clear stale mix tracks on page load — Mix always rebuilds from
+  // whatever is currently open in other tabs, never persists across refresh.
+  fetch('/api/mix/clear', { method: 'POST' }).catch(() => {});
 
   // Auto-refresh tracks when stems/midi/generated are ready
   appState.on('stemsReady', () => refreshTracks());
@@ -399,7 +403,7 @@ async function refreshTracks() {
             _stopOtherPlayers(ws);
             ws.play();
             playBtn.textContent = '\u23F8 Pause';
-            transportLoad(url, track.label, false, 'Mix');
+            transportLoad(url, track.label, false, 'Mix', { cardWs: ws });
           }
         });
 
@@ -481,7 +485,7 @@ async function refreshTracks() {
                 _stopOtherPlayers(ws);
                 ws.play();
                 playBtn.textContent = '\u23F8 Pause';
-                transportLoad(renderedUrl, track.label, false, 'Mix');
+                transportLoad(renderedUrl, track.label, false, 'Mix', { cardWs: ws });
               });
             } else {
               ws.once('ready', () => {
@@ -508,7 +512,7 @@ async function refreshTracks() {
             _stopOtherPlayers(ws);
             ws.play();
             playBtn.textContent = '\u23F8 Pause';
-            transportLoad(renderedUrl, track.label, false, 'Mix');
+            transportLoad(renderedUrl, track.label, false, 'Mix', { cardWs: ws });
           }
         });
 
@@ -716,6 +720,6 @@ function showMixResult(result) {
   // Auto-play the result and load into transport
   ws.once('ready', () => {
     ws.play();
-    transportLoad(url, 'Master Mix', false, 'Mix');
+    transportLoad(url, 'Master Mix', false, 'Mix', { cardWs: ws });
   });
 }

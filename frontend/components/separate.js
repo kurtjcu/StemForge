@@ -558,7 +558,7 @@ function showAceStemResults(stemPaths, taskId, results) {
         stopOtherPlayers(ws);
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
-        transportLoad(streamUrl, label, false, 'Separate');
+        transportLoad(streamUrl, label, false, 'Separate', { cardWs: ws });
       }
     });
 
@@ -649,7 +649,7 @@ function showStemResults(stemPaths) {
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
         // Feed global transport for cross-tab "Now Playing"
-        transportLoad(url, label, false, 'Separate \u203A Batch');
+        transportLoad(url, label, false, 'Separate \u203A Batch', { cardWs: ws });
       }
     });
 

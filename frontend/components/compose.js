@@ -3927,7 +3927,10 @@ function _claimTransport(entry, timeLabel, playBtn) {
   }
   _transportOwner = entry;
   const unsubTime = transportOnTimeUpdate((time, dur) => {
-    if (_transportOwner === entry) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    if (_transportOwner !== entry) return;
+    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    // Sync card cursor to transport position
+    if (entry.ws && dur > 0) entry.ws.seekTo(time / dur);
   });
   const unsubState = transportOnStateChange((playing) => {
     if (_transportOwner === entry) playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';

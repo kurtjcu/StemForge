@@ -271,7 +271,7 @@ function refreshPreviews() {
         _stopOtherPlayers(ws);
         ws.play();
         playBtn.textContent = '\u23F8 Pause';
-        transportLoad(streamUrl, item.label, false, 'Export');
+        transportLoad(streamUrl, item.label, false, 'Export', { cardWs: ws });
       }
     });
 
