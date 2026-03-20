@@ -11,7 +11,7 @@ name = "stemforge"
 version = "0.1.0"
 description = "AI-powered stem separation, MIDI extraction, and music generation desktop application"
 readme = "README.md"
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 requires-python = "==3.11.*"
 authors = [
     { name = "StemForge Contributors" },
@@ -31,7 +31,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Analysis",
     "Topic :: Multimedia :: Sound/Audio :: Editors",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",

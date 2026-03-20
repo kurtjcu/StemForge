@@ -4,7 +4,7 @@
 
 # StemForge
 
-**Source-available, GPU-accelerated AI audio workstation for stem separation, MIDI extraction, audio generation, and song composition — running locally in your browser.**
+**Open-source, GPU-accelerated AI audio workstation for stem separation, MIDI extraction, audio generation, and song composition — running locally in your browser.**
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
 ![CUDA](https://img.shields.io/badge/CUDA-13.0-blue)
@@ -20,7 +20,7 @@ StemForge is a local, GPU-accelerated web application that chains multiple AI mu
 
 ## Why StemForge?
 
-Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, transform any vocal with AI voice conversion, or generate literally any sound effect with Stable Audio, then mix and export the result. It is a source-available alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, transform, and remix — not just separate.
+Most AI audio tools do one thing — separate stems, or generate music, or extract MIDI. StemForge connects them all. Outputs from one pipeline flow directly into the next: separate a track into stems, extract MIDI from any stem, use those stems or MIDI as conditioning for new audio generation, compose an entirely new song with AI lyrics, transform any vocal with AI voice conversion, or generate literally any sound effect with Stable Audio, then mix and export the result. It is an open-source alternative to cloud-based stem separation services like LALAL.ai or iZotope RX, with the added ability to generate, compose, transform, and remix — not just separate.
 
 StemForge runs entirely on your local machine with no internet connection required after initial model downloads. Your audio never leaves your computer.
 
