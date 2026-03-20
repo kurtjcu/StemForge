@@ -23,16 +23,24 @@ def make_kick_wav(
     bpm: float = 120.0,
     duration: float = 4.0,
     sr: int = 44100,
+    pre_roll: float = 0.2,
 ) -> list[float]:
     """Write a synthetic kick WAV and return ground-truth onset times.
 
     Each kick is a 150ms sine sweep decaying from 100 Hz to ~20 Hz with an
     exponential amplitude envelope — mimicking the low-frequency body of an
     acoustic bass drum.
+
+    A ``pre_roll`` silence (default 0.2 s) is prepended so the first kick does
+    not land at t=0, which is a degenerate case for energy-based onset detectors
+    (onset_strength requires pre-stimulus silence to compute the spectral flux
+    baseline). The returned onset times include the pre_roll offset.
     """
     beat_interval = 60.0 / bpm
-    onset_times = [i * beat_interval for i in range(int(duration / beat_interval))]
-    y = np.zeros(int(sr * duration), dtype=np.float32)
+    n_beats = int(duration / beat_interval)
+    onset_times = [pre_roll + i * beat_interval for i in range(n_beats)]
+    total_samples = int(sr * (duration + pre_roll))
+    y = np.zeros(total_samples, dtype=np.float32)
     for t in onset_times:
         s = int(t * sr)
         body_len = int(0.15 * sr)
@@ -53,21 +61,25 @@ def make_hihat_wav_with_bleed(
     bpm: float = 120.0,
     duration: float = 4.0,
     sr: int = 44100,
+    pre_roll: float = 0.2,
 ) -> int:
     """Write a synthetic hi-hat WAV with kick bleed and return ground-truth hi-hat count.
 
     Hi-hat events are white noise bursts at 8th-note intervals with exponential
     decay.  Quarter-note slots also receive low-level kick bleed (0.15x amplitude)
     to simulate room coupling from the kick drum.
+
+    A ``pre_roll`` silence (default 0.2 s) is prepended so the first hi-hat does
+    not land at t=0, matching the convention in make_kick_wav.
     """
     beat_interval = 60.0 / bpm
     eighth_interval = beat_interval / 2
+    n_eighths = int(duration / eighth_interval)
 
-    hihat_onset_times = [
-        i * eighth_interval for i in range(int(duration / eighth_interval))
-    ]
+    hihat_onset_times = [pre_roll + i * eighth_interval for i in range(n_eighths)]
 
-    y = np.zeros(int(sr * duration), dtype=np.float32)
+    total_samples = int(sr * (duration + pre_roll))
+    y = np.zeros(total_samples, dtype=np.float32)
     rng = np.random.default_rng(seed=42)
 
     # Hi-hat bursts (8th notes)
@@ -81,8 +93,8 @@ def make_hihat_wav_with_bleed(
         envelope = np.exp(-60 * t_burst).astype(np.float32)
         y[s : s + burst_len] += 0.8 * noise * envelope
 
-    # Kick bleed (quarter notes = every 2nd 8th note)
-    quarter_times = [i * beat_interval for i in range(int(duration / beat_interval))]
+    # Kick bleed (quarter notes)
+    quarter_times = [pre_roll + i * beat_interval for i in range(int(duration / beat_interval))]
     for t in quarter_times:
         s = int(t * sr)
         body_len = int(0.15 * sr)
