@@ -53,7 +53,7 @@ Requirements for LarsNet Drum Sub-Separation milestone. Each maps to roadmap pha
 - [ ] **MODE-01**: Three runtime-selectable drum MIDI modes: ADTOF-only, LarsNet+ADTOF, LarsNet+onset-detection
 - [ ] **MODE-02**: Mode selector in MIDI panel alongside existing ADT model selector
 - [ ] **MODE-03**: Selected mode persisted in session state
-- [ ] **MODE-04**: Energy-based onset detection backend for LarsNet+onset mode using librosa with per-class thresholds
+- [x] **MODE-04**: Energy-based onset detection backend for LarsNet+onset mode using librosa with per-class thresholds
 
 ### Guard Rails
 
@@ -142,7 +142,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MODE-01 | Phase 8 | Pending |
 | MODE-02 | Phase 10 | Pending |
 | MODE-03 | Phase 8 | Pending |
-| MODE-04 | Phase 6 | Pending |
+| MODE-04 | Phase 6 | Complete |
 | GUARD-01 | Phase 9 | Pending |
 | GUARD-02 | Phase 9 | Pending |
 | GUARD-03 | Phase 10 | Pending |

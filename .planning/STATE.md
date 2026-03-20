@@ -47,6 +47,7 @@ Progress: [████░░░░░░░░░░░░░░░░] 3/7+ pl
 | 03-loader-and-pipeline-wiring | 2 | ~4 min | ~2 min |
 | 04-validation-and-ux-polish | 2 | ~7.5 min | ~3.75 min |
 | Phase 05-larsnet-registry-and-loader-stub P01 | 8 | 1 tasks | 6 files |
+| Phase 06-onset-detection-backend P01 | 4 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -67,6 +68,9 @@ Recent decisions affecting current work:
 - [v2.0]: LarsNet evicted before ADTOF loads in LarsNet+ADTOF mode — VRAM safety contract enforced in loader, not pipeline
 - [Phase 05-larsnet-registry-and-loader-stub]: vendor/larsnet __init__.py adds package dir to sys.path so upstream flat imports work without patching upstream files
 - [Phase 05-larsnet-registry-and-loader-stub]: LARSNET_STEM_KEYS uses config.yaml names: 'toms'/'hihat'/'cymbals' (differs from ADTOF: 'tom'/'hi_hat'/'cymbal')
+- [Phase 06-onset-detection-backend]: pre_roll=0.2s in test WAV helpers — t=0 onset is degenerate for spectral flux (no pre-stimulus baseline)
+- [Phase 06-onset-detection-backend]: wait_ms=100 for toms (GM 47) — rapid tom fills need 100ms gap, not 200ms
+- [Phase 06-onset-detection-backend]: hop_length=128 unconditionally — default 512 gives 11.6ms resolution, fails ±5ms criterion
 
 ### Critical Implementation Notes
 
@@ -89,7 +93,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T23:51:08.564Z
-Stopped at: Completed 05-larsnet-registry-and-loader-stub 05-01-PLAN.md
+Last session: 2026-03-21
+Stopped at: Completed 06-onset-detection-backend 06-01-PLAN.md
 Resume file: None
-Next step: /gsd:plan-phase 5
+Next step: Phase 7 (LarsNet separation wiring)

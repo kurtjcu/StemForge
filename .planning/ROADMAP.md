@@ -15,7 +15,7 @@ This milestone integrates LarsNet drum sub-separation into StemForge, adding thr
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [ ] **Phase 5: LarsNet Registry and Loader Stub** — Vendor LarsNet, resolve config/checkpoint paths, register LarsNetSpec, validate loader loads 5 U-Nets from outside the LarsNet directory
-- [ ] **Phase 6: Onset Detection Backend** — CPU-only energy onset detection with per-class delta thresholds, fully validated on synthetic audio before any LarsNet integration
+- [x] **Phase 6: Onset Detection Backend** — CPU-only energy onset detection with per-class delta thresholds, fully validated on synthetic audio before any LarsNet integration (completed 2026-03-20)
 - [ ] **Phase 7: MidiModelLoader Extensions** — Loader facade methods for all three modes with correct LarsNet-evicts-before-ADTOF sequencing
 - [ ] **Phase 8: MidiPipeline Mode Dispatcher** — drum_mode field on MidiConfig, _run_drum_mode() dispatcher, regression test confirming ADTOF-only path unchanged
 - [ ] **Phase 9: Session Store and API Endpoints** — drum_sub_stem_paths session field, drum_mode param in ExtractRequest, sub-stems endpoint, mode pre-condition guards
@@ -48,7 +48,7 @@ Plans:
   2. `OnsetBackend.detect()` on a cymbal sub-stem with known hi-hat bleed produces a hi-hat onset count within the expected ±2 count of ground truth — bleed events are suppressed by per-class delta threshold
   3. `OnsetBackend` is CPU-only, imports no model weights, and completes on a 60-second sub-stem in under 2 seconds
   4. All per-class delta threshold values (`delta=0.07` for kick/snare, `delta=0.10–0.15` for hi-hat/cymbals) are documented with rationale in code comments
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
 - [ ] 06-01-PLAN.md — TDD: OnsetBackend with per-class delta thresholds (tests + implementation)
 
@@ -117,7 +117,7 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 5. LarsNet Registry and Loader Stub | 1/2 | In Progress|  |
-| 6. Onset Detection Backend | 0/1 | Planning complete | - |
+| 6. Onset Detection Backend | 1/1 | Complete   | 2026-03-20 |
 | 7. MidiModelLoader Extensions | 0/? | Not started | - |
 | 8. MidiPipeline Mode Dispatcher | 0/? | Not started | - |
 | 9. Session Store and API Endpoints | 0/? | Not started | - |
