@@ -45,7 +45,7 @@ Plans:
   3. `AdtofBackend` never writes any file to disk during prediction — no MIDI, no temp files, no output directories created
   4. `AdtofBackend.evict()` releases the model from memory (subsequent `predict()` call forces a reload)
   5. A second backend implementing the same `load/predict/evict` interface can be registered alongside `AdtofBackend` without modifying `AdtofBackend`
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 02-01-PLAN.md — AdtofBackendProtocol and AdtofBackend load/evict lifecycle (TDD)
@@ -81,7 +81,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 2/2 | Complete    | 2026-03-20 |
-| 2. ADTOF Backend | 0/2 | Not started | - |
+| 1. Foundation | 2/2 | Complete | 2026-03-20 |
+| 2. ADTOF Backend | 1/2 | In Progress|  |
 | 3. Loader and Pipeline Wiring | 0/TBD | Not started | - |
 | 4. Validation and UX Polish | 0/TBD | Not started | - |
