@@ -10,7 +10,10 @@
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
 import { decodeAudioPeaks, renderDiffWaveform } from './waveform-diff.js';
-import { transportLoad } from './audio-player.js';
+import {
+  transportLoad, transportStop, transportPlayPause, transportSeekTo,
+  transportGetSourceId, transportOnTimeUpdate, transportOnStateChange,
+} from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -22,20 +25,26 @@ let _currentEnhanceMode = 'cleanup';
 let _batchMode = false;
 let _batchFiles = [];    // [{filename, path, duration?, ...}]
 
-// ─── Inline audio players (exclusive playback) ───────────────────────
+// ─── Inline audio players (visual-only, transport is sole engine) ────
 
 const _players = [];
+const _enhanceModeCounters = { cleanup: 0, tune: 0, effects: 0, batch: 0 };
 
-function _stopOtherPlayers(except) {
+/** Reset all other cards' visuals and unsubscribe transport callbacks. */
+function _resetOtherCards(except) {
   for (const p of _players) {
-    if (p.ws !== except && p.ws.isPlaying()) {
-      p.ws.stop();
+    if (p !== except) {
       p.playBtn.textContent = '\u25B6 Play';
+      if (p.ws) p.ws.seekTo(0);
+      if (p.unsub) { p.unsub(); p.unsub = null; }
     }
   }
 }
 
-function _createPlayer(label, url, audioPath, source) {
+function _createPlayer(label, url, audioPath, source, mode = 'cleanup') {
+  const modeKey = mode || 'cleanup';
+  const idx = (_enhanceModeCounters[modeKey] = (_enhanceModeCounters[modeKey] || 0) + 1) - 1;
+  const sourceId = `enh-${modeKey}-${idx}`;
   const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
   const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
   const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -60,38 +69,60 @@ function _createPlayer(label, url, audioPath, source) {
   const waveContainer = el('div', { className: 'stem-waveform' });
   card.appendChild(waveContainer);
 
+  // Wavesurfer — visual only, never plays audio
   const ws = createWaveform(waveContainer, { height: 50 });
   ws.load(url);
 
-  const player = { ws, playBtn };
-  _players.push(player);
+  const entry = { ws, playBtn, unsub: null, sourceId };
+  _players.push(entry);
+
+  let syncGuard = false;
+
+  function claimTransport() {
+    _resetOtherCards(entry);
+    if (entry.unsub) { entry.unsub(); entry.unsub = null; }
+    const unsubTime = transportOnTimeUpdate((time, dur) => {
+      if (transportGetSourceId() !== sourceId) return;
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+      if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+    });
+    const unsubState = transportOnStateChange((playing) => {
+      if (transportGetSourceId() !== sourceId) return;
+      playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+    });
+    entry.unsub = () => { unsubTime(); unsubState(); };
+  }
 
   playBtn.addEventListener('click', () => {
-    if (ws.isPlaying()) {
-      ws.pause();
-      playBtn.textContent = '\u25B6 Play';
+    if (transportGetSourceId() === sourceId) {
+      transportPlayPause();
     } else {
-      _stopOtherPlayers(ws);
-      ws.play();
-      playBtn.textContent = '\u23F8 Pause';
-      transportLoad(url, label, false, source || 'Enhance');
+      claimTransport();
+      transportLoad(url, label, true, source || 'Enhance', { color: 'audio', sourceId });
     }
   });
 
   stopBtn.addEventListener('click', () => {
-    ws.stop();
+    transportStop();
     playBtn.textContent = '\u25B6 Play';
+    ws.seekTo(0);
   });
 
-  rewindBtn.addEventListener('click', () => ws.setTime(0));
-
-  ws.on('timeupdate', (time) => {
-    const dur = ws.getDuration();
-    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  rewindBtn.addEventListener('click', () => {
+    ws.seekTo(0);
+    if (transportGetSourceId() === sourceId) transportSeekTo(0);
   });
-  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
 
-  return { card, ws };
+  // Card waveform click → seek transport
+  ws.on('seeking', () => {
+    if (syncGuard) return;
+    if (transportGetSourceId() === sourceId) {
+      const dur = ws.getDuration();
+      if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
+    }
+  });
+
+  return { card, ws, sourceId, claimTransport };
 }
 
 // ─── Progress bar helpers ────────────────────────────────────────────
@@ -735,7 +766,7 @@ function updateOriginalPreview(mode) {
   const label = select.options[select.selectedIndex]?.text || 'Original';
   const source = mode === 'effects' ? 'Enhance \u203A Effects'
     : mode === 'tune' ? 'Enhance \u203A Tune' : 'Enhance \u203A Clean Up';
-  const { card } = _createPlayer(`Original: ${label}`, url, stemPath, source);
+  const { card } = _createPlayer(`Original: ${label}`, url, stemPath, source, mode);
   section.appendChild(card);
   _originalPlayers[mode] = _players[_players.length - 1];
 
@@ -772,11 +803,12 @@ async function startEnhance() {
       onDone(result) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        showResult(result, 'cleanup');
+        const { sourceId: sid, claimTransport: claim } = showResult(result, 'cleanup');
         appState.emit('enhanceReady', result);
-        // Auto-load into transport bar
+        // Auto-load into transport bar with playback
         const url = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
-        transportLoad(url, `Enhanced: ${result.label}`, false, 'Enhance \u203A Clean Up');
+        if (claim) claim();
+        transportLoad(url, `Enhanced: ${result.label}`, true, 'Enhance \u203A Clean Up', { color: 'audio', sourceId: sid });
       },
       onError(msg) {
         progressCard.classList.add('hidden');
@@ -827,11 +859,12 @@ async function startAutotune() {
       onDone(result) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        showResult(result, 'tune');
+        const { sourceId: sid, claimTransport: claim } = showResult(result, 'tune');
         appState.emit('enhanceReady', result);
-        // Auto-load into transport bar
+        // Auto-load into transport bar with playback
         const url = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
-        transportLoad(url, `Enhanced: ${result.label}`, false, 'Enhance \u203A Tune');
+        if (claim) claim();
+        transportLoad(url, `Enhanced: ${result.label}`, true, 'Enhance \u203A Tune', { color: 'audio', sourceId: sid });
       },
       onError(msg) {
         progressCard.classList.add('hidden');
@@ -880,7 +913,7 @@ function _ensureClearAllBtn(resultsSection, clearBtnId) {
   resultsSection.insertBefore(clearAllBtn, resultsSection.firstChild);
 }
 
-async function showResult(result, mode) {
+function showResult(result, mode) {
   const resultsSectionId = mode === 'effects' ? 'enhance-results-effects'
     : mode === 'tune' ? 'enhance-results-tune' : 'enhance-results-cleanup';
   const clearBtnId = mode === 'effects' ? 'enhance-clear-all-effects'
@@ -894,11 +927,12 @@ async function showResult(result, mode) {
   appState.enhancePaths = appState.enhancePaths || {};
   appState.enhancePaths[result.label] = result.output_path;
 
-  const { card, ws } = _createPlayer(
+  const { card, ws, sourceId, claimTransport } = _createPlayer(
     `Enhanced: ${result.label}`,
     outputUrl,
     result.output_path,
     source,
+    mode,
   );
 
   // Show detected key/scale info when auto-detection was used
@@ -934,6 +968,9 @@ async function showResult(result, mode) {
     title: 'Remove',
   }, '\u2715');
   closeBtn.addEventListener('click', () => {
+    const entry = _players.find(p => p.ws === ws);
+    if (entry?.unsub) entry.unsub();
+    if (transportGetSourceId() === sourceId) transportStop();
     ws.destroy();
     const idx = _players.findIndex(p => p.ws === ws);
     if (idx !== -1) _players.splice(idx, 1);
@@ -976,6 +1013,8 @@ async function showResult(result, mode) {
       console.error('Diff waveform error:', err);
     }
   });
+
+  return { sourceId, claimTransport };
 }
 
 // ─── Batch process ──────────────────────────────────────────────────
@@ -1122,7 +1161,7 @@ function showBatchResults(results, preset) {
 
 function _appendBatchCard(container, r) {
   const url = `/api/audio/stream?path=${encodeURIComponent(r.path)}`;
-  const { card, ws } = _createPlayer(r.output_name, url, r.path, 'Enhance \u203A Clean Up');
+  const { card, ws, sourceId } = _createPlayer(r.output_name, url, r.path, 'Enhance \u203A Clean Up', 'batch');
 
   const closeBtn = el('button', {
     className: 'btn btn-sm',
@@ -1131,6 +1170,9 @@ function _appendBatchCard(container, r) {
   }, '\u2715');
 
   closeBtn.addEventListener('click', () => {
+    const entry = _players.find(p => p.ws === ws);
+    if (entry?.unsub) entry.unsub();
+    if (transportGetSourceId() === sourceId) transportStop();
     ws.destroy();
     const idx = _players.findIndex(p => p.ws === ws);
     if (idx !== -1) _players.splice(idx, 1);
@@ -1391,11 +1433,12 @@ async function startEffects() {
       onDone(result) {
         progressCard.classList.add('hidden');
         processBtn.disabled = false;
-        showResult(result, 'effects');
+        const { sourceId: sid, claimTransport: claim } = showResult(result, 'effects');
         appState.emit('enhanceReady', result);
-        // Auto-load into transport bar
+        // Auto-load into transport bar with playback
         const url = `/api/audio/stream?path=${encodeURIComponent(result.output_path)}`;
-        transportLoad(url, `Enhanced: ${result.label}`, false, 'Enhance \u203A Effects');
+        if (claim) claim();
+        transportLoad(url, `Enhanced: ${result.label}`, true, 'Enhance \u203A Effects', { color: 'audio', sourceId: sid });
       },
       onError(msg) {
         progressCard.classList.add('hidden');

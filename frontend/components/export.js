@@ -4,7 +4,10 @@
 
 import { appState, api, apiUpload, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import { transportLoad, transportStop } from './audio-player.js';
+import {
+  transportLoad, transportStop, transportPlayPause, transportSeekTo,
+  transportGetSourceId, transportOnTimeUpdate, transportOnStateChange,
+} from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -16,14 +19,17 @@ const _LOSSLESS_FORMATS = new Set(['wav', 'flac', 'aiff']);
 /** Files uploaded directly in the Export tab (independent of session). */
 let _exportFiles = [];
 
-/** Active waveform players for exclusive playback. */
+/** Active waveform players (visual-only, transport is sole engine). */
 let _players = [];
+let _exportCardCounter = 0;
 
-function _stopOtherPlayers(except) {
+/** Reset other export cards' visuals and unsubscribe transport callbacks. */
+function _resetOtherCards(except) {
   for (const p of _players) {
-    if (p.ws !== except && p.ws.isPlaying()) {
-      p.ws.stop();
+    if (p !== except) {
       p.playBtn.textContent = '\u25B6 Play';
+      if (p.ws) p.ws.seekTo(0);
+      if (p.unsub) { p.unsub(); p.unsub = null; }
     }
   }
 }
@@ -218,9 +224,13 @@ async function _fetchAudioInfo(path, badge) {
 function refreshPreviews() {
   const container = document.getElementById('export-previews');
 
-  // Destroy old players
-  for (const p of _players) { try { p.ws.destroy(); } catch {} }
+  // Destroy old players and clean up subscriptions
+  for (const p of _players) {
+    if (p.unsub) p.unsub();
+    try { p.ws.destroy(); } catch {}
+  }
   _players = [];
+  _exportCardCounter = 0;
   clearChildren(container);
 
   const items = collectArtifacts();
@@ -259,38 +269,59 @@ function refreshPreviews() {
     const card = el('div', { className: 'stem-card' }, header, waveContainer);
     container.appendChild(card);
 
+    const sourceId = `export-${_exportCardCounter++}`;
+
+    // Wavesurfer — visual only, never plays audio
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(streamUrl);
-    _players.push({ ws, playBtn });
+
+    const entry = { ws, playBtn, unsub: null, sourceId };
+    _players.push(entry);
+
+    let syncGuard = false;
+
+    function claimTransport() {
+      _resetOtherCards(entry);
+      if (entry.unsub) { entry.unsub(); entry.unsub = null; }
+      const unsubTime = transportOnTimeUpdate((time, dur) => {
+        if (transportGetSourceId() !== sourceId) return;
+        timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+        if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+      });
+      const unsubState = transportOnStateChange((playing) => {
+        if (transportGetSourceId() !== sourceId) return;
+        playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+      });
+      entry.unsub = () => { unsubTime(); unsubState(); };
+    }
 
     playBtn.addEventListener('click', () => {
-      if (ws.isPlaying()) {
-        ws.pause();
-        playBtn.textContent = '\u25B6 Play';
+      if (transportGetSourceId() === sourceId) {
+        transportPlayPause();
       } else {
-        _stopOtherPlayers(ws);
-        ws.play();
-        playBtn.textContent = '\u23F8 Pause';
-        transportLoad(streamUrl, item.label, false, 'Export');
+        claimTransport();
+        transportLoad(streamUrl, item.label, true, 'Export', { color: 'audio', sourceId });
       }
     });
 
     stopBtn.addEventListener('click', () => {
-      ws.stop();
       transportStop();
       playBtn.textContent = '\u25B6 Play';
+      ws.seekTo(0);
     });
 
-    rewindBtn.addEventListener('click', () => ws.setTime(0));
-
-    ws.on('timeupdate', (time) => {
-      const dur = ws.getDuration();
-      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    rewindBtn.addEventListener('click', () => {
+      ws.seekTo(0);
+      if (transportGetSourceId() === sourceId) transportSeekTo(0);
     });
 
-    ws.on('finish', () => {
-      playBtn.textContent = '\u25B6 Play';
-      transportStop();
+    // Card waveform click → seek transport
+    ws.on('seeking', () => {
+      if (syncGuard) return;
+      if (transportGetSourceId() === sourceId) {
+        const dur = ws.getDuration();
+        if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
+      }
     });
   }
 }

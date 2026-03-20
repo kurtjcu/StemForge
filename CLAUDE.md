@@ -289,30 +289,55 @@ Downstream components subscribe in their `init*()` functions:
 - Export listens to all (including `composeReady`) → enable artifact checkboxes
 - Separate listens to `fileLoaded` + `batchFilesLoaded` + `batchModeChanged` → enable separation, toggle batch UI
 
-### Now Playing transport bar (`audio-player.js`)
+### Transport bar — sole audio engine (`audio-player.js`)
 
-The global transport bar at the bottom of every tab shows what audio is currently
-playing and provides play/pause/stop/seek controls that work regardless of which
-tab the user is on. **Every play button in every tab must call `transportLoad()`**
-so the bar always reflects the active audio. Stop buttons and finish events must
-call `transportStop()`.
+**The transport bar is the sole audio engine.** Card wavesurfers only display
+waveform shapes and sync their cursors — they never call `ws.play()`.  Only the
+transport's wavesurfer produces audio.  This guarantees a single playback source
+across all tabs with consistent controls, waveform colors, and time display.
 
-**Contract — must be maintained across all components:**
+**Every playable card must:**
 
-| Component | Play → `transportLoad(url, label, false, source)` | Stop/Finish → `transportStop()` |
+1. Call `transportLoad(url, label, true, source, { color, sourceId })` to start playback
+2. Use `transportPlayPause()` to toggle an already-loaded source (resume, not reload)
+3. Call `transportStop()` on stop / finish
+4. Subscribe to `transportOnTimeUpdate` + `transportOnStateChange` to sync card cursor and button state
+5. Guard subscriptions with `transportGetSourceId() === mySourceId`
+6. Use a `syncGuard` flag to prevent feedback loops between card seek → transport seek → card seek
+
+**Waveform colors by source:** audio = green, midi = purple, sfx = white.
+Colors are passed via `{ color: 'audio' | 'midi' | 'sfx' }` in the opts parameter
+of `transportLoad`; the transport bar waveform recolors automatically.
+
+**Exception:** Mix tab multi-track preview plays card wavesurfers directly
+(polyphonic playback impossible through a single transport). All other playback
+goes through the transport.
+
+**Reference implementation:** `compose.js` `_claimTransport()`. Follow this pattern
+when adding new playable components.
+
+**Source IDs by component:**
+
+| Component | Source ID pattern | Color |
 |---|---|---|
-| `loader.js` | Upload preview | — |
-| `separate.js` | Stem cards, batch cards | Stop btn, finish event |
-| `enhance.js` | Result card play btn + auto-load on job done | Stop btn, finish event |
-| `midi.js` | MIDI render play | Stop btn, finish event |
-| `generate.js` | Synth result cards | Stop btn, finish event |
-| `compose.js` | Compose result play, Voice result play | Stop btn, finish event |
-| `mix.js` | Track play, MIDI track play, Play All, Master Mix | Stop btn, finish, stopPreview |
+| `loader.js` | `upload-preview` | audio |
+| `separate.js` | `sep-{label}`, `sep-batch-{index}` | audio |
+| `enhance.js` | `enh-{mode}-{index}` | audio |
+| `midi.js` | `midi-{label}` | midi |
+| `generate.js` | `synth-{index}`, `sfx-canvas-{id}`, `sfx-ref-{id}` | audio / sfx |
+| `compose.js` | `compose-{taskId}-{index}`, `voice-{label}` | audio |
+| `mix.js` | `mix-{trackId}`, `mix-master` | audio / midi |
+| `export.js` | `export-{index}` | audio |
 
-The `source` parameter (e.g. `'Separate'`, `'Mix'`, `'Enhance › Tune'`) is shown
-as "Now Playing (source): label" so the user always knows which tab produced the
-audio. When adding new playable components, wire them to the transport bar
-following this same pattern.
+**Feedback loop prevention:** Card `ws.seekTo()` fires `seeking`. If forwarded to
+`transportSeekTo()`, the transport fires `timeupdate` → `ws.seekTo()` → loop.
+Each card uses a `syncGuard` boolean:
+```js
+syncGuard = true;
+ws.seekTo(time / dur);
+syncGuard = false;
+// In ws.on('seeking'): if (syncGuard) return;
+```
 
 ### Job polling
 

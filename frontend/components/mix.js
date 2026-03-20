@@ -4,7 +4,10 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import { transportLoad, transportStop } from './audio-player.js';
+import {
+  transportLoad, transportStop, transportPlayPause, transportSeekTo,
+  transportGetSourceId, transportOnTimeUpdate, transportOnStateChange,
+} from './audio-player.js';
 
 /** GM program names — loaded from backend on init. */
 let _gmPrograms = [];
@@ -15,26 +18,28 @@ function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
 }
 
-// ─── Inline audio players (exclusive playback) ───────────────────────────
+// ─── Inline audio players (visual-only for solo, direct for multi-track preview)
 
 const _players = [];
-let _playingAll = false;   // when true, suppress exclusive playback
+let _playingAll = false;   // when true, multi-track preview plays card ws directly
 
-function _stopOtherPlayers(except) {
-  if (_playingAll) return;   // multi-track preview active — don't stop siblings
+/** Reset other cards' visuals and unsub transport (unless multi-track preview). */
+function _resetOtherCards(except) {
+  if (_playingAll) return;   // multi-track preview active — don't reset siblings
   for (const p of _players) {
-    if (p.ws !== except && p.ws.isPlaying()) {
-      p.ws.stop();
+    if (p !== except) {
       p.playBtn.textContent = '\u25B6 Play';
+      if (p.ws) p.ws.seekTo(0);
+      if (p.unsub) { p.unsub(); p.unsub = null; }
     }
   }
 }
 
 /**
- * Build a standard stem-card player.
- * Returns { card, ws }.
+ * Build a standard stem-card player (visual-only, plays through transport).
+ * Returns { card, ws, sourceId }.
  */
-function createMixPlayer(label, url, audioPath) {
+function createMixPlayer(label, url, audioPath, sourceId) {
   const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
   const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
   const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -59,39 +64,60 @@ function createMixPlayer(label, url, audioPath) {
   const waveContainer = el('div', { className: 'stem-waveform' });
   card.appendChild(waveContainer);
 
+  // Wavesurfer — visual only for solo play (transport is sole engine)
   const ws = createWaveform(waveContainer, { height: 50 });
   ws.load(url);
 
-  const player = { ws, playBtn };
-  _players.push(player);
+  const entry = { ws, playBtn, unsub: null, sourceId };
+  _players.push(entry);
+
+  let syncGuard = false;
+
+  function claimTransport() {
+    _resetOtherCards(entry);
+    if (entry.unsub) { entry.unsub(); entry.unsub = null; }
+    const unsubTime = transportOnTimeUpdate((time, dur) => {
+      if (transportGetSourceId() !== sourceId) return;
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+      if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+    });
+    const unsubState = transportOnStateChange((playing) => {
+      if (transportGetSourceId() !== sourceId) return;
+      playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+    });
+    entry.unsub = () => { unsubTime(); unsubState(); };
+  }
 
   playBtn.addEventListener('click', () => {
-    if (ws.isPlaying()) {
-      ws.pause();
-      playBtn.textContent = '\u25B6 Play';
+    if (transportGetSourceId() === sourceId) {
+      transportPlayPause();
     } else {
-      _stopOtherPlayers(ws);
-      ws.play();
-      playBtn.textContent = '\u23F8 Pause';
-      transportLoad(url, label, false, 'Mix');
+      claimTransport();
+      transportLoad(url, label, true, 'Mix', { color: 'audio', sourceId });
     }
   });
 
   stopBtn.addEventListener('click', () => {
-    ws.stop();
     transportStop();
     playBtn.textContent = '\u25B6 Play';
+    ws.seekTo(0);
   });
 
-  rewindBtn.addEventListener('click', () => ws.setTime(0));
-
-  ws.on('timeupdate', (time) => {
-    const dur = ws.getDuration();
-    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  rewindBtn.addEventListener('click', () => {
+    ws.seekTo(0);
+    if (transportGetSourceId() === sourceId) transportSeekTo(0);
   });
-  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
 
-  return { card, ws };
+  // Card waveform click → seek transport
+  ws.on('seeking', () => {
+    if (syncGuard) return;
+    if (transportGetSourceId() === sourceId) {
+      const dur = ws.getDuration();
+      if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
+    }
+  });
+
+  return { card, ws, sourceId };
 }
 
 // ─── Init ─────────────────────────────────────────────────────────────────
@@ -366,6 +392,7 @@ async function refreshTracks() {
       // ─── Waveform player for audio/synth tracks ───
       if ((track.source === 'audio' || track.source === 'synth') && track.path) {
         const url = `/api/audio/stream?path=${encodeURIComponent(track.path)}`;
+        const trackSourceId = `mix-${track.track_id}`;
 
         const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
         const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
@@ -381,45 +408,67 @@ async function refreshTracks() {
         const waveContainer = el('div', { className: 'stem-waveform', style: { padding: '0 12px 8px' } });
         container.append(playerRow, waveContainer);
 
+        // Wavesurfer — visual only for solo play (multi-track preview plays directly)
         const ws = createWaveform(waveContainer, { height: 40 });
         ws.load(url);
 
-        const player = { ws, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label,
+        const player = { ws, playBtn, enableInput, unsub: null, sourceId: trackSourceId,
+          _isTrack: true, _trackId: track.track_id, _trackLabel: track.label,
           _stopBtn: stopBtn, _rewindBtn: rewindBtn, _volumeSlider: volumeSlider, _removeBtn: removeBtn };
         _players.push(player);
 
-        // Set initial playback volume from track state
+        // Set initial playback volume (used during multi-track preview)
         ws.setVolume(track.volume);
 
+        let syncGuard = false;
+
+        function claimTrackTransport() {
+          _resetOtherCards(player);
+          if (player.unsub) { player.unsub(); player.unsub = null; }
+          const unsubTime = transportOnTimeUpdate((time, dur) => {
+            if (transportGetSourceId() !== trackSourceId) return;
+            timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+            if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+          });
+          const unsubState = transportOnStateChange((playing) => {
+            if (transportGetSourceId() !== trackSourceId) return;
+            playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+          });
+          player.unsub = () => { unsubTime(); unsubState(); };
+        }
+
         playBtn.addEventListener('click', () => {
-          if (ws.isPlaying()) {
-            ws.pause();
-            playBtn.textContent = '\u25B6 Play';
+          if (transportGetSourceId() === trackSourceId) {
+            transportPlayPause();
           } else {
-            _stopOtherPlayers(ws);
-            ws.play();
-            playBtn.textContent = '\u23F8 Pause';
-            transportLoad(url, track.label, false, 'Mix');
+            claimTrackTransport();
+            transportLoad(url, track.label, true, 'Mix', { color: 'audio', sourceId: trackSourceId });
           }
         });
 
         stopBtn.addEventListener('click', () => {
-          ws.stop();
           transportStop();
           playBtn.textContent = '\u25B6 Play';
+          ws.seekTo(0);
         });
 
-        rewindBtn.addEventListener('click', () => ws.setTime(0));
-
-        ws.on('timeupdate', (time) => {
-          const dur = ws.getDuration();
-          timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+        rewindBtn.addEventListener('click', () => {
+          ws.seekTo(0);
+          if (transportGetSourceId() === trackSourceId) transportSeekTo(0);
         });
-        ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
+
+        ws.on('seeking', () => {
+          if (syncGuard) return;
+          if (transportGetSourceId() === trackSourceId) {
+            const dur = ws.getDuration();
+            if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
+          }
+        });
       }
 
       // ─── Waveform player for MIDI tracks (render on demand) ───
       if (track.source === 'midi') {
+        const midiSourceId = `mix-${track.track_id}`;
         const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
         const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
         const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -437,8 +486,10 @@ async function refreshTracks() {
 
         let ws = null;
         let renderedUrl = null;
+        let syncGuard = false;
 
-        const player = { ws: null, playBtn, enableInput, _isTrack: true, _trackId: track.track_id, _trackLabel: track.label,
+        const player = { ws: null, playBtn, enableInput, unsub: null, sourceId: midiSourceId,
+          _isTrack: true, _trackId: track.track_id, _trackLabel: track.label,
           _stopBtn: stopBtn, _rewindBtn: rewindBtn, _volumeSlider: volumeSlider, _removeBtn: removeBtn };
         _players.push(player);
 
@@ -448,15 +499,34 @@ async function refreshTracks() {
           player.ws = ws;
           ws.setVolume(track.volume);
 
-          ws.on('timeupdate', (time) => {
-            const dur = ws.getDuration();
-            timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-          });
-          ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
           ws.on('error', () => {
             playBtn.textContent = '\u25B6 Play';
             playBtn.disabled = false;
           });
+
+          // Card waveform click → seek transport
+          ws.on('seeking', () => {
+            if (syncGuard) return;
+            if (transportGetSourceId() === midiSourceId) {
+              const dur = ws.getDuration();
+              if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
+            }
+          });
+        }
+
+        function claimMidiTransport() {
+          _resetOtherCards(player);
+          if (player.unsub) { player.unsub(); player.unsub = null; }
+          const unsubTime = transportOnTimeUpdate((time, dur) => {
+            if (transportGetSourceId() !== midiSourceId) return;
+            timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+            if (ws && dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+          });
+          const unsubState = transportOnStateChange((playing) => {
+            if (transportGetSourceId() !== midiSourceId) return;
+            playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+          });
+          player.unsub = () => { unsubTime(); unsubState(); };
         }
 
         async function renderMidiTrack(autoplay) {
@@ -478,10 +548,8 @@ async function refreshTracks() {
             if (autoplay) {
               ws.once('ready', () => {
                 playBtn.disabled = false;
-                _stopOtherPlayers(ws);
-                ws.play();
-                playBtn.textContent = '\u23F8 Pause';
-                transportLoad(renderedUrl, track.label, false, 'Mix');
+                claimMidiTransport();
+                transportLoad(renderedUrl, track.label, true, 'Mix', { color: 'midi', sourceId: midiSourceId });
               });
             } else {
               ws.once('ready', () => {
@@ -501,23 +569,23 @@ async function refreshTracks() {
             renderMidiTrack(true);
             return;
           }
-          if (ws && ws.isPlaying()) {
-            ws.pause();
-            playBtn.textContent = '\u25B6 Play';
-          } else if (ws) {
-            _stopOtherPlayers(ws);
-            ws.play();
-            playBtn.textContent = '\u23F8 Pause';
-            transportLoad(renderedUrl, track.label, false, 'Mix');
+          if (transportGetSourceId() === midiSourceId) {
+            transportPlayPause();
+          } else {
+            claimMidiTransport();
+            transportLoad(renderedUrl, track.label, true, 'Mix', { color: 'midi', sourceId: midiSourceId });
           }
         });
 
         stopBtn.addEventListener('click', () => {
-          if (ws) { ws.stop(); transportStop(); playBtn.textContent = '\u25B6 Play'; }
+          transportStop();
+          playBtn.textContent = '\u25B6 Play';
+          if (ws) ws.seekTo(0);
         });
 
         rewindBtn.addEventListener('click', () => {
-          if (ws) ws.setTime(0);
+          if (ws) ws.seekTo(0);
+          if (transportGetSourceId() === midiSourceId) transportSeekTo(0);
         });
       }
 
@@ -571,12 +639,12 @@ function togglePreview() {
   const enabled = _getEnabledTrackPlayers();
   if (enabled.length === 0) { alert('No enabled audio tracks to preview'); return; }
 
-  // Stop any solo players first
+  // Stop any solo transport playback first
+  transportStop();
   for (const p of _players) {
-    if (p.ws && p.ws.isPlaying()) {
-      p.ws.stop();
-      p.playBtn.textContent = '\u25B6 Play';
-    }
+    p.playBtn.textContent = '\u25B6 Play';
+    if (p.ws) p.ws.seekTo(0);
+    if (p.unsub) { p.unsub(); p.unsub = null; }
   }
 
   _playingAll = true;
@@ -705,7 +773,8 @@ function showMixResult(result) {
   clearChildren(container);
 
   const url = `/api/audio/stream?path=${encodeURIComponent(result.mix_path)}`;
-  const { card, ws } = createMixPlayer('Master Mix', url, result.mix_path);
+  const masterSourceId = 'mix-master';
+  const { card, ws, sourceId } = createMixPlayer('Master Mix', url, result.mix_path, masterSourceId);
   card.classList.add('mix-master-card');
   container.appendChild(card);
 
@@ -713,9 +782,24 @@ function showMixResult(result) {
   const player = _players[_players.length - 1];
   player._isMaster = true;
 
-  // Auto-play the result and load into transport
+  // Auto-play the result via transport
   ws.once('ready', () => {
-    ws.play();
-    transportLoad(url, 'Master Mix', false, 'Mix');
+    // Claim transport for master card
+    _resetOtherCards(player);
+    if (player.unsub) { player.unsub(); player.unsub = null; }
+    const timeLabel = card.querySelector('.stem-time');
+    const playBtn = player.playBtn;
+    let syncGuard = false;
+    const unsubTime = transportOnTimeUpdate((time, dur) => {
+      if (transportGetSourceId() !== masterSourceId) return;
+      if (timeLabel) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+      if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+    });
+    const unsubState = transportOnStateChange((playing) => {
+      if (transportGetSourceId() !== masterSourceId) return;
+      playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+    });
+    player.unsub = () => { unsubTime(); unsubState(); };
+    transportLoad(url, 'Master Mix', true, 'Mix', { color: 'audio', sourceId: masterSourceId });
   });
 }

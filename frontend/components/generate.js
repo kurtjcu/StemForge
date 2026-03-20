@@ -8,7 +8,10 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import { transportLoad, transportStop } from './audio-player.js';
+import {
+  transportLoad, transportStop, transportPlayPause, transportSeekTo,
+  transportGetSourceId, transportOnTimeUpdate, transportOnStateChange,
+} from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -63,16 +66,19 @@ function makeEditableName(initialName, getPath, onRenamed) {
   return span;
 }
 
-// ─── Inline audio players (exclusive playback) ───────────────────────────
+// ─── Inline audio players (visual-only, transport is sole engine) ─────────
 
-/** All active inline players — playing one stops the others. */
+/** All active inline players — card UI management. */
 const _players = [];
+let _synthCardCounter = 0;
 
-function _stopOtherPlayers(except) {
+/** Reset other cards' visuals and unsubscribe transport callbacks. */
+function _resetOtherCards(except) {
   for (const p of _players) {
-    if (p.ws !== except && p.ws.isPlaying()) {
-      p.ws.stop();
+    if (p !== except) {
       p.playBtn.textContent = '\u25B6 Play';
+      if (p.ws) p.ws.seekTo(0);
+      if (p.unsub) { p.unsub(); p.unsub = null; }
     }
   }
 }
@@ -81,7 +87,8 @@ function _stopOtherPlayers(except) {
  * Build a standard stem-card player with Play/Stop/Rewind/time/Save + waveform.
  * Returns { card, ws, setUrl(url, label) } so the URL can be updated later.
  */
-function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } = {}) {
+function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [], color = 'audio', sourceId: customSourceId } = {}) {
+  const sourceId = customSourceId || `synth-${_synthCardCounter++}`;
   const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
   const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
   const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -103,40 +110,60 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
   const waveContainer = el('div', { className: 'stem-waveform' });
   card.appendChild(waveContainer);
 
-  const ws = createWaveform(waveContainer, { height: 50 });
+  // Wavesurfer — visual only, never plays audio
+  const ws = createWaveform(waveContainer, { height: 50, color });
   if (url) ws.load(url);
 
-  const player = { ws, playBtn };
-  _players.push(player);
+  const entry = { ws, playBtn, unsub: null, sourceId };
+  _players.push(entry);
 
   const _getLabel = () => typeof label === 'string' ? label : 'Synth';
+  let syncGuard = false;
+
+  function claimTransport() {
+    _resetOtherCards(entry);
+    if (entry.unsub) { entry.unsub(); entry.unsub = null; }
+    const unsubTime = transportOnTimeUpdate((time, dur) => {
+      if (transportGetSourceId() !== sourceId) return;
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+      if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
+    });
+    const unsubState = transportOnStateChange((playing) => {
+      if (transportGetSourceId() !== sourceId) return;
+      playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
+    });
+    entry.unsub = () => { unsubTime(); unsubState(); };
+  }
 
   playBtn.addEventListener('click', () => {
-    if (ws.isPlaying()) {
-      ws.pause();
-      playBtn.textContent = '\u25B6 Play';
+    if (transportGetSourceId() === sourceId) {
+      transportPlayPause();
     } else {
-      _stopOtherPlayers(ws);
-      ws.play();
-      playBtn.textContent = '\u23F8 Pause';
+      claimTransport();
       const currentUrl = getUrl ? getUrl() : url;
-      transportLoad(currentUrl, _getLabel(), false, 'Synth');
+      transportLoad(currentUrl, _getLabel(), true, 'Synth', { color, sourceId });
     }
   });
 
   stopBtn.addEventListener('click', () => {
-    ws.stop();
     transportStop();
     playBtn.textContent = '\u25B6 Play';
+    ws.seekTo(0);
   });
 
-  rewindBtn.addEventListener('click', () => ws.setTime(0));
-
-  ws.on('timeupdate', (time) => {
-    const dur = ws.getDuration();
-    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  rewindBtn.addEventListener('click', () => {
+    ws.seekTo(0);
+    if (transportGetSourceId() === sourceId) transportSeekTo(0);
   });
-  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; transportStop(); });
+
+  // Card waveform click → seek transport
+  ws.on('seeking', () => {
+    if (syncGuard) return;
+    if (transportGetSourceId() === sourceId) {
+      const dur = ws.getDuration();
+      if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
+    }
+  });
 
   saveBtn.addEventListener('click', () => {
     const currentLabel = saveLabel || url || '';
@@ -156,7 +183,7 @@ function createStemPlayer(label, url, { getUrl, saveLabel, extraButtons = [] } =
     }
   }
 
-  return { card, ws, setUrl };
+  return { card, ws, setUrl, sourceId, claimTransport };
 }
 
 // ─── Module state ─────────────────────────────────────────────────────────
@@ -671,13 +698,16 @@ function showResult(result) {
   const closeBtn = el('button', { className: 'btn btn-sm btn-danger' }, '\u2715');
 
   const url = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
-  const { card, ws } = createStemPlayer(nameSpan, url, {
+  const { card, ws, sourceId } = createStemPlayer(nameSpan, url, {
     getUrl: () => `/api/audio/stream?path=${encodeURIComponent(audioPath)}`,
     saveLabel: audioPath,
     extraButtons: [keepBtn, sfxBtn, closeBtn],
   });
 
   closeBtn.addEventListener('click', () => {
+    const entry = _players.find(p => p.ws === ws);
+    if (entry?.unsub) entry.unsub();
+    if (transportGetSourceId() === sourceId) transportStop();
     ws.destroy();
     const idx = _players.findIndex(p => p.ws === ws);
     if (idx >= 0) _players.splice(idx, 1);
@@ -794,13 +824,16 @@ function _showSoundAsResult(audioPath, name) {
   const closeBtn = el('button', { className: 'btn btn-sm btn-danger' }, '\u2715');
 
   const url = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
-  const { card, ws } = createStemPlayer(clipName, url, {
+  const { card, ws, sourceId } = createStemPlayer(clipName, url, {
     getUrl: () => url,
     saveLabel: audioPath,
     extraButtons: [keepBtn, sfxBtn, closeBtn],
   });
 
   closeBtn.addEventListener('click', () => {
+    const entry = _players.find(p => p.ws === ws);
+    if (entry?.unsub) entry.unsub();
+    if (transportGetSourceId() === sourceId) transportStop();
     ws.destroy();
     const idx = _players.findIndex(p => p.ws === ws);
     if (idx >= 0) _players.splice(idx, 1);
@@ -1160,6 +1193,7 @@ async function onAlignSelectChange() {
     _refPlayer = createStemPlayer(`Reference: ${refLabel}`, refUrl, {
       getUrl: () => refUrl,
       saveLabel: audioPath,
+      sourceId: `sfx-ref-${_currentSfxId || 'none'}`,
     });
     const refContainer2 = document.getElementById('sfx-ref-player-container');
     clearChildren(refContainer2);
@@ -1227,12 +1261,14 @@ function showSfxCanvas(data) {
     _canvasPlayer = createStemPlayer('Canvas', url, {
       getUrl: () => `/api/sfx/${manifest.id}/stream?t=${Date.now()}`,
       saveLabel: rendered_path,
+      color: 'sfx',
+      sourceId: `sfx-canvas-${manifest.id}`,
     });
     playerContainer.appendChild(_canvasPlayer.card);
 
-    // Wire playhead to timeline
-    _canvasPlayer.ws.on('timeupdate', (time) => {
-      const dur = _canvasPlayer.ws.getDuration();
+    // Wire playhead to timeline via transport time (card ws is visual-only)
+    transportOnTimeUpdate((time, dur) => {
+      if (transportGetSourceId() !== _canvasPlayer.sourceId) return;
       if (dur > 0) {
         const playhead = document.getElementById('sfx-timeline-playhead');
         if (playhead) {
