@@ -53,6 +53,14 @@ _VOCAL_STEM_LABELS: frozenset[str] = frozenset({
     "vocals", "Singing voice",
 })
 
+# Stem labels that represent drum / percussion tracks — routed to ADTOF
+# drum transcription instead of BasicPitch.
+# Must match STEM_IS_DRUM keys in backend/api/midi.py.
+_DRUM_STEM_LABELS: frozenset[str] = frozenset({
+    "drums",                  # Demucs htdemucs / mdx_extra output label
+    "Drums & percussion",     # BS-Roformer jarredou-6stem / zfturbo-4stem output label
+})
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -319,6 +327,16 @@ class MidiPipeline:
                     )
                     if lyrics:
                         track_lyrics[label] = lyrics
+
+                elif label in _DRUM_STEM_LABELS:
+                    log.info("MidiPipeline: routing '%s' to drum ADT path.", label)
+                    self._report(base_pct + 2.0)                    # stage 1: before loading
+                    notes = self._loader.convert_drum_to_midi(
+                        path, duration=cfg.duration_seconds,
+                    )
+                    self._report(base_pct + 10.0)                   # stage 2: after loading/predict
+                    self._report(base_pct + (1.0 / total) * 70.0)  # stage 3: done
+
                 else:
                     notes = self._loader.convert_audio_to_midi(
                         path,
@@ -335,9 +353,18 @@ class MidiPipeline:
 
                 # Build per-stem MIDI object in memory (not written to disk yet)
                 stem_lyrics = track_lyrics.get(label)
-                stem_midi_data[label] = self._build_stem_midi(label, notes, cfg, stem_lyrics)
+                stem_midi_data[label] = self._build_stem_midi(
+                    label, notes, cfg, stem_lyrics,
+                    is_drum=(label in _DRUM_STEM_LABELS),
+                )
 
                 self._report(base_pct + (1.0 / total) * 70.0)
+
+            # Evict ADTOF backend after processing all drum stems to free GPU memory.
+            # AdtofBackend.evict() handles torch.cuda.empty_cache() internally —
+            # no backend/api/midi.py modification needed.
+            if any(label in _DRUM_STEM_LABELS for label in stems):
+                self._loader.evict_drum_model()
 
         else:
             # Text-only: generate a diatonic chord progression
@@ -418,10 +445,12 @@ class MidiPipeline:
         notes: list[NoteEvent],
         cfg: MidiConfig,
         lyrics: list[LyricEvent] | None = None,
+        is_drum: bool = False,
     ) -> Any:
         """Build and return a PrettyMIDI object for *stem_name* (no disk write)."""
         return notes_to_midi(
-            notes, ticks_per_beat=_TICKS_PER_BEAT, tempo_bpm=cfg.bpm, lyrics=lyrics
+            notes, ticks_per_beat=_TICKS_PER_BEAT, tempo_bpm=cfg.bpm,
+            lyrics=lyrics, is_drum=is_drum,
         )
 
     def write_stem_midi(

@@ -56,6 +56,7 @@ class MidiModelLoader:
         self._bp_loader = BasicPitchModelLoader()
         self._model: Any | None = None          # BasicPitch TF model
         self._whisper_model: Any | None = None  # faster-whisper WhisperModel
+        self._adtof_backend: Any | None = None  # AdtofBackend (lazy-loaded)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -93,11 +94,40 @@ class MidiModelLoader:
         return self._model is not None
 
     def evict(self) -> None:
-        """Release both models from memory and trigger GC."""
+        """Release all models from memory and trigger GC."""
         self._bp_loader.evict()
         self._model = None
         self._whisper_model = None
+        self.evict_drum_model()
         log.debug("MidiModelLoader: models evicted.")
+
+    # ------------------------------------------------------------------
+    # Internal: ADTOF lazy loader
+    # ------------------------------------------------------------------
+
+    def _ensure_adtof(self) -> Any:
+        """Load the ADTOF drum transcription backend on first use."""
+        if self._adtof_backend is not None:
+            return self._adtof_backend
+        try:
+            from pipelines.adtof_backend import AdtofBackend
+        except ImportError as exc:
+            raise ModelLoadError(
+                "ADTOF backend is not available.",
+                model_name="adtof-drums",
+            ) from exc
+        backend = AdtofBackend()
+        backend.load()
+        self._adtof_backend = backend
+        log.info("MidiModelLoader: ADTOF drum backend ready.")
+        return self._adtof_backend
+
+    def evict_drum_model(self) -> None:
+        """Evict the ADTOF backend only, leaving BasicPitch intact."""
+        if self._adtof_backend is not None:
+            self._adtof_backend.evict()
+            self._adtof_backend = None
+            log.debug("MidiModelLoader: ADTOF backend evicted.")
 
     # ------------------------------------------------------------------
     # Internal: Whisper lazy loader
@@ -379,3 +409,47 @@ class MidiModelLoader:
             path.name, len(events), len(lyrics), len(segments),
         )
         return events, lyrics
+
+    def convert_drum_to_midi(
+        self,
+        path: pathlib.Path,
+        *,
+        duration: float = 0.0,
+    ) -> list[NoteEvent]:
+        """Transcribe a drum stem to GM note events via ADTOF.
+
+        Parameters
+        ----------
+        path:
+            Drum audio file (must be 44100 Hz).
+        duration:
+            If positive, clip events to this many seconds.
+
+        Returns
+        -------
+        list[NoteEvent]
+            GM channel-10 note events from ADTOF_5CLASS_GM_NOTE.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If the ADTOF backend cannot be loaded.
+        :class:`~utils.errors.PipelineExecutionError`
+            If drum transcription fails.
+        """
+        backend = self._ensure_adtof()
+        try:
+            events = backend.predict(path)
+        except PipelineExecutionError:
+            raise
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"Drum transcription failed for '{path.name}': {exc}",
+                pipeline_name="midi",
+            ) from exc
+
+        if duration > 0.0:
+            events = [(s, min(e, duration), p, v) for s, e, p, v in events if s < duration]
+
+        log.debug("convert_drum_to_midi: %s -> %d drum events", path.name, len(events))
+        return events
