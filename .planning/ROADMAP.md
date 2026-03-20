@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Foundation** - GM drum maps, `is_drum` parameter on `notes_to_midi()`, and `DrumMidiSpec` in model registry (completed 2026-03-20)
 - [x] **Phase 2: ADTOF Backend** - Isolated ADTOF-pytorch inference backend with in-memory onset matrix conversion (completed 2026-03-20)
-- [ ] **Phase 3: Loader and Pipeline Wiring** - `DrumMidiLoader`, `MidiModelLoader` extension, and `_DRUM_STEM_LABELS` routing branch
+- [x] **Phase 3: Loader and Pipeline Wiring** - `DrumMidiLoader`, `MidiModelLoader` extension, and `_DRUM_STEM_LABELS` routing branch (completed 2026-03-20)
 - [ ] **Phase 4: Validation and UX Polish** - Integration tests, progress callbacks, and model selector caveat text
 
 ## Phase Details
@@ -61,7 +61,7 @@ Plans:
   3. Uploading a non-drum stem (e.g., vocals or bass) still routes through the existing vocal or BasicPitch path unchanged — no regression
   4. The MIDI extraction job shows progress updates at recognizable stages (audio load, processing, done) rather than hanging silently at 0%
   5. After drum MIDI extraction completes, a second separation job (Demucs) starts without VRAM errors — the drum loader has been evicted
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [ ] 03-01-PLAN.md — MidiModelLoader ADTOF extension: _ensure_adtof(), convert_drum_to_midi(), evict (TDD)
@@ -87,5 +87,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-20 |
 | 2. ADTOF Backend | 2/2 | Complete   | 2026-03-20 |
-| 3. Loader and Pipeline Wiring | 1/2 | In Progress|  |
+| 3. Loader and Pipeline Wiring | 2/2 | Complete   | 2026-03-20 |
 | 4. Validation and UX Polish | 0/TBD | Not started | - |

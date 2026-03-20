@@ -28,10 +28,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Pipeline Integration
 
-- [ ] **PIPE-01**: `_DRUM_STEM_LABELS` routing branch in `MidiPipeline.run()` (third branch alongside vocal and pitched)
-- [ ] **PIPE-02**: Labels cover both Demucs (`"drums"`) and BS-Roformer (`"Drums & percussion"`) output names
+- [x] **PIPE-01**: `_DRUM_STEM_LABELS` routing branch in `MidiPipeline.run()` (third branch alongside vocal and pitched)
+- [x] **PIPE-02**: Labels cover both Demucs (`"drums"`) and BS-Roformer (`"Drums & percussion"`) output names
 - [x] **PIPE-03**: Drum model lazy-loaded on first use (not at startup) with `evict()` for GPU memory release
-- [ ] **PIPE-04**: Progress callbacks wired during drum transcription job
+- [x] **PIPE-04**: Progress callbacks wired during drum transcription job
 
 ### Dependencies
 
@@ -83,10 +83,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | REG-01 | Phase 1 | Complete |
 | REG-02 | Phase 1 | Complete |
 | REG-03 | Phase 4 | Pending |
-| PIPE-01 | Phase 3 | Pending |
-| PIPE-02 | Phase 3 | Pending |
+| PIPE-01 | Phase 3 | Complete |
+| PIPE-02 | Phase 3 | Complete |
 | PIPE-03 | Phase 3 | Complete |
-| PIPE-04 | Phase 3 | Pending |
+| PIPE-04 | Phase 3 | Complete |
 | DEP-01 | Phase 1 | Complete |
 
 **Coverage:**
