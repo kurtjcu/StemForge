@@ -252,6 +252,22 @@ class DrumMidiSpec(ModelSpec):
 
 
 @dataclass(frozen=True, slots=True)
+class LarsNetSpec(ModelSpec):
+    """Descriptor for LarsNet drum sub-separation model.
+
+    Additional fields
+    -----------------
+    stem_keys:
+        Tuple of sub-stem names produced by separation, in config.yaml order.
+    checkpoint_count:
+        Number of U-Net checkpoints (one per stem).
+    """
+
+    stem_keys: tuple[str, ...] = ()
+    checkpoint_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class RoformerSpec(ModelSpec):
     """Descriptor for a BS-Roformer / MelBand-Roformer separation model.
 
@@ -795,6 +811,46 @@ ADTOF_DRUMS = _register(DrumMidiSpec(
 ))
 
 # ---------------------------------------------------------------------------
+# LarsNet drum sub-separation
+# ---------------------------------------------------------------------------
+
+#: Canonical stem key order — sourced from config.yaml inference_models keys.
+#: Do NOT derive from ADTOF class_labels (different naming: "toms" vs "tom",
+#: "hihat" vs "hi_hat").
+LARSNET_STEM_KEYS: tuple[str, ...] = ("kick", "snare", "toms", "hihat", "cymbals")
+
+LARSNET_DRUMS = _register(LarsNetSpec(
+    model_id="larsnet-drums",
+    display_name="LarsNet Drums (5-stem)",
+    version="1.0.0",
+    source="polimi-ispl/larsnet",
+    device="cpu",
+    gpu_capable=True,
+    device_fallback="cpu",
+    device_quirks="5 U-Nets share ~700 MB VRAM — use CPU unless VRAM > 10 GB.",
+    sample_rate=44_100,
+    hop_size=0,
+    chunk_size=0,
+    max_duration_seconds=0.0,
+    default_bpm=0.0,
+    default_key="",
+    default_time_signature="",
+    quantize_grid="none",
+    default_min_note_ms=0.0,
+    capabilities=frozenset({"separate", "drum_sub_separation"}),
+    cache_subdir="larsnet",
+    description="Drum sub-separation — 5 stems (kick, snare, toms, hi-hat, cymbals).",
+    preprocessing="Stereo 44.1 kHz; STFT spectrogram per U-Net; 11.85 s segments.",
+    postprocessing="Per-stem waveform tensor; optionally Wiener filtered.",
+    license_warning=(
+        "LarsNet weights are licensed CC BY-NC 4.0. "
+        "Non-commercial use only. Do not redistribute weights."
+    ),
+    stem_keys=LARSNET_STEM_KEYS,
+    checkpoint_count=5,
+))
+
+# ---------------------------------------------------------------------------
 # Convenience constants
 # ---------------------------------------------------------------------------
 
@@ -909,6 +965,9 @@ def get_loader_kwargs(model_id: str) -> dict[str, Any]:
     if isinstance(spec, DrumMidiSpec):
         return {"cache_dir": spec.cache_dir}
 
+    if isinstance(spec, LarsNetSpec):
+        return {"cache_dir": spec.cache_dir}
+
     raise NotImplementedError(
         f"No loader kwargs defined for spec type {type(spec).__name__!r}."
     )
@@ -982,6 +1041,9 @@ def get_pipeline_defaults(model_id: str) -> dict[str, Any]:
 
     if isinstance(spec, DrumMidiSpec):
         return {"class_count": spec.class_count}
+
+    if isinstance(spec, LarsNetSpec):
+        return {"stem_keys": spec.stem_keys, "checkpoint_count": spec.checkpoint_count}
 
     raise NotImplementedError(
         f"No pipeline defaults defined for spec type {type(spec).__name__!r}."
@@ -1068,6 +1130,15 @@ def get_gui_metadata(model_id: str) -> dict[str, Any]:
             "class_labels": list(spec.class_labels),
             "model_choices": [s.model_id for s in list_specs(DrumMidiSpec)],
             "tooltip": spec.description,
+        }
+
+    if isinstance(spec, LarsNetSpec):
+        return {
+            "stem_keys": list(spec.stem_keys),
+            "checkpoint_count": spec.checkpoint_count,
+            "model_choices": [s.model_id for s in list_specs(LarsNetSpec)],
+            "tooltip": spec.description,
+            "license_warning": spec.license_warning,
         }
 
     raise NotImplementedError(

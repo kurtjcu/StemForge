@@ -11,6 +11,11 @@
 #     License: MIT
 #     Copyright: 2023 IAHispano
 #
+#   vendor/larsnet/
+#     Source: polimi-ispl/larsnet (https://github.com/polimi-ispl/larsnet)
+#     License: MIT (code), CC BY-NC 4.0 (weights)
+#     Copyright: Politecnico di Milano
+#
 # Git submodules (managed via .gitmodules):
 #
 #   vendor/python-audio-separator/
