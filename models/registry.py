@@ -232,6 +232,26 @@ class StableAudioSpec(ModelSpec):
 
 
 @dataclass(frozen=True, slots=True)
+class DrumMidiSpec(ModelSpec):
+    """Descriptor for a drum transcription (ADT) model.
+
+    Additional fields
+    -----------------
+    class_count:
+        Number of drum output classes this model produces.
+    class_labels:
+        Human-readable label for each class, in model output order.
+    checkpoint_url:
+        Direct download URL for model weights; empty string means weights
+        are bundled in the pip package.
+    """
+
+    class_count: int = 0
+    class_labels: tuple[str, ...] = ()
+    checkpoint_url: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class RoformerSpec(ModelSpec):
     """Descriptor for a BS-Roformer / MelBand-Roformer separation model.
 
@@ -743,6 +763,38 @@ ROFORMER_JARREDOU_6STEM = _register(RoformerSpec(
 ))
 
 # ---------------------------------------------------------------------------
+# Drum transcription (ADT) models
+# ---------------------------------------------------------------------------
+
+ADTOF_DRUMS = _register(DrumMidiSpec(
+    model_id="adtof-drums",
+    display_name="ADTOF Drums (5-class)",
+    version="0.1.0",
+    source="xavriley/ADTOF-pytorch",
+    device="auto",
+    gpu_capable=True,
+    device_fallback="cpu",
+    device_quirks="",
+    sample_rate=44_100,
+    hop_size=0,
+    chunk_size=0,
+    max_duration_seconds=0.0,
+    default_bpm=0.0,
+    default_key="",
+    default_time_signature="",
+    quantize_grid="none",
+    default_min_note_ms=0.0,
+    capabilities=frozenset({"transcribe", "drum_transcription", "gpu_acceleration"}),
+    cache_subdir="adtof",
+    description="Automatic drum transcription — 5-class (kick, snare, tom, hi-hat, cymbal).",
+    preprocessing="Mono 44.1 kHz; mel spectrogram; context window of 9 frames.",
+    postprocessing="Peak picking per class; GM note mapping; 60 ms fixed note duration.",
+    class_count=5,
+    class_labels=("kick", "snare", "tom", "hi_hat", "cymbal"),
+    checkpoint_url="",
+))
+
+# ---------------------------------------------------------------------------
 # Convenience constants
 # ---------------------------------------------------------------------------
 
@@ -854,6 +906,9 @@ def get_loader_kwargs(model_id: str) -> dict[str, Any]:
             "config_url": spec.config_url,
         }
 
+    if isinstance(spec, DrumMidiSpec):
+        return {"cache_dir": spec.cache_dir}
+
     raise NotImplementedError(
         f"No loader kwargs defined for spec type {type(spec).__name__!r}."
     )
@@ -924,6 +979,9 @@ def get_pipeline_defaults(model_id: str) -> dict[str, Any]:
             "chunk_size": spec.default_chunk_size,
             "num_overlap": spec.default_num_overlap,
         }
+
+    if isinstance(spec, DrumMidiSpec):
+        return {"class_count": spec.class_count}
 
     raise NotImplementedError(
         f"No pipeline defaults defined for spec type {type(spec).__name__!r}."
@@ -1002,6 +1060,14 @@ def get_gui_metadata(model_id: str) -> dict[str, Any]:
             "model_choices": [s.model_id for s in list_specs(RoformerSpec)],
             "tooltip": spec.description,
             "target_instrument": spec.target_instrument,
+        }
+
+    if isinstance(spec, DrumMidiSpec):
+        return {
+            "class_count": spec.class_count,
+            "class_labels": list(spec.class_labels),
+            "model_choices": [s.model_id for s in list_specs(DrumMidiSpec)],
+            "tooltip": spec.description,
         }
 
     raise NotImplementedError(
