@@ -76,7 +76,11 @@ Plans:
   2. The ADTOF model entry in the selector displays a caveat that electronic/programmed drums have lower accuracy than acoustic drums
   3. A drum stem run through the full pipeline produces MIDI where every note is on channel 10 — confirmed by reading the output file header, not just listening
   4. Running MIDI extraction on a non-drum stem with the same session state produces MIDI on channel 1 — the `is_drum=False` default path is confirmed working
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 04-01-PLAN.md — Integration tests for channel routing + backend adt_models API extension (TDD)
+- [ ] 04-02-PLAN.md — Frontend ADT model selector in MIDI panel with caveat text
 
 ## Progress
 
@@ -88,4 +92,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Foundation | 2/2 | Complete | 2026-03-20 |
 | 2. ADTOF Backend | 2/2 | Complete   | 2026-03-20 |
 | 3. Loader and Pipeline Wiring | 2/2 | Complete   | 2026-03-20 |
-| 4. Validation and UX Polish | 0/TBD | Not started | - |
+| 4. Validation and UX Polish | 0/2 | Planning complete | - |
