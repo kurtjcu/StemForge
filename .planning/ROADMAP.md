@@ -61,7 +61,7 @@ Plans:
   3. Uploading a non-drum stem (e.g., vocals or bass) still routes through the existing vocal or BasicPitch path unchanged — no regression
   4. The MIDI extraction job shows progress updates at recognizable stages (audio load, processing, done) rather than hanging silently at 0%
   5. After drum MIDI extraction completes, a second separation job (Demucs) starts without VRAM errors — the drum loader has been evicted
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 03-01-PLAN.md — MidiModelLoader ADTOF extension: _ensure_adtof(), convert_drum_to_midi(), evict (TDD)
@@ -87,5 +87,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-20 |
 | 2. ADTOF Backend | 2/2 | Complete   | 2026-03-20 |
-| 3. Loader and Pipeline Wiring | 0/2 | Planning complete | - |
+| 3. Loader and Pipeline Wiring | 1/2 | In Progress|  |
 | 4. Validation and UX Polish | 0/TBD | Not started | - |
