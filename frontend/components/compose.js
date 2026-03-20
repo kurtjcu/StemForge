@@ -2839,7 +2839,7 @@ function _toggleWfPlaySelection() {
     _wfPlayAudio.play();
     if (btn) btn.textContent = '\u25A0';
     _startWfPlayhead(_wfPlayAudio);
-    transportLoad(audioUrl, 'Selection preview', false, 'Compose \u203A Rework', { color: 'audio', sourceId: 'compose-rework-preview' });
+    transportLoad(audioUrl, 'Selection preview', false, 'Compose \u203A Rework');
 
     // Stop at end of selection
     const duration = (end - start) * 1000;
@@ -3918,46 +3918,29 @@ let _transportUnsub = null;
 /**
  * Claim the transport bar for a result card.
  * Unsubscribes the previous card's callbacks and subscribes this card's
- * timeLabel, playBtn, and card cursor to transport events so they stay in sync.
+ * timeLabel and playBtn to transport events so they stay in sync.
  */
 function _claimTransport(entry, timeLabel, playBtn) {
   if (_transportUnsub) { _transportUnsub(); _transportUnsub = null; }
   if (_transportOwner && _transportOwner !== entry) {
     _transportOwner.playBtn.textContent = '\u25B6 Play';
-    if (_transportOwner.ws) _transportOwner.ws.seekTo(0);
   }
   _transportOwner = entry;
-  let syncGuard = false;
   const unsubTime = transportOnTimeUpdate((time, dur) => {
-    if (_transportOwner !== entry) return;
-    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-    // Sync card cursor position
-    if (entry.ws && dur > 0) { syncGuard = true; entry.ws.seekTo(time / dur); syncGuard = false; }
+    if (_transportOwner === entry) timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
   });
   const unsubState = transportOnStateChange((playing) => {
     if (_transportOwner === entry) playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
   });
   _transportUnsub = () => { unsubTime(); unsubState(); };
-
-  // Card waveform click → seek transport (with syncGuard)
-  if (entry.ws && !entry._seekWired) {
-    entry._seekWired = true;
-    entry.ws.on('seeking', () => {
-      if (syncGuard) return;
-      if (_transportOwner === entry) {
-        const dur = entry.ws.getDuration();
-        if (dur > 0) transportSeekTo(entry.ws.getCurrentTime() / dur);
-      }
-    });
-  }
 }
 
-/** Reset other result cards' visuals. */
-function _resetOtherCards(except) {
+/** Stop all other result players except the given one. */
+function _stopOtherPlayers(except) {
   for (const p of _resultPlayers) {
-    if (p !== except) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
-      if (p.ws) p.ws.seekTo(0);
     }
   }
 }
@@ -4014,7 +3997,6 @@ function buildResultCard(taskId, index, total, result, fmt) {
   const dlAudioUrl = `/api/compose/download/${taskId}/${index}/audio`;
   const dlJsonUrl = `/api/compose/download/${taskId}/${index}/json`;
   const filename = `acestep-${taskId.slice(0, 8)}-${index + 1}.${fmt}`;
-  const sourceId = `compose-${taskId.slice(0, 8)}-${index}`;
 
   const card = el('div', { className: 'stem-card' });
 
@@ -4058,7 +4040,7 @@ function buildResultCard(taskId, index, total, result, fmt) {
         if (!transportIsPlaying()) transportPlay();
       } else {
         _claimTransport(playerEntry, timeLabel, playBtn);
-        transportLoad(audioSrc, label, true, 'Compose', { color: 'audio', sourceId });
+        transportLoad(audioSrc, label, true, 'Compose');
       }
     };
 
@@ -4085,18 +4067,17 @@ function buildResultCard(taskId, index, total, result, fmt) {
         transportPause();
       } else {
         _claimTransport(playerEntry, timeLabel, playBtn);
-        transportLoad(audioSrc, label, true, 'Compose', { color: 'audio', sourceId });
+        transportLoad(audioSrc, label, true, 'Compose');
       }
     });
 
     stopBtn.addEventListener('click', () => {
       transportStop();
       playBtn.textContent = '\u25B6 Play';
-      ws.seekTo(0);
     });
 
     rewindBtn.addEventListener('click', () => {
-      ws.seekTo(0);
+      ws.setTime(0);
       if (_transportOwner === playerEntry) transportSeekTo(0);
     });
   }
@@ -4311,49 +4292,16 @@ function _buildVoiceSourcePlayer(audioUrl, label) {
   const ws = createWaveform(waveContainer, { height: 50 });
   ws.load(audioUrl);
   _voiceSourceWs = ws;
-  const sourceId = `voice-${label.replace(/\s+/g, '-')}`;
-  let syncGuard = false;
-
-  function claimVoiceTransport() {
-    if (_transportUnsub) { _transportUnsub(); _transportUnsub = null; }
-    if (_transportOwner) {
-      _transportOwner.playBtn.textContent = '\u25B6 Play';
-      if (_transportOwner.ws) _transportOwner.ws.seekTo(0);
-    }
-    _transportOwner = null;
-    const unsubTime = transportOnTimeUpdate((time, dur) => {
-      if (transportGetSourceId() !== sourceId) return;
-      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-      if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
-    });
-    const unsubState = transportOnStateChange((playing) => {
-      if (transportGetSourceId() !== sourceId) return;
-      playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
-    });
-    _transportUnsub = () => { unsubTime(); unsubState(); };
-  }
 
   playBtn.addEventListener('click', () => {
-    if (transportGetSourceId() === sourceId) {
-      transportPlayPause();
-    } else {
-      claimVoiceTransport();
-      transportLoad(audioUrl, label, true, 'Compose \u203A Voice Source', { color: 'audio', sourceId });
-    }
+    if (ws.isPlaying()) { ws.pause(); playBtn.textContent = '\u25B6 Play'; }
+    else { ws.play(); playBtn.textContent = '\u23F8 Pause'; }
   });
-  stopBtn.addEventListener('click', () => {
-    transportStop();
-    playBtn.textContent = '\u25B6 Play';
-    ws.seekTo(0);
+  stopBtn.addEventListener('click', () => { ws.stop(); playBtn.textContent = '\u25B6 Play'; });
+  ws.on('timeupdate', (t) => {
+    timeLabel.textContent = `${formatTime(t)} / ${formatTime(ws.getDuration())}`;
   });
-
-  ws.on('seeking', () => {
-    if (syncGuard) return;
-    if (transportGetSourceId() === sourceId) {
-      const dur = ws.getDuration();
-      if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
-    }
-  });
+  ws.on('finish', () => { playBtn.textContent = '\u25B6 Play'; });
 }
 
 function browseVoiceAudio() {
@@ -4489,7 +4437,6 @@ function showVoiceResult(result) {
   const audioPath = result.output_path;
   const audioSrc = `/api/audio/stream?path=${encodeURIComponent(audioPath)}`;
   const label = `Voice (${result.model_name})`;
-  const sourceId = `voice-${result.model_name}`;
 
   // Build result card (reuse same pattern as buildResultCard)
   const card = el('div', { className: 'stem-card' });
@@ -4534,18 +4481,17 @@ function showVoiceResult(result) {
       transportPause();
     } else {
       _claimTransport(playerEntry, timeLabel, playBtn);
-      transportLoad(audioSrc, label, true, 'Compose \u203A Voice', { color: 'audio', sourceId });
+      transportLoad(audioSrc, label, true, 'Compose \u203A Voice');
     }
   });
 
   stopBtn.addEventListener('click', () => {
     transportStop();
     playBtn.textContent = '\u25B6 Play';
-    ws.seekTo(0);
   });
 
   rewindBtn.addEventListener('click', () => {
-    ws.seekTo(0);
+    ws.setTime(0);
     if (_transportOwner === playerEntry) transportSeekTo(0);
   });
 

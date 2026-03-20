@@ -5,10 +5,7 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import {
-  transportLoad, transportStop, transportPlayPause, transportSeekTo,
-  transportGetSourceId, transportOnTimeUpdate, transportOnStateChange,
-} from './audio-player.js';
+import { transportLoad, transportStop } from './audio-player.js';
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -22,16 +19,14 @@ let drumStems = {};
 /** LilyPond availability (checked on init). */
 let _lilypondAvailable = false;
 
-/** All active MIDI card players — for card UI management. */
+/** All active MIDI card players — for exclusive playback. */
 const midiPlayers = [];
 
-/** Reset other MIDI cards' visuals and unsubscribe transport callbacks. */
-function resetOtherCards(except) {
+function stopOtherPlayers(except) {
   for (const p of midiPlayers) {
-    if (p !== except) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
-      if (p.ws) p.ws.seekTo(0);
-      if (p.unsub) { p.unsub(); p.unsub = null; }
     }
   }
 }
@@ -660,49 +655,30 @@ function buildMidiCard(label, info) {
   let ws = null;
   let renderedUrl = null;
   let lastProgram = instrumentSelect.value;
-  const sourceId = `midi-${label}`;
-  let syncGuard = false;
 
-  const entry = { ws: null, playBtn, unsub: null };
-  midiPlayers.push(entry);
-
-  /** Ensure wavesurfer instance exists (visual only). */
+  /** Ensure wavesurfer instance exists. */
   function ensureWaveform() {
     if (ws) return;
     ws = createWaveform(waveContainer, { height: 50, color: 'midi' });
-    entry.ws = ws;
+    midiPlayers.push({ ws, playBtn });
+
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+      transportStop();
+    });
 
     ws.on('error', () => {
       playBtn.textContent = '\u25B6 Play';
       playBtn.disabled = false;
     });
-
-    // Card waveform click → seek transport
-    ws.on('seeking', () => {
-      if (syncGuard) return;
-      if (transportGetSourceId() === sourceId) {
-        const dur = ws.getDuration();
-        if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
-      }
-    });
   }
 
-  function claimTransport() {
-    resetOtherCards(entry);
-    if (entry.unsub) { entry.unsub(); entry.unsub = null; }
-    const unsubTime = transportOnTimeUpdate((time, dur) => {
-      if (transportGetSourceId() !== sourceId) return;
-      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-      if (ws && dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
-    });
-    const unsubState = transportOnStateChange((playing) => {
-      if (transportGetSourceId() !== sourceId) return;
-      playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
-    });
-    entry.unsub = () => { unsubTime(); unsubState(); };
-  }
-
-  /** Render MIDI to audio with current instrument, then load into card waveform. */
+  /** Render MIDI to audio with current instrument, then load into waveform. */
   async function renderAndLoad(autoplay) {
     const val = instrumentSelect.value;
     const isDrum = val === 'drum';
@@ -728,8 +704,10 @@ function buildMidiCard(label, info) {
       if (autoplay) {
         ws.once('ready', () => {
           playBtn.disabled = false;
-          claimTransport();
-          transportLoad(renderedUrl, label, true, 'MIDI', { color: 'midi', sourceId });
+          stopOtherPlayers(ws);
+          ws.play();
+          playBtn.textContent = '\u23F8 Pause';
+          transportLoad(renderedUrl, label, false, 'MIDI');
         });
       } else {
         ws.once('ready', () => {
@@ -753,25 +731,29 @@ function buildMidiCard(label, info) {
       return;
     }
 
-    if (transportGetSourceId() === sourceId) {
-      transportPlayPause();
-    } else {
-      claimTransport();
-      transportLoad(renderedUrl, label, true, 'MIDI', { color: 'midi', sourceId });
+    if (ws && ws.isPlaying()) {
+      ws.pause();
+      playBtn.textContent = '\u25B6 Play';
+    } else if (ws) {
+      stopOtherPlayers(ws);
+      ws.play();
+      playBtn.textContent = '\u23F8 Pause';
+      transportLoad(renderedUrl, label, false, 'MIDI');
     }
   });
 
   // Stop
   stopBtn.addEventListener('click', () => {
-    transportStop();
-    playBtn.textContent = '\u25B6 Play';
-    if (ws) ws.seekTo(0);
+    if (ws) {
+      ws.stop();
+      transportStop();
+      playBtn.textContent = '\u25B6 Play';
+    }
   });
 
   // Rewind
   rewindBtn.addEventListener('click', () => {
-    if (ws) ws.seekTo(0);
-    if (transportGetSourceId() === sourceId) transportSeekTo(0);
+    if (ws) ws.setTime(0);
   });
 
   // Re-render when instrument changes and audio was already rendered;

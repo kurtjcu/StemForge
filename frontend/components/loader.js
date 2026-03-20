@@ -155,7 +155,7 @@ async function handleFile(file) {
     );
 
     // Load in transport bar (stopped at position 0)
-    transportLoad(`/api/audio/stream?path=${encodeURIComponent(info.path)}`, info.filename, false, 'Upload', { color: 'audio', sourceId: 'upload-preview' });
+    transportLoad(`/api/audio/stream?path=${encodeURIComponent(info.path)}`, info.filename, false, 'Upload');
 
     appState.emit('fileLoaded', info);
   } catch (err) {

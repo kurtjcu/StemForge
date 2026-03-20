@@ -5,10 +5,7 @@
 
 import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
-import {
-  transportLoad, transportStop, transportPlayPause, transportSeekTo,
-  transportGetSourceId, transportOnTimeUpdate, transportOnStateChange,
-} from './audio-player.js';
+import { transportLoad, transportStop } from './audio-player.js';
 import { isBatchMode, getBatchFiles } from './loader.js';
 
 function clearChildren(elem) {
@@ -521,8 +518,8 @@ function showAceStemResults(stemPaths, taskId, results) {
 
   for (const [label, streamUrl] of Object.entries(stemPaths)) {
     const card = el('div', { className: 'stem-card' });
-    const sourceId = `sep-ace-${label.replace(/\s+/g, '-')}`;
 
+    // Transport buttons
     const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
     const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
     const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -547,70 +544,55 @@ function showAceStemResults(stemPaths, taskId, results) {
     card.append(header, waveContainer);
     container.appendChild(card);
 
-    // Wavesurfer — visual only
+    // Wavesurfer
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(streamUrl);
 
-    const entry = { ws, playBtn, unsub: null };
-    stemPlayers.push(entry);
-
-    let syncGuard = false;
-
-    function claimTransport() {
-      resetOtherCards(entry);
-      if (entry.unsub) { entry.unsub(); entry.unsub = null; }
-      const unsubTime = transportOnTimeUpdate((time, dur) => {
-        if (transportGetSourceId() !== sourceId) return;
-        timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-        if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
-      });
-      const unsubState = transportOnStateChange((playing) => {
-        if (transportGetSourceId() !== sourceId) return;
-        playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
-      });
-      entry.unsub = () => { unsubTime(); unsubState(); };
-    }
+    stemPlayers.push({ ws, playBtn });
 
     playBtn.addEventListener('click', () => {
-      if (transportGetSourceId() === sourceId) {
-        transportPlayPause();
+      if (ws.isPlaying()) {
+        ws.pause();
+        playBtn.textContent = '\u25B6 Play';
       } else {
-        claimTransport();
-        transportLoad(streamUrl, label, true, 'Separate', { color: 'audio', sourceId });
+        stopOtherPlayers(ws);
+        ws.play();
+        playBtn.textContent = '\u23F8 Pause';
+        transportLoad(streamUrl, label, false, 'Separate');
       }
     });
 
     stopBtn.addEventListener('click', () => {
+      ws.stop();
       transportStop();
       playBtn.textContent = '\u25B6 Play';
-      ws.seekTo(0);
     });
 
     rewindBtn.addEventListener('click', () => {
-      ws.seekTo(0);
-      if (transportGetSourceId() === sourceId) transportSeekTo(0);
+      ws.setTime(0);
     });
 
-    ws.on('seeking', () => {
-      if (syncGuard) return;
-      if (transportGetSourceId() === sourceId) {
-        const dur = ws.getDuration();
-        if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
-      }
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+      transportStop();
     });
   }
 }
 
-/** All active stem players — used for card UI management. */
+/** All active stem players — used for exclusive playback. */
 const stemPlayers = [];
 
-/** Reset all other stem cards' visuals and unsubscribe transport callbacks. */
-function resetOtherCards(except) {
+/** Stop all other stem players except the given one. */
+function stopOtherPlayers(except) {
   for (const p of stemPlayers) {
-    if (p !== except) {
+    if (p.ws !== except && p.ws.isPlaying()) {
+      p.ws.stop();
       p.playBtn.textContent = '\u25B6 Play';
-      if (p.ws) p.ws.seekTo(0);
-      if (p.unsub) { p.unsub(); p.unsub = null; }
     }
   }
 }
@@ -625,8 +607,8 @@ function showStemResults(stemPaths) {
   for (const [label, path] of Object.entries(stemPaths)) {
     const card = el('div', { className: 'stem-card' });
     const url = `/api/audio/stream?path=${encodeURIComponent(path)}`;
-    const sourceId = `sep-${label}`;
 
+    // ─── Transport buttons ───
     const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
     const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
     const rewindBtn = el('button', { className: 'btn btn-sm' }, '\u23EA Rewind');
@@ -651,57 +633,48 @@ function showStemResults(stemPaths) {
     card.append(header, waveContainer);
     container.appendChild(card);
 
-    // Wavesurfer — visual only, never plays audio
+    // ─── Wavesurfer (inline player) ───
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(url);
 
-    const entry = { ws, playBtn, unsub: null };
-    stemPlayers.push(entry);
+    stemPlayers.push({ ws, playBtn });
 
-    let syncGuard = false;
-
-    function claimTransport() {
-      resetOtherCards(entry);
-      if (entry.unsub) { entry.unsub(); entry.unsub = null; }
-      const unsubTime = transportOnTimeUpdate((time, dur) => {
-        if (transportGetSourceId() !== sourceId) return;
-        timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-        if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
-      });
-      const unsubState = transportOnStateChange((playing) => {
-        if (transportGetSourceId() !== sourceId) return;
-        playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
-      });
-      entry.unsub = () => { unsubTime(); unsubState(); };
-    }
-
+    // Play / Pause toggle
     playBtn.addEventListener('click', () => {
-      if (transportGetSourceId() === sourceId) {
-        transportPlayPause();
+      if (ws.isPlaying()) {
+        ws.pause();
+        playBtn.textContent = '\u25B6 Play';
       } else {
-        claimTransport();
-        transportLoad(url, label, true, 'Separate', { color: 'audio', sourceId });
+        stopOtherPlayers(ws);
+        ws.play();
+        playBtn.textContent = '\u23F8 Pause';
+        // Feed global transport for cross-tab "Now Playing"
+        transportLoad(url, label, false, 'Separate \u203A Batch');
       }
     });
 
+    // Stop
     stopBtn.addEventListener('click', () => {
+      ws.stop();
       transportStop();
       playBtn.textContent = '\u25B6 Play';
-      ws.seekTo(0);
     });
 
+    // Rewind
     rewindBtn.addEventListener('click', () => {
-      ws.seekTo(0);
-      if (transportGetSourceId() === sourceId) transportSeekTo(0);
+      ws.setTime(0);
     });
 
-    // Card waveform click → seek transport
-    ws.on('seeking', () => {
-      if (syncGuard) return;
-      if (transportGetSourceId() === sourceId) {
-        const dur = ws.getDuration();
-        if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
-      }
+    // Time display
+    ws.on('timeupdate', (time) => {
+      const dur = ws.getDuration();
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+    });
+
+    // Reset button text when playback finishes
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
+      transportStop();
     });
   }
 }
@@ -799,11 +772,9 @@ function showBatchResults(results, stem) {
   }
 
   // ─── Result cards ───
-  for (let i = 0; i < successful.length; i++) {
-    const r = successful[i];
+  for (const r of successful) {
     const card = el('div', { className: 'stem-card' });
     const url = `/api/audio/stream?path=${encodeURIComponent(r.path)}`;
-    const sourceId = `sep-batch-${i}`;
 
     const playBtn = el('button', { className: 'btn btn-sm' }, '\u25B6 Play');
     const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
@@ -832,52 +803,32 @@ function showBatchResults(results, stem) {
     const ws = createWaveform(waveContainer, { height: 50 });
     ws.load(url);
 
-    const entry = { ws, playBtn, unsub: null };
-    stemPlayers.push(entry);
-
-    let syncGuard = false;
-
-    function claimTransport() {
-      resetOtherCards(entry);
-      if (entry.unsub) { entry.unsub(); entry.unsub = null; }
-      const unsubTime = transportOnTimeUpdate((time, dur) => {
-        if (transportGetSourceId() !== sourceId) return;
-        timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
-        if (dur > 0) { syncGuard = true; ws.seekTo(time / dur); syncGuard = false; }
-      });
-      const unsubState = transportOnStateChange((playing) => {
-        if (transportGetSourceId() !== sourceId) return;
-        playBtn.textContent = playing ? '\u23F8 Pause' : '\u25B6 Play';
-      });
-      entry.unsub = () => { unsubTime(); unsubState(); };
-    }
+    stemPlayers.push({ ws, playBtn });
 
     playBtn.addEventListener('click', () => {
-      if (transportGetSourceId() === sourceId) {
-        transportPlayPause();
+      if (ws.isPlaying()) {
+        ws.pause();
+        playBtn.textContent = '\u25B6 Play';
       } else {
-        claimTransport();
-        transportLoad(url, r.output_name, true, 'Separate \u203A Batch', { color: 'audio', sourceId });
+        stopOtherPlayers(ws);
+        ws.play();
+        playBtn.textContent = '\u23F8 Pause';
       }
     });
 
     stopBtn.addEventListener('click', () => {
-      transportStop();
+      ws.stop();
       playBtn.textContent = '\u25B6 Play';
-      ws.seekTo(0);
     });
 
-    rewindBtn.addEventListener('click', () => {
-      ws.seekTo(0);
-      if (transportGetSourceId() === sourceId) transportSeekTo(0);
+    rewindBtn.addEventListener('click', () => ws.setTime(0));
+
+    ws.on('timeupdate', (time) => {
+      timeLabel.textContent = `${formatTime(time)} / ${formatTime(ws.getDuration())}`;
     });
 
-    ws.on('seeking', () => {
-      if (syncGuard) return;
-      if (transportGetSourceId() === sourceId) {
-        const dur = ws.getDuration();
-        if (dur > 0) transportSeekTo(ws.getCurrentTime() / dur);
-      }
+    ws.on('finish', () => {
+      playBtn.textContent = '\u25B6 Play';
     });
   }
 }
