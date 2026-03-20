@@ -15,6 +15,7 @@ function clearChildren(elem) {
 let gmPrograms = [];
 let stemDefaults = {};
 let drumStems = {};
+let adtModels = [];
 
 /** LilyPond availability (checked on init). */
 let _lilypondAvailable = false;
@@ -42,6 +43,14 @@ export function initMidi() {
     el('label', {}, 'Stems to process'),
     el('div', { className: 'checkbox-group', id: 'midi-stems' },
       el('span', { className: 'text-dim' }, 'Run separation first'),
+    ),
+  );
+
+  const adtGroup = el('div', { className: 'form-group hidden', id: 'midi-adt-group' },
+    el('label', {}, 'ADT Model'),
+    el('select', { id: 'midi-adt-model' }),
+    el('p', { className: 'text-dim', style: { fontSize: '12px', margin: '4px 0 0' } },
+      'Best results with acoustic drums. Electronic/programmed drums may have lower accuracy.',
     ),
   );
 
@@ -104,7 +113,7 @@ export function initMidi() {
   const importInput = el('input', { type: 'file', accept: '.mid,.midi', style: { display: 'none' }, id: 'midi-import-input' });
   const importBtn = el('button', { className: 'btn btn-sm', id: 'midi-import' }, 'Import MIDI file');
 
-  left.append(stemSection, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn, importInput, importBtn);
+  left.append(stemSection, adtGroup, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn, importInput, importBtn);
 
   // ─── Right: results ───
   const right = el('div', { className: 'col-right' });
@@ -158,6 +167,8 @@ export function initMidi() {
     document.getElementById('midi-start').disabled = false;
   });
 
+  document.getElementById('midi-stems').addEventListener('change', syncAdtGroupVisibility);
+
   // Load GM programs, current soundfont, and check LilyPond on init
   loadGmPrograms();
   loadCurrentSoundfont();
@@ -170,6 +181,14 @@ async function loadGmPrograms() {
     gmPrograms = data.programs || [];
     stemDefaults = data.defaults || {};
     drumStems = data.drum_stems || {};
+    adtModels = data.adt_models || [];
+    const adtSel = document.getElementById('midi-adt-model');
+    if (adtSel) {
+      clearChildren(adtSel);
+      for (const m of adtModels) {
+        adtSel.appendChild(el('option', { value: m.model_id, title: m.tooltip || '' }, m.display_name));
+      }
+    }
   } catch { /* fail silently, will use defaults */ }
 }
 
@@ -244,6 +263,15 @@ function populateStemCheckboxes(stemPaths) {
       ),
     );
   }
+  syncAdtGroupVisibility();
+}
+
+function syncAdtGroupVisibility() {
+  const hasDrum = Array.from(
+    document.querySelectorAll('#midi-stems input[type="checkbox"]:checked')
+  ).some(cb => isDrumStem(cb.value));
+  const adtGroup = document.getElementById('midi-adt-group');
+  if (adtGroup) adtGroup.classList.toggle('hidden', !hasDrum);
 }
 
 async function startExtraction() {
@@ -268,6 +296,7 @@ async function startExtraction() {
         time_signature: document.getElementById('midi-ts').value,
         onset_threshold: parseFloat(document.getElementById('midi-onset').value),
         frame_threshold: parseFloat(document.getElementById('midi-frame').value),
+        adt_model: document.getElementById('midi-adt-model')?.value || 'adtof-drums',
       }),
     });
 
