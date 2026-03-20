@@ -1,12 +1,31 @@
 """StemForge launcher — starts the FastAPI server and optionally the AceStep subprocess."""
 
+import os
+import sys
+
+# ── jemalloc ──────────────────────────────────────────────────────────────────
+# Re-exec with LD_PRELOAD=libjemalloc if available and not already active.
+# Improves long-running stability by reducing heap fragmentation under
+# concurrent multi-pipeline workloads.  Silent no-op if jemalloc is absent.
+# Set STEMFORGE_NO_JEMALLOC=1 to opt out.
+if sys.platform == "linux" and "STEMFORGE_NO_JEMALLOC" not in os.environ:
+    _JEMALLOC_CANDIDATES = [
+        "/usr/lib64/libjemalloc.so.2",
+        "/usr/lib/libjemalloc.so.2",
+        "/usr/local/lib/libjemalloc.so.2",
+    ]
+    _jl = next((p for p in _JEMALLOC_CANDIDATES if os.path.exists(p)), None)
+    if _jl and "jemalloc" not in os.environ.get("LD_PRELOAD", ""):
+        _env = os.environ.copy()
+        _env["LD_PRELOAD"] = _jl
+        os.execve(sys.executable, [sys.executable] + sys.argv, _env)
+# ──────────────────────────────────────────────────────────────────────────────
+
 import argparse
 import atexit
 import fcntl
-import os
 import signal
 import subprocess
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
