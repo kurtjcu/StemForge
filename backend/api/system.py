@@ -80,6 +80,13 @@ def device_info() -> dict:
     return info
 
 
+@router.get("/capabilities")
+def capabilities() -> dict:
+    """Report optional system capabilities (LilyPond, etc.)."""
+    from utils.music21_bridge import check_lilypond
+    return {"lilypond": check_lilypond()}
+
+
 @router.get("/models")
 def list_models() -> dict:
     from models.registry import (

@@ -118,6 +118,34 @@ Self-supervised speech representation model used as the speaker embedding extrac
 
 ---
 
+## music21 — MIT / Michael Scott Asato Cuthbert
+
+Music analysis and notation toolkit powering MIDI cleanup, key detection, transposition, and sheet music export in the MIDI tab.
+
+- **Repository:** https://github.com/cuthbertLab/music21
+- **Paper:** Cuthbert & Ariza — *music21: A Toolkit for Computer-Aided Musicology* (2010)
+- **License:** BSD 3-Clause
+
+---
+
+## OpenSheetMusicDisplay (OSMD)
+
+Browser-based MusicXML rendering (via VexFlow) for in-app sheet music preview.
+
+- **Repository:** https://github.com/opensheetmusicdisplay/opensheetmusicdisplay
+- **License:** MIT
+
+---
+
+## LilyPond (optional)
+
+Music engraving program used for PDF sheet music export via subprocess.
+
+- **Website:** https://lilypond.org
+- **License:** GPL 3.0 (external binary, not bundled)
+
+---
+
 ## PyTorch — Meta (Facebook AI Research)
 
 Deep learning framework underlying all inference pipelines.

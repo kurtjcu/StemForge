@@ -16,6 +16,9 @@ let gmPrograms = [];
 let stemDefaults = {};
 let drumStems = {};
 
+/** LilyPond availability (checked on init). */
+let _lilypondAvailable = false;
+
 /** All active MIDI card players — for exclusive playback. */
 const midiPlayers = [];
 
@@ -145,9 +148,10 @@ export function initMidi() {
     document.getElementById('midi-start').disabled = false;
   });
 
-  // Load GM programs and current soundfont on init
+  // Load GM programs, current soundfont, and check LilyPond on init
   loadGmPrograms();
   loadCurrentSoundfont();
+  checkLilypondAvailability();
 }
 
 async function loadGmPrograms() {
@@ -170,6 +174,13 @@ async function loadCurrentSoundfont() {
       input.placeholder = 'System default';
     }
   } catch { /* ignore */ }
+}
+
+async function checkLilypondAvailability() {
+  try {
+    const data = await api('/capabilities');
+    _lilypondAvailable = data.lilypond?.available ?? false;
+  } catch { /* assume unavailable */ }
 }
 
 async function handleSf2Browse() {
@@ -285,9 +296,11 @@ function showMidiResults(result) {
   appState.midiLabels = result.labels || [];
   appState.emit('midiReady', result);
 
-  // Save merged button
+  // Merged MIDI buttons
   if (result.has_merged) {
-    container.appendChild(
+    const mergedRow = el('div', { className: 'midi-merged-row' });
+
+    mergedRow.appendChild(
       el('button', {
         className: 'btn',
         onClick: async () => {
@@ -303,6 +316,55 @@ function showMidiResults(result) {
         },
       }, 'Save merged MIDI'),
     );
+
+    // Clean Up All merged
+    const cleanAllBtn = el('button', { className: 'btn btn-sm' }, 'Clean Up All');
+    cleanAllBtn.addEventListener('click', async () => {
+      cleanAllBtn.disabled = true;
+      cleanAllBtn.textContent = 'Cleaning...';
+      try {
+        const key = document.getElementById('midi-key').value;
+        const ts = document.getElementById('midi-ts').value;
+        await api('/midi/clean', {
+          method: 'POST',
+          body: JSON.stringify({
+            stem_label: 'merged',
+            key: key !== 'Any' ? key : null,
+            time_signature: ts,
+          }),
+        });
+        cleanAllBtn.textContent = 'Cleaned \u2713';
+        setTimeout(() => { cleanAllBtn.textContent = 'Clean Up All'; cleanAllBtn.disabled = false; }, 2000);
+      } catch (err) {
+        alert(`Clean failed: ${err.message}`);
+        cleanAllBtn.textContent = 'Clean Up All';
+        cleanAllBtn.disabled = false;
+      }
+    });
+    mergedRow.appendChild(cleanAllBtn);
+
+    // Sheet Music (All)
+    const sheetAllBtn = el('button', { className: 'btn btn-sm' }, 'Sheet Music (All)');
+    sheetAllBtn.addEventListener('click', async () => {
+      sheetAllBtn.disabled = true;
+      sheetAllBtn.textContent = 'Loading...';
+      try {
+        const res = await api('/midi/sheet-music', {
+          method: 'POST',
+          body: JSON.stringify({ stem_label: 'merged', title: 'All Stems (Merged)' }),
+        });
+        showSheetMusicPanel(container, res.musicxml, 'merged');
+        sheetAllBtn.textContent = 'Sheet Music (All)';
+        sheetAllBtn.disabled = false;
+      } catch (err) {
+        alert(`Sheet music failed: ${err.message}`);
+        sheetAllBtn.textContent = 'Sheet Music (All)';
+        sheetAllBtn.disabled = false;
+      }
+    });
+    mergedRow.appendChild(sheetAllBtn);
+
+    container.appendChild(mergedRow);
   }
 
   // Per-stem result cards with full playback
@@ -374,8 +436,187 @@ function buildMidiCard(label, info) {
   const waveContainer = el('div', { className: 'stem-waveform' });
   const renderHint = el('div', { className: 'midi-render-hint text-dim' }, 'Press Play to render audio preview');
 
-  card.append(header, instrumentRow, waveContainer, renderHint);
+  // ─── MIDI Tools row ───
+  const noteCountLabel = header.querySelector('.stem-label');
+  let transposeOffset = 0;
+
+  const cleanBtn = el('button', { className: 'btn btn-sm' }, 'Clean Up');
+  const detectKeyBtn = el('button', { className: 'btn btn-sm' }, 'Detect Key');
+  const keyInfoSpan = el('span', { className: 'midi-key-info text-dim' });
+
+  // Transpose controls
+  const transposeLabel = el('span', { className: 'midi-transpose-label text-dim' }, '0');
+  const transDown = el('button', { className: 'btn btn-sm' }, '\u2212');
+  const transUp = el('button', { className: 'btn btn-sm' }, '+');
+  const transposeControls = el('div', { className: 'midi-transpose-controls' },
+    transDown, transposeLabel, transUp,
+  );
+
+  // Sheet Music dropdown
+  const sheetSelect = el('select', { className: 'btn btn-sm midi-sheet-select' },
+    el('option', { value: '' }, 'Sheet Music...'),
+    el('option', { value: 'preview' }, 'Preview'),
+    el('option', { value: 'musicxml' }, 'Download MusicXML'),
+  );
+  if (_lilypondAvailable) {
+    sheetSelect.appendChild(el('option', { value: 'pdf' }, 'Download PDF'));
+  }
+
+  // Save XML button
+  const saveXmlBtn = el('button', { className: 'btn btn-sm' }, 'Save XML');
+
+  const toolsRow = el('div', { className: 'midi-tools-row' },
+    cleanBtn, detectKeyBtn, keyInfoSpan,
+    el('span', { className: 'text-dim' }, 'Transpose:'), transposeControls,
+    sheetSelect, saveXmlBtn,
+  );
+
+  // Sheet music panel placeholder
+  const sheetPanel = el('div', { className: 'sheet-music-panel hidden' });
+
+  card.append(header, instrumentRow, waveContainer, renderHint, toolsRow, sheetPanel);
   container.appendChild(card);
+
+  // ─── MIDI Tools event handlers ───
+
+  cleanBtn.addEventListener('click', async () => {
+    cleanBtn.disabled = true;
+    cleanBtn.textContent = 'Cleaning...';
+    try {
+      const key = document.getElementById('midi-key').value;
+      const ts = document.getElementById('midi-ts').value;
+      const res = await api('/midi/clean', {
+        method: 'POST',
+        body: JSON.stringify({
+          stem_label: label,
+          key: key !== 'Any' ? key : null,
+          time_signature: ts,
+        }),
+      });
+      noteCountLabel.textContent = `${label} (${res.note_count} notes)`;
+      cleanBtn.textContent = 'Cleaned \u2713';
+      transposeOffset = 0;
+      transposeLabel.textContent = '0';
+      // Re-render waveform with cleaned MIDI
+      renderedUrl = null;
+      renderAndLoad(false);
+      setTimeout(() => { cleanBtn.textContent = 'Clean Up'; cleanBtn.disabled = false; }, 2000);
+    } catch (err) {
+      alert(`Clean failed: ${err.message}`);
+      cleanBtn.textContent = 'Clean Up';
+      cleanBtn.disabled = false;
+    }
+  });
+
+  detectKeyBtn.addEventListener('click', async () => {
+    detectKeyBtn.disabled = true;
+    detectKeyBtn.textContent = 'Detecting...';
+    try {
+      const res = await api('/midi/detect-key', {
+        method: 'POST',
+        body: JSON.stringify({ stem_label: label }),
+      });
+      const pct = Math.round(res.confidence * 100);
+      keyInfoSpan.textContent = `Detected: ${res.key} (${pct}%)`;
+      // Update the global key selector
+      const keySelect = document.getElementById('midi-key');
+      const matchOption = Array.from(keySelect.options).find(o => o.value === res.key);
+      if (matchOption) keySelect.value = res.key;
+      detectKeyBtn.textContent = 'Detect Key';
+      detectKeyBtn.disabled = false;
+    } catch (err) {
+      alert(`Detection failed: ${err.message}`);
+      detectKeyBtn.textContent = 'Detect Key';
+      detectKeyBtn.disabled = false;
+    }
+  });
+
+  async function doTranspose(semitones) {
+    transDown.disabled = true;
+    transUp.disabled = true;
+    try {
+      const res = await api('/midi/transpose', {
+        method: 'POST',
+        body: JSON.stringify({ stem_label: label, semitones }),
+      });
+      transposeOffset += semitones;
+      transposeLabel.textContent = transposeOffset > 0 ? `+${transposeOffset}` : String(transposeOffset);
+      noteCountLabel.textContent = `${label} (${res.note_count} notes)`;
+      // Re-render waveform
+      renderedUrl = null;
+      renderAndLoad(false);
+    } catch (err) {
+      alert(`Transpose failed: ${err.message}`);
+    } finally {
+      transDown.disabled = false;
+      transUp.disabled = false;
+    }
+  }
+
+  transDown.addEventListener('click', () => doTranspose(-1));
+  transUp.addEventListener('click', () => doTranspose(1));
+
+  sheetSelect.addEventListener('change', async () => {
+    const action = sheetSelect.value;
+    sheetSelect.value = '';
+    if (!action) return;
+
+    if (action === 'preview') {
+      sheetSelect.disabled = true;
+      try {
+        const res = await api('/midi/sheet-music', {
+          method: 'POST',
+          body: JSON.stringify({ stem_label: label, title: label }),
+        });
+        showSheetMusicPanel(sheetPanel, res.musicxml, label);
+      } catch (err) {
+        alert(`Sheet music failed: ${err.message}`);
+      } finally {
+        sheetSelect.disabled = false;
+      }
+    } else if (action === 'pdf') {
+      try {
+        const resp = await fetch('/api/midi/sheet-music/pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stem_label: label, title: label }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const blob = await resp.blob();
+        saveFileAs(blob, `${label}_sheet_music.pdf`);
+      } catch (err) {
+        alert(`PDF export failed: ${err.message}`);
+      }
+    } else if (action === 'musicxml') {
+      try {
+        const resp = await fetch('/api/midi/sheet-music/musicxml', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stem_label: label, title: label }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const blob = await resp.blob();
+        saveFileAs(blob, `${label}.musicxml`);
+      } catch (err) {
+        alert(`MusicXML export failed: ${err.message}`);
+      }
+    }
+  });
+
+  saveXmlBtn.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/midi/sheet-music/musicxml', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stem_label: label, title: label }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const blob = await resp.blob();
+      saveFileAs(blob, `${label}.musicxml`);
+    } catch (err) {
+      alert(`Save MusicXML failed: ${err.message}`);
+    }
+  });
 
   // State for this card
   let ws = null;
@@ -523,4 +764,78 @@ function isDrumStem(label) {
     if (lower.includes(key.toLowerCase())) return true;
   }
   return false;
+}
+
+/**
+ * Show OSMD-rendered sheet music in a collapsible panel.
+ * @param {HTMLElement} panel - the .sheet-music-panel container
+ * @param {string} musicxml - MusicXML string
+ * @param {string} label - stem label for context
+ */
+async function showSheetMusicPanel(panel, musicxml, label) {
+  clearChildren(panel);
+  panel.classList.remove('hidden');
+
+  const OSMD = window.opensheetmusicdisplay?.OpenSheetMusicDisplay;
+  if (!OSMD) {
+    panel.appendChild(el('div', { className: 'banner banner-error' },
+      'OpenSheetMusicDisplay not loaded. Check your internet connection.'));
+    return;
+  }
+
+  const details = el('details', { open: true },
+    el('summary', {}, `Sheet Music: ${label}`),
+  );
+  const renderTarget = el('div', { className: 'sheet-music-container' });
+  details.appendChild(renderTarget);
+
+  // Download buttons below the notation
+  const downloadRow = el('div', { className: 'midi-tools-row' });
+  const dlXmlBtn = el('button', { className: 'btn btn-sm' }, 'Download MusicXML');
+  dlXmlBtn.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/midi/sheet-music/musicxml', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stem_label: label, title: label }),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      const blob = await resp.blob();
+      saveFileAs(blob, `${label}.musicxml`);
+    } catch (err) { alert(`Download failed: ${err.message}`); }
+  });
+  downloadRow.appendChild(dlXmlBtn);
+
+  if (_lilypondAvailable) {
+    const dlPdfBtn = el('button', { className: 'btn btn-sm' }, 'Download PDF');
+    dlPdfBtn.addEventListener('click', async () => {
+      try {
+        const resp = await fetch('/api/midi/sheet-music/pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stem_label: label, title: label }),
+        });
+        if (!resp.ok) throw new Error(await resp.text());
+        const blob = await resp.blob();
+        saveFileAs(blob, `${label}_sheet_music.pdf`);
+      } catch (err) { alert(`PDF download failed: ${err.message}`); }
+    });
+    downloadRow.appendChild(dlPdfBtn);
+  }
+
+  details.appendChild(downloadRow);
+  panel.appendChild(details);
+
+  // Render with OSMD
+  try {
+    const osmd = new OSMD(renderTarget, {
+      autoResize: true,
+      drawTitle: true,
+    });
+    await osmd.load(musicxml);
+    osmd.render();
+  } catch (err) {
+    renderTarget.appendChild(el('div', { className: 'banner banner-error' },
+      `Notation render failed: ${err.message}`));
+  }
 }

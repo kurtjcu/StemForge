@@ -89,6 +89,9 @@ dependencies = [
     "einops>=0.7.0",
     "huggingface_hub>=0.23.0",
 
+    # MIDI cleanup, analysis, and sheet music (music21)
+    "music21>=9.1,<10",
+
     # GUI
     "dearpygui>=1.11.0",
     "sounddevice>=0.5.0",

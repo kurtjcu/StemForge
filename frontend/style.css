@@ -592,6 +592,76 @@ input[type="range"]::-moz-range-track {
   border-radius: var(--radius);
 }
 
+/* ─── MIDI Tools (music21 integration) ───────────────────────────────── */
+
+.midi-tools-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  flex-wrap: wrap;
+}
+
+.midi-merged-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  flex-wrap: wrap;
+}
+
+.midi-transpose-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.midi-transpose-label {
+  min-width: 28px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.midi-key-info {
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.midi-sheet-select {
+  padding: 3px 6px;
+  font-size: 12px;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.sheet-music-panel {
+  margin-top: 4px;
+}
+
+.sheet-music-panel summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+
+.sheet-music-container {
+  background: #fafafa;
+  color: #111;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 200px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 600px;
+}
+
 /* ─── Track Rows (Mix tab) ───────────────────────────────────────────── */
 
 .mix-track-card {

@@ -123,6 +123,9 @@ dependencies = [
     # DeepFilterNet gate method is disabled at runtime; imported lazily with a
     # clear error if the user tries to select it.
 
+    # MIDI cleanup, analysis, and sheet music (music21)
+    "music21>=9.1,<10",
+
     # Audio playback / MIDI render
     "pyfluidsynth>=1.3.4",
 

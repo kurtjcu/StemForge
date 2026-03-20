@@ -8,6 +8,7 @@ import tempfile
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from backend.services.job_manager import job_manager
@@ -330,3 +331,187 @@ def set_soundfont(req: SoundfontRequest) -> dict:
 
     _active_soundfont = str(p)
     return {"path": _active_soundfont, "status": "ok"}
+
+
+# ─── music21 integration: request models ─────────────────────────────
+
+class CleanUpRequest(BaseModel):
+    stem_label: str
+    quantize_divisors: list[int] = [4, 3]
+    min_note_length: float = 0.125
+    key: str | None = None
+    time_signature: str | None = None
+
+
+class TransposeRequest(BaseModel):
+    stem_label: str
+    semitones: int = 0
+    interval: str | None = None
+    key: str | None = None
+
+
+class DetectKeyRequest(BaseModel):
+    stem_label: str
+
+
+class SheetMusicRequest(BaseModel):
+    stem_label: str
+    key: str | None = None
+    time_signature: str | None = None
+    quantize_divisors: list[int] = [4, 3]
+    title: str | None = None
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────
+
+def _resolve_midi(stem_label: str, session: SessionStore):
+    """Look up PrettyMIDI from session by label."""
+    if stem_label == "merged":
+        midi_data = session.merged_midi_data
+        if midi_data is None:
+            raise HTTPException(404, "No merged MIDI available")
+        return midi_data
+    stem_midi = session.stem_midi_data
+    if stem_label not in stem_midi:
+        raise HTTPException(404, f"No MIDI for stem '{stem_label}'")
+    return stem_midi[stem_label]
+
+
+def _store_midi(stem_label: str, midi_data, session: SessionStore) -> None:
+    """Write PrettyMIDI back into session (copy-out/mutate/copy-in for thread safety)."""
+    if stem_label == "merged":
+        session.merged_midi_data = midi_data
+    else:
+        data = session.stem_midi_data
+        data[stem_label] = midi_data
+        session.stem_midi_data = data
+
+
+# ─── Tier 1: Clean Up ────────────────────────────────────────────────
+
+@router.post("/clean")
+def clean_stem_midi(
+    req: CleanUpRequest,
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
+    """Quantize and clean a stem's MIDI, replacing it in the session."""
+    from utils.music21_bridge import clean_midi
+
+    midi_data = _resolve_midi(req.stem_label, session)
+    cleaned = clean_midi(
+        midi_data,
+        quarter_length_divisors=tuple(req.quantize_divisors),
+        min_note_quarterLength=req.min_note_length,
+        key=req.key,
+        time_signature=req.time_signature,
+    )
+    _store_midi(req.stem_label, cleaned, session)
+    note_count = sum(len(inst.notes) for inst in cleaned.instruments)
+    return {"stem_label": req.stem_label, "note_count": note_count, "status": "cleaned"}
+
+
+# ─── Tier 2: Analysis & Transform ────────────────────────────────────
+
+@router.post("/detect-key")
+def detect_stem_key(
+    req: DetectKeyRequest,
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
+    """Run key detection on a stem's MIDI."""
+    from utils.music21_bridge import detect_key
+
+    midi_data = _resolve_midi(req.stem_label, session)
+    return detect_key(midi_data)
+
+
+@router.post("/transpose")
+def transpose_stem_midi(
+    req: TransposeRequest,
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
+    """Transpose a stem's MIDI, replacing it in the session."""
+    from utils.music21_bridge import transpose_midi
+
+    midi_data = _resolve_midi(req.stem_label, session)
+    transposed = transpose_midi(
+        midi_data,
+        semitones=req.semitones,
+        interval=req.interval,
+        key=req.key,
+    )
+    _store_midi(req.stem_label, transposed, session)
+    note_count = sum(len(inst.notes) for inst in transposed.instruments)
+    return {"stem_label": req.stem_label, "note_count": note_count, "status": "transposed"}
+
+
+# ─── Tier 3: Sheet Music ─────────────────────────────────────────────
+
+@router.post("/sheet-music")
+def get_sheet_music(
+    req: SheetMusicRequest,
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
+    """Return MusicXML string for in-browser rendering via OSMD."""
+    from utils.music21_bridge import to_musicxml
+
+    midi_data = _resolve_midi(req.stem_label, session)
+    musicxml = to_musicxml(
+        midi_data,
+        quarter_length_divisors=tuple(req.quantize_divisors),
+        key=req.key,
+        time_signature=req.time_signature,
+        title=req.title or req.stem_label,
+    )
+    return {"musicxml": musicxml, "stem_label": req.stem_label}
+
+
+@router.post("/sheet-music/pdf")
+def get_sheet_music_pdf(
+    req: SheetMusicRequest,
+    session: SessionStore = Depends(get_user_session),
+):
+    """Return PDF file via LilyPond rendering."""
+    from utils.music21_bridge import to_pdf
+
+    midi_data = _resolve_midi(req.stem_label, session)
+    MIDI_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = MIDI_DIR / f"sheet_{req.stem_label}_{uuid.uuid4().hex[:6]}.pdf"
+    to_pdf(
+        midi_data,
+        out_path,
+        quarter_length_divisors=tuple(req.quantize_divisors),
+        key=req.key,
+        time_signature=req.time_signature,
+        title=req.title or req.stem_label,
+    )
+    return FileResponse(
+        out_path,
+        media_type="application/pdf",
+        filename=f"{req.stem_label}_sheet_music.pdf",
+    )
+
+
+@router.post("/sheet-music/musicxml")
+def save_musicxml(
+    req: SheetMusicRequest,
+    session: SessionStore = Depends(get_user_session),
+):
+    """Return MusicXML file for import into external notation software."""
+    from utils.music21_bridge import to_musicxml_file
+
+    midi_data = _resolve_midi(req.stem_label, session)
+    MIDI_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = MIDI_DIR / f"{req.stem_label}_{uuid.uuid4().hex[:6]}.musicxml"
+    to_musicxml_file(
+        midi_data,
+        out_path,
+        quarter_length_divisors=tuple(req.quantize_divisors),
+        key=req.key,
+        time_signature=req.time_signature,
+        title=req.title or req.stem_label,
+    )
+    return FileResponse(
+        out_path,
+        media_type="application/vnd.recordare.musicxml+xml",
+        filename=f"{req.stem_label}.musicxml",
+    )
