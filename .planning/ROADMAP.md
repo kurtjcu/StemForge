@@ -75,7 +75,7 @@ Plans:
   3. `MidiConfig(drum_mode="larsnet_onset")` produces MIDI with kick (MIDI 35) events that match the sub-stem's onset times within ±10 ms — demonstrating onset detection is driving the MIDI output, not ADTOF
   4. `MidiResult.drum_sub_stems` is populated with 5 sub-stem paths when either LarsNet mode is selected, and is an empty dict when ADTOF-only mode is selected
   5. Selected `drum_mode` is preserved in session state and re-read correctly on the next extraction request without requiring re-selection
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 Plans:
 - [ ] 08-01-PLAN.md — TDD: MidiConfig drum_mode, MidiResult drum_sub_stems, three-mode dispatch in run()
 - [ ] 08-02-PLAN.md — SessionStore drum_mode field, ExtractRequest wiring, job_id pass-through
@@ -89,7 +89,9 @@ Plans:
   2. Requesting a LarsNet+* mode extraction when no drum stem is in session returns HTTP 400 with a message identifying the missing prerequisite — no job is enqueued and no processing begins
   3. Sub-stem paths appear in `session.drum_sub_stem_paths` and are absent from `session.stem_paths` — the Separate tab stem cards are unaffected by sub-stem presence
   4. After a LarsNet extraction completes, playing a sub-stem via the MIDI panel uses the standard transport bar and the audio streams correctly from disk
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 09-01-PLAN.md — TDD: drum_sub_stem_paths field, sub-stems endpoint, GUARD-01/02 pre-condition checks
 
 ### Phase 10: Frontend Mode Selector and Sub-Stem Cards
 **Goal**: The user can select a drum MIDI mode from the MIDI panel, audition all 5 sub-stems, and see quality warnings — all without leaving the MIDI tab
@@ -124,8 +126,8 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 | 5. LarsNet Registry and Loader Stub | 2/2 | Complete   | 2026-03-20 |
 | 6. Onset Detection Backend | 1/1 | Complete   | 2026-03-20 |
 | 7. MidiModelLoader Extensions | 1/1 | Complete   | 2026-03-21 |
-| 8. MidiPipeline Mode Dispatcher | 0/2 | Planned | - |
-| 9. Session Store and API Endpoints | 0/? | Not started | - |
+| 8. MidiPipeline Mode Dispatcher | 1/2 | In Progress|  |
+| 9. Session Store and API Endpoints | 0/1 | Planned | - |
 | 10. Frontend Mode Selector and Sub-Stem Cards | 0/? | Not started | - |
 | 11. Export Sub-Stem Download | 0/? | Not started | - |
 
