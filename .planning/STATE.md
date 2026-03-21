@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Archive
 status: completed
-stopped_at: Completed 08-midipipeline-mode-dispatcher 08-01-PLAN.md
-last_updated: "2026-03-21T00:21:54.378Z"
+stopped_at: Completed 08-midipipeline-mode-dispatcher 08-02-PLAN.md
+last_updated: "2026-03-21T00:26:42.160Z"
 last_activity: 2026-03-21 — Phase 06 Plan 01 complete
 progress:
   total_phases: 7
-  completed_phases: 3
+  completed_phases: 5
   total_plans: 7
-  completed_plans: 5
+  completed_plans: 7
 ---
 
 # Project State
@@ -51,6 +51,8 @@ Progress: [████░░░░░░░░░░░░░░░░] 3/7+ pl
 | Phase 05-larsnet-registry-and-loader-stub P02 | 8 | 2 tasks | 5 files |
 | Phase 07-midi-model-loader-extensions P01 | 3 min | 2 tasks | 2 files |
 | Phase 08-midipipeline-mode-dispatcher P01 | 3.5 min | 2 tasks | 2 files |
+| Phase 09 P01 | 5 | 2 tasks | 4 files |
+| Phase 08-midipipeline-mode-dispatcher P02 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -78,6 +80,9 @@ Recent decisions affecting current work:
 - [Phase 05-larsnet-registry-and-loader-stub]: sys.path insertion for vendor/larsnet inside load() — avoids side effects at startup, consistent with adtof_backend pattern
 - [Phase 07-midi-model-loader-extensions]: INFRA-03 eviction sequencing enforced in loader layer: evict_larsnet() called before _ensure_adtof() inside convert_drum_to_midi_with_larsnet()
 - [Phase 08-01]: OnsetBackend imported at module level (not lazily) so unittest.mock.patch can target pipelines.midi_pipeline.OnsetBackend
+- [Phase 09]: GUARD-01 checked before stems filter to ensure 400 fires for larsnet modes even when no drum stem selected
+- [Phase 08-02]: drum_mode persisted to session before job dispatch — session reflects last-used mode even if job fails
+- [Phase 08-02]: drum_mode passed in config_kwargs dict rather than as separate argument — consistent with all other MidiConfig params
 
 ### Critical Implementation Notes
 
@@ -100,7 +105,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-21T00:21:54.375Z
-Stopped at: Completed 08-midipipeline-mode-dispatcher 08-01-PLAN.md
+Last session: 2026-03-21T00:26:42.157Z
+Stopped at: Completed 08-midipipeline-mode-dispatcher 08-02-PLAN.md
 Resume file: None
 Next step: Phase 7 (LarsNet separation wiring)

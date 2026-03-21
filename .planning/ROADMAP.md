@@ -17,8 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 5: LarsNet Registry and Loader Stub** — Vendor LarsNet, resolve config/checkpoint paths, register LarsNetSpec, validate loader loads 5 U-Nets from outside the LarsNet directory (completed 2026-03-20)
 - [x] **Phase 6: Onset Detection Backend** — CPU-only energy onset detection with per-class delta thresholds, fully validated on synthetic audio before any LarsNet integration (completed 2026-03-20)
 - [x] **Phase 7: MidiModelLoader Extensions** — Loader facade methods for all three modes with correct LarsNet-evicts-before-ADTOF sequencing (completed 2026-03-21)
-- [ ] **Phase 8: MidiPipeline Mode Dispatcher** — drum_mode field on MidiConfig, _run_drum_mode() dispatcher, regression test confirming ADTOF-only path unchanged
-- [ ] **Phase 9: Session Store and API Endpoints** — drum_sub_stem_paths session field, drum_mode param in ExtractRequest, sub-stems endpoint, mode pre-condition guards
+- [x] **Phase 8: MidiPipeline Mode Dispatcher** — drum_mode field on MidiConfig, _run_drum_mode() dispatcher, regression test confirming ADTOF-only path unchanged (completed 2026-03-21)
+- [x] **Phase 9: Session Store and API Endpoints** — drum_sub_stem_paths session field, drum_mode param in ExtractRequest, sub-stems endpoint, mode pre-condition guards (completed 2026-03-21)
 - [ ] **Phase 10: Frontend Mode Selector and Sub-Stem Cards** — Three-way mode selector in MIDI panel, 5 sub-stem audio cards wired to transport bar, guard-rail disabled states, quality warnings
 - [ ] **Phase 11: Export Sub-Stem Download** — Opt-in sub-stem export checkbox, sub-stems forwarded to Mix and Enhance via event bus
 
@@ -75,7 +75,7 @@ Plans:
   3. `MidiConfig(drum_mode="larsnet_onset")` produces MIDI with kick (MIDI 35) events that match the sub-stem's onset times within ±10 ms — demonstrating onset detection is driving the MIDI output, not ADTOF
   4. `MidiResult.drum_sub_stems` is populated with 5 sub-stem paths when either LarsNet mode is selected, and is an empty dict when ADTOF-only mode is selected
   5. Selected `drum_mode` is preserved in session state and re-read correctly on the next extraction request without requiring re-selection
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 08-01-PLAN.md — TDD: MidiConfig drum_mode, MidiResult drum_sub_stems, three-mode dispatch in run()
 - [ ] 08-02-PLAN.md — SessionStore drum_mode field, ExtractRequest wiring, job_id pass-through
@@ -89,7 +89,7 @@ Plans:
   2. Requesting a LarsNet+* mode extraction when no drum stem is in session returns HTTP 400 with a message identifying the missing prerequisite — no job is enqueued and no processing begins
   3. Sub-stem paths appear in `session.drum_sub_stem_paths` and are absent from `session.stem_paths` — the Separate tab stem cards are unaffected by sub-stem presence
   4. After a LarsNet extraction completes, playing a sub-stem via the MIDI panel uses the standard transport bar and the audio streams correctly from disk
-**Plans:** 1 plan
+**Plans:** 1/1 plans complete
 Plans:
 - [ ] 09-01-PLAN.md — TDD: drum_sub_stem_paths field, sub-stems endpoint, GUARD-01/02 pre-condition checks
 
@@ -126,8 +126,8 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 | 5. LarsNet Registry and Loader Stub | 2/2 | Complete   | 2026-03-20 |
 | 6. Onset Detection Backend | 1/1 | Complete   | 2026-03-20 |
 | 7. MidiModelLoader Extensions | 1/1 | Complete   | 2026-03-21 |
-| 8. MidiPipeline Mode Dispatcher | 1/2 | In Progress|  |
-| 9. Session Store and API Endpoints | 0/1 | Planned | - |
+| 8. MidiPipeline Mode Dispatcher | 2/2 | Complete   | 2026-03-21 |
+| 9. Session Store and API Endpoints | 1/1 | Complete   | 2026-03-21 |
 | 10. Frontend Mode Selector and Sub-Stem Cards | 0/? | Not started | - |
 | 11. Export Sub-Stem Download | 0/? | Not started | - |
 
