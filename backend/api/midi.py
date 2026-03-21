@@ -7,7 +7,7 @@ import pathlib
 import tempfile
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -282,6 +282,55 @@ def save_midi(req: SaveRequest, session: SessionStore = Depends(get_user_session
     from utils.midi_io import write_midi
     write_midi(midi_data, out_path)
     return {"path": str(out_path)}
+
+
+@router.post("/import")
+async def import_midi_file(
+    file: UploadFile = File(...),
+    session: SessionStore = Depends(get_user_session),
+) -> dict:
+    """Import an external .mid/.midi file into the session as a MIDI track."""
+    import shutil
+    import pretty_midi
+
+    MIDI_DIR.mkdir(parents=True, exist_ok=True)
+    dest = MIDI_DIR / f"{uuid.uuid4().hex[:8]}_{file.filename}"
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    midi_data = pretty_midi.PrettyMIDI(str(dest))
+    label = pathlib.Path(file.filename or "imported").stem
+
+    # Guess instrument from filename
+    lower = label.lower()
+    default_prog = next(
+        (v for k, v in STEM_DEFAULT_PROGRAM.items() if k in lower), 0
+    )
+    default_drum = any(k.lower() in lower for k in STEM_IS_DRUM)
+
+    # Store in session stem_midi_data so it appears in MIDI tab results
+    smd = session.stem_midi_data
+    smd[label] = midi_data
+    session.stem_midi_data = smd
+
+    # Also add as a Mix track
+    track_id = f"midi-{label}"
+    if not session.get_track(track_id):
+        session.add_track(TrackState(
+            track_id=track_id,
+            label=f"{label.replace('_', ' ').title()} (MIDI)",
+            source="midi",
+            midi_data=midi_data,
+            program=default_prog,
+            is_drum=default_drum,
+        ))
+
+    note_count = sum(len(inst.notes) for inst in midi_data.instruments)
+    return {
+        "label": label,
+        "note_count": note_count,
+        "track_id": track_id,
+    }
 
 
 @router.get("/stems")

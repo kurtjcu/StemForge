@@ -100,7 +100,11 @@ export function initMidi() {
     'Extract MIDI',
   );
 
-  left.append(stemSection, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn);
+  // ─── Import MIDI file ───
+  const importInput = el('input', { type: 'file', accept: '.mid,.midi', style: { display: 'none' }, id: 'midi-import-input' });
+  const importBtn = el('button', { className: 'btn btn-sm', id: 'midi-import' }, 'Import MIDI file');
+
+  left.append(stemSection, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn, importInput, importBtn);
 
   // ─── Right: results ───
   const right = el('div', { className: 'col-right' });
@@ -135,6 +139,12 @@ export function initMidi() {
     document.getElementById('midi-frame-val').textContent = parseFloat(e.target.value).toFixed(2);
   });
   document.getElementById('midi-start').addEventListener('click', startExtraction);
+
+  // Import MIDI file
+  document.getElementById('midi-import').addEventListener('click', () => {
+    document.getElementById('midi-import-input').click();
+  });
+  document.getElementById('midi-import-input').addEventListener('change', handleMidiImport);
 
   // SoundFont controls
   document.getElementById('midi-sf2-browse').addEventListener('click', () => {
@@ -286,6 +296,37 @@ async function startExtraction() {
     resultsContainer.appendChild(
       el('div', { className: 'banner banner-error' }, `Error: ${err.message}`),
     );
+  }
+}
+
+async function handleMidiImport() {
+  const fileInput = document.getElementById('midi-import-input');
+  const file = fileInput.files[0];
+  fileInput.value = '';
+  if (!file) return;
+
+  const importBtn = document.getElementById('midi-import');
+  importBtn.disabled = true;
+  importBtn.textContent = 'Importing...';
+
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/midi/import', { method: 'POST', body: form });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+
+    // Build a result card for the imported MIDI
+    buildMidiCard(data.label, { note_count: data.note_count });
+    appState.emit('midiReady', { labels: [data.label], stem_info: { [data.label]: { note_count: data.note_count } } });
+  } catch (err) {
+    alert(`MIDI import failed: ${err.message}`);
+  } finally {
+    importBtn.textContent = 'Import MIDI file';
+    importBtn.disabled = false;
   }
 }
 

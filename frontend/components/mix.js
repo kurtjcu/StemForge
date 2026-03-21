@@ -6,10 +6,8 @@ import { appState, api, pollJob, el, formatTime, saveFileAs } from '../app.js';
 import { createWaveform } from './waveform.js';
 import { transportLoad, transportStop } from './audio-player.js';
 
-/** GM program names — loaded from backend on init. */
+/** GM program names — loaded from backend to display instrument labels. */
 let _gmPrograms = [];
-let _gmDefaults = {};
-let _gmDrumStems = {};
 
 function clearChildren(elem) {
   while (elem.firstChild) elem.removeChild(elem.firstChild);
@@ -107,10 +105,6 @@ export function initMix() {
     style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' },
   },
     el('span', { className: 'section-title' }, 'Tracks'),
-    el('div', { style: { display: 'flex', gap: '6px' } },
-      el('button', { className: 'btn btn-sm', id: 'mix-add-audio' }, '+ Audio'),
-      el('button', { className: 'btn btn-sm', id: 'mix-add-midi' }, '+ MIDI'),
-    ),
   );
 
   const trackList = el('div', { id: 'mix-tracks', style: { display: 'flex', flexDirection: 'column', gap: '8px' } });
@@ -119,7 +113,7 @@ export function initMix() {
     id: 'mix-empty',
     className: 'text-dim',
     style: { padding: '20px', textAlign: 'center' },
-  }, 'No tracks yet. Run separation or add files manually.');
+  }, 'No tracks yet. Run separation, extract MIDI, or generate audio.');
 
   // Preview + Render buttons
   const previewBtn = el('button', {
@@ -165,42 +159,6 @@ export function initMix() {
   document.getElementById('mix-preview').addEventListener('click', togglePreview);
   document.getElementById('mix-preview-stop').addEventListener('click', stopPreview);
 
-  // Add audio/midi file inputs (hidden)
-  const audioInput = el('input', { type: 'file', accept: '.wav,.flac,.mp3,.ogg', style: { display: 'none' }, id: 'mix-audio-input' });
-  const midiInput = el('input', { type: 'file', accept: '.mid,.midi', style: { display: 'none' }, id: 'mix-midi-input' });
-  panel.append(audioInput, midiInput);
-
-  document.getElementById('mix-add-audio').addEventListener('click', () => audioInput.click());
-  document.getElementById('mix-add-midi').addEventListener('click', () => midiInput.click());
-
-  audioInput.addEventListener('change', async () => {
-    const file = audioInput.files[0];
-    if (!file) return;
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch('/api/mix/add-audio', { method: 'POST', body: form });
-      const data = await res.json();
-      refreshTracks();
-      // Make the uploaded audio available as an align reference in the Synth tab
-      if (data.path) {
-        appState.emit('fileLoaded', { path: data.path, filename: data.label || file.name });
-      }
-    } catch (err) { alert(`Error: ${err.message}`); }
-  });
-
-  midiInput.addEventListener('change', async () => {
-    const file = midiInput.files[0];
-    if (!file) return;
-    try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch('/api/mix/add-midi', { method: 'POST', body: form });
-      const data = await res.json();
-      refreshTracks();
-    } catch (err) { alert(`Error: ${err.message}`); }
-  });
-
   // Clear stale mix tracks on page load — Mix always rebuilds from
   // whatever is currently open in other tabs, never persists across refresh.
   fetch('/api/mix/clear', { method: 'POST' }).catch(() => {});
@@ -223,8 +181,6 @@ async function loadGmPrograms() {
   try {
     const data = await api('/midi/gm-programs');
     _gmPrograms = data.programs || [];
-    _gmDefaults = data.defaults || {};
-    _gmDrumStems = data.drum_stems || {};
   } catch { /* fail silently */ }
 }
 
@@ -334,37 +290,16 @@ async function refreshTracks() {
 
       container.appendChild(controlRow);
 
-      // ─── Instrument selector for MIDI tracks ───
-      if (track.source === 'midi' && _gmPrograms.length) {
-        const instrumentSelect = el('select', { className: 'midi-instrument-select' });
-        instrumentSelect.appendChild(el('option', { value: 'drum' }, 'Drum Kit'));
-        for (let i = 0; i < _gmPrograms.length; i++) {
-          instrumentSelect.appendChild(el('option', { value: String(i) }, `${i}: ${_gmPrograms[i]}`));
-        }
-        // Set current value from track state
-        if (track.is_drum) {
-          instrumentSelect.value = 'drum';
-        } else {
-          instrumentSelect.value = String(track.program);
-        }
-
+      // ─── Instrument label for MIDI tracks (change instrument on MIDI tab) ───
+      if (track.source === 'midi') {
+        const instrumentName = track.is_drum
+          ? 'Drum Kit'
+          : (_gmPrograms[track.program] || `Program ${track.program}`);
         const instrumentRow = el('div', { className: 'midi-instrument-row', style: { padding: '4px 12px' } },
           el('label', { className: 'text-dim' }, 'Instrument:'),
-          instrumentSelect,
+          el('span', { className: 'text-dim', style: { marginLeft: '4px' } }, instrumentName),
         );
         container.appendChild(instrumentRow);
-
-        instrumentSelect.addEventListener('change', async () => {
-          const val = instrumentSelect.value;
-          const isDrum = val === 'drum';
-          const program = isDrum ? 0 : parseInt(val, 10);
-          try {
-            await api('/mix/tracks', {
-              method: 'POST',
-              body: JSON.stringify({ track_id: track.track_id, program, is_drum: isDrum }),
-            });
-          } catch (err) { console.error('Failed to update instrument:', err); }
-        });
       }
 
       // ─── Waveform player for audio/synth tracks ───
@@ -436,7 +371,7 @@ async function refreshTracks() {
         );
 
         const waveContainer = el('div', { className: 'stem-waveform midi-waveform', style: { padding: '0 12px 8px' } });
-        const renderHint = el('div', { className: 'midi-render-hint text-dim' }, 'Press Play to render preview');
+        const renderHint = el('div', { className: 'midi-render-hint text-dim' }, 'Rendering preview...');
         container.append(playerRow, waveContainer, renderHint);
 
         let ws = null;
@@ -499,6 +434,9 @@ async function refreshTracks() {
             playBtn.disabled = false;
           }
         }
+
+        // Pre-render waveform immediately (FluidSynth is fast, no GPU needed)
+        renderMidiTrack(false);
 
         playBtn.addEventListener('click', () => {
           if (!renderedUrl) {
