@@ -54,6 +54,8 @@ class SessionStore:
         self._voice_paths: dict[str, pathlib.Path] = {}  # label → output path
         self._enhance_paths: dict[str, pathlib.Path] = {}  # label → enhanced output path
         self._kept_clips: set[str] = set()  # paths explicitly kept by user
+        self._drum_sub_stem_paths: dict[str, pathlib.Path] = {}
+        self._drum_mode: str = "adtof_only"
 
     # -- audio_path --
     @property
@@ -233,6 +235,32 @@ class SessionStore:
         with self._lock:
             self._kept_clips.discard(path)
 
+    # -- drum_sub_stem_paths --
+    @property
+    def drum_sub_stem_paths(self) -> dict[str, pathlib.Path]:
+        with self._lock:
+            return dict(self._drum_sub_stem_paths)
+
+    @drum_sub_stem_paths.setter
+    def drum_sub_stem_paths(self, value: dict[str, pathlib.Path]) -> None:
+        with self._lock:
+            self._drum_sub_stem_paths = dict(value)
+
+    def add_drum_sub_stem_path(self, label: str, path: pathlib.Path) -> None:
+        with self._lock:
+            self._drum_sub_stem_paths[label] = path
+
+    # -- drum_mode --
+    @property
+    def drum_mode(self) -> str:
+        with self._lock:
+            return self._drum_mode
+
+    @drum_mode.setter
+    def drum_mode(self, value: str) -> None:
+        with self._lock:
+            self._drum_mode = value
+
     def clear(self) -> None:
         with self._lock:
             self._audio_path = None
@@ -248,6 +276,8 @@ class SessionStore:
             self._voice_paths = {}
             self._enhance_paths = {}
             self._kept_clips = set()
+            self._drum_sub_stem_paths = {}
+            self._drum_mode = "adtof_only"
 
     def to_dict(self) -> dict[str, Any]:
         with self._lock:
@@ -280,6 +310,8 @@ class SessionStore:
                 ],
                 "voice_paths": {k: str(v) for k, v in self._voice_paths.items()},
                 "enhance_paths": {k: str(v) for k, v in self._enhance_paths.items()},
+                "drum_sub_stem_paths": {k: str(v) for k, v in self._drum_sub_stem_paths.items()},
+                "drum_mode": self._drum_mode,
             }
 
 
