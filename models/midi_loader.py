@@ -57,6 +57,7 @@ class MidiModelLoader:
         self._model: Any | None = None          # BasicPitch TF model
         self._whisper_model: Any | None = None  # faster-whisper WhisperModel
         self._adtof_backend: Any | None = None  # AdtofBackend (lazy-loaded)
+        self._larsnet_backend: Any | None = None  # LarsNetBackend (lazy-loaded)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -99,6 +100,7 @@ class MidiModelLoader:
         self._model = None
         self._whisper_model = None
         self.evict_drum_model()
+        self.evict_larsnet()
         log.debug("MidiModelLoader: models evicted.")
 
     # ------------------------------------------------------------------
@@ -128,6 +130,169 @@ class MidiModelLoader:
             self._adtof_backend.evict()
             self._adtof_backend = None
             log.debug("MidiModelLoader: ADTOF backend evicted.")
+
+    # ------------------------------------------------------------------
+    # Internal: LarsNet lazy loader
+    # ------------------------------------------------------------------
+
+    def _ensure_larsnet(self) -> Any:
+        """Load the LarsNet drum sub-separation backend on first use.
+
+        Idempotent: second call returns the cached backend without re-loading.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If pipelines.larsnet_backend is not importable or weights are missing.
+        """
+        if self._larsnet_backend is not None:
+            return self._larsnet_backend
+        import time
+        try:
+            from pipelines.larsnet_backend import LarsNetBackend
+        except ImportError as exc:
+            raise ModelLoadError(
+                "LarsNet backend is not available.",
+                model_name="larsnet-drums",
+            ) from exc
+        backend = LarsNetBackend()
+        t0 = time.perf_counter()
+        backend.load()
+        elapsed = time.perf_counter() - t0
+        self._larsnet_backend = backend
+        log.info("MidiModelLoader: LarsNet backend ready in %.2fs.", elapsed)
+        return self._larsnet_backend
+
+    def evict_larsnet(self) -> None:
+        """Evict the LarsNet backend only, leaving other models intact."""
+        if self._larsnet_backend is not None:
+            self._larsnet_backend.evict()
+            self._larsnet_backend = None
+            log.debug("MidiModelLoader: LarsNet backend evicted.")
+
+    # ------------------------------------------------------------------
+    # LarsNet drum sub-separation
+    # ------------------------------------------------------------------
+
+    def separate_drums(
+        self,
+        audio_tensor: "Any",  # torch.Tensor shape (2, n_samples), float32, 44100 Hz
+        job_id: str,
+    ) -> "dict[str, pathlib.Path]":
+        """Separate drum stem into 5 sub-stems using LarsNet.
+
+        Parameters
+        ----------
+        audio_tensor:
+            Stereo drum audio tensor, shape (2, n_samples), float32 at 44100 Hz.
+            Mono (1D) input is automatically expanded to stereo.
+        job_id:
+            Unique identifier for this separation job; used for the output directory.
+
+        Returns
+        -------
+        dict[str, Path]
+            Keys match LARSNET_STEM_KEYS; values are paths to written WAV files
+            under ``STEMS_DIR / "drum_sub" / {job_id} /``.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If LarsNet weights are not found.
+        :class:`~utils.errors.PipelineExecutionError`
+            If LarsNet inference fails.
+        """
+        import soundfile as sf
+        from models.registry import LARSNET_STEM_KEYS
+        from utils.paths import STEMS_DIR
+
+        # Normalise tensor shape to (2, n_samples)
+        if audio_tensor.ndim == 1:
+            audio_tensor = audio_tensor.unsqueeze(0).expand(2, -1)
+        elif audio_tensor.shape[0] != 2:
+            audio_tensor = audio_tensor.T  # (n_samples, 2) -> (2, n_samples)
+
+        backend = self._ensure_larsnet()
+        out_dir = STEMS_DIR / "drum_sub" / job_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            stems_tensors = backend._model(audio_tensor)
+        except Exception as exc:
+            raise PipelineExecutionError(
+                f"LarsNet separation failed: {exc}",
+                pipeline_name="larsnet",
+            ) from exc
+
+        result: dict[str, pathlib.Path] = {}
+        for stem_name in LARSNET_STEM_KEYS:
+            wav_path = out_dir / f"{stem_name}.wav"
+            waveform = stems_tensors[stem_name].cpu().numpy().T  # (n_samples, 2)
+            sf.write(str(wav_path), waveform, samplerate=44100)
+            result[stem_name] = wav_path
+
+        log.debug(
+            "separate_drums: job_id=%s -> %d stems written to %s",
+            job_id, len(result), out_dir,
+        )
+        return result
+
+    def convert_drum_to_midi_with_larsnet(
+        self,
+        audio_tensor: "Any",  # torch.Tensor
+        job_id: str,
+        *,
+        duration: float = 0.0,
+    ) -> "tuple[dict[str, pathlib.Path], list]":
+        """Run LarsNet+ADTOF drum MIDI mode.
+
+        Orchestrates: separation → evict LarsNet → load ADTOF → transcribe.
+
+        The LarsNet eviction before ADTOF load is the INFRA-03 VRAM safety
+        contract. The loader enforces this sequence; the pipeline layer MUST
+        NOT reorder it.
+
+        Parameters
+        ----------
+        audio_tensor:
+            Stereo drum audio tensor (2, n_samples), float32 at 44100 Hz.
+        job_id:
+            Unique job identifier used for sub-stem output directory.
+        duration:
+            If positive, clip MIDI events to this many seconds.
+
+        Returns
+        -------
+        tuple[dict[str, Path], list[NoteEvent]]
+            ``(sub_stems, events)`` — sub-stem paths and GM drum note events.
+
+        Raises
+        ------
+        :class:`~utils.errors.ModelLoadError`
+            If LarsNet or ADTOF cannot be loaded.
+        :class:`~utils.errors.PipelineExecutionError`
+            If separation or transcription fails.
+        """
+        import tempfile
+        import soundfile as sf
+
+        # Step 1: Separate into sub-stems (loads LarsNet if needed)
+        sub_stems = self.separate_drums(audio_tensor, job_id)
+
+        # Step 2: VRAM safety — evict LarsNet before ADTOF loads (INFRA-03)
+        self.evict_larsnet()
+
+        # Step 3: Write audio_tensor to temp WAV for AdtofBackend.predict()
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = pathlib.Path(tmp.name)
+        sf.write(str(tmp_path), audio_tensor.cpu().numpy().T, samplerate=44100)
+
+        try:
+            events = self.convert_drum_to_midi(tmp_path, duration=duration)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+        return sub_stems, events
 
     # ------------------------------------------------------------------
     # Internal: Whisper lazy loader
