@@ -75,7 +75,10 @@ Plans:
   3. `MidiConfig(drum_mode="larsnet_onset")` produces MIDI with kick (MIDI 35) events that match the sub-stem's onset times within ±10 ms — demonstrating onset detection is driving the MIDI output, not ADTOF
   4. `MidiResult.drum_sub_stems` is populated with 5 sub-stem paths when either LarsNet mode is selected, and is an empty dict when ADTOF-only mode is selected
   5. Selected `drum_mode` is preserved in session state and re-read correctly on the next extraction request without requiring re-selection
-**Plans**: TBD
+**Plans:** 2 plans
+Plans:
+- [ ] 08-01-PLAN.md — TDD: MidiConfig drum_mode, MidiResult drum_sub_stems, three-mode dispatch in run()
+- [ ] 08-02-PLAN.md — SessionStore drum_mode field, ExtractRequest wiring, job_id pass-through
 
 ### Phase 9: Session Store and API Endpoints
 **Goal**: Sub-stem paths are isolated from primary stems in session state, and the API enforces mode pre-conditions before enqueueing any job
@@ -121,7 +124,7 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 | 5. LarsNet Registry and Loader Stub | 2/2 | Complete   | 2026-03-20 |
 | 6. Onset Detection Backend | 1/1 | Complete   | 2026-03-20 |
 | 7. MidiModelLoader Extensions | 1/1 | Complete   | 2026-03-21 |
-| 8. MidiPipeline Mode Dispatcher | 0/? | Not started | - |
+| 8. MidiPipeline Mode Dispatcher | 0/2 | Planned | - |
 | 9. Session Store and API Endpoints | 0/? | Not started | - |
 | 10. Frontend Mode Selector and Sub-Stem Cards | 0/? | Not started | - |
 | 11. Export Sub-Stem Download | 0/? | Not started | - |
