@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Archive
 status: completed
-stopped_at: Completed 05-larsnet-registry-and-loader-stub 05-02-PLAN.md
-last_updated: "2026-03-20T23:57:55.291Z"
+stopped_at: Completed 07-midi-model-loader-extensions 07-01-PLAN.md
+last_updated: "2026-03-21T00:08:34.229Z"
 last_activity: 2026-03-21 — Phase 06 Plan 01 complete
 progress:
   total_phases: 7
-  completed_phases: 2
-  total_plans: 4
-  completed_plans: 3
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 4
 ---
 
 # Project State
@@ -49,6 +49,7 @@ Progress: [████░░░░░░░░░░░░░░░░] 3/7+ pl
 | Phase 05-larsnet-registry-and-loader-stub P01 | 8 | 1 tasks | 6 files |
 | Phase 06-onset-detection-backend P01 | 4 min | 2 tasks | 2 files |
 | Phase 05-larsnet-registry-and-loader-stub P02 | 8 | 2 tasks | 5 files |
+| Phase 07-midi-model-loader-extensions P01 | 3 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,7 @@ Recent decisions affecting current work:
 - [Phase 06-onset-detection-backend]: hop_length=128 unconditionally — default 512 gives 11.6ms resolution, fails ±5ms criterion
 - [Phase 05-larsnet-registry-and-loader-stub]: LarsNet config written to cache_dir/_larsnet_config.yaml at load time — idempotent, inspectable, no tempfile needed
 - [Phase 05-larsnet-registry-and-loader-stub]: sys.path insertion for vendor/larsnet inside load() — avoids side effects at startup, consistent with adtof_backend pattern
+- [Phase 07-midi-model-loader-extensions]: INFRA-03 eviction sequencing enforced in loader layer: evict_larsnet() called before _ensure_adtof() inside convert_drum_to_midi_with_larsnet()
 
 ### Critical Implementation Notes
 
@@ -96,7 +98,7 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-20T23:57:55.289Z
-Stopped at: Completed 05-larsnet-registry-and-loader-stub 05-02-PLAN.md
+Last session: 2026-03-21T00:08:34.226Z
+Stopped at: Completed 07-midi-model-loader-extensions 07-01-PLAN.md
 Resume file: None
 Next step: Phase 7 (LarsNet separation wiring)

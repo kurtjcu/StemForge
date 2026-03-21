@@ -42,7 +42,7 @@ Requirements for LarsNet Drum Sub-Separation milestone. Each maps to roadmap pha
 ### Drum Sub-Separation
 
 - [x] **SEP-01**: LarsNet model vendored and loadable from StemForge runtime environment
-- [ ] **SEP-02**: LarsNet separates drum stem into 5 per-instrument stereo sub-stems (kick, snare, hi-hat, toms, cymbals)
+- [x] **SEP-02**: LarsNet separates drum stem into 5 per-instrument stereo sub-stems (kick, snare, hi-hat, toms, cymbals)
 - [ ] **SEP-03**: Sub-stems playable in MIDI panel with transport bar integration
 - [ ] **SEP-04**: Sub-stems downloadable via Export tab (opt-in checkbox to avoid zip bloat)
 - [ ] **SEP-05**: Wiener filter "Reduce crosstalk" toggle (fixed alpha=2) for high-bleed recordings
@@ -65,7 +65,7 @@ Requirements for LarsNet Drum Sub-Separation milestone. Each maps to roadmap pha
 
 - [x] **INFRA-01**: LarsNetSpec registered in model registry with capabilities, cache subdir, license info
 - [x] **INFRA-02**: LarsNet lazy-loaded on first use with evict() for GPU memory release
-- [ ] **INFRA-03**: LarsNet evicted before ADTOF loads in LarsNet+ADTOF mode (VRAM safety)
+- [x] **INFRA-03**: LarsNet evicted before ADTOF loads in LarsNet+ADTOF mode (VRAM safety)
 - [ ] **INFRA-04**: Sub-stems stored in dedicated path (not mixed with primary stems in session)
 - [x] **INFRA-05**: LarsNet weight download helper script using gdown
 
@@ -134,7 +134,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | SEP-01 | Phase 5 | Complete |
-| SEP-02 | Phase 7 | Pending |
+| SEP-02 | Phase 7 | Complete |
 | SEP-03 | Phase 9 | Pending |
 | SEP-04 | Phase 11 | Pending |
 | SEP-05 | Phase 11 | Pending |
@@ -148,7 +148,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GUARD-03 | Phase 10 | Pending |
 | INFRA-01 | Phase 5 | Complete |
 | INFRA-02 | Phase 5 | Complete |
-| INFRA-03 | Phase 7 | Pending |
+| INFRA-03 | Phase 7 | Complete |
 | INFRA-04 | Phase 9 | Pending |
 | INFRA-05 | Phase 5 | Complete |
 
