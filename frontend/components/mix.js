@@ -172,6 +172,7 @@ export function initMix() {
   appState.on('transformReady', () => refreshTracks());
   appState.on('enhanceReady', () => refreshTracks());
   appState.on('midiInstrumentChanged', () => refreshTracks());
+  appState.on('drumSubStemsReady', () => refreshTracks());
 
   // Load GM programs for instrument selectors
   loadGmPrograms();

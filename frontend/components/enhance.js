@@ -460,6 +460,7 @@ export function initEnhance() {
   appState.on('enhanceReady', () => refreshStems());
   appState.on('generateReady', () => refreshStems());
   appState.on('composeReady', () => refreshStems());
+  appState.on('drumSubStemsReady', () => refreshStems());
 }
 
 // ─── Mode switching (Clean Up | Tune | Effects) ─────────────────────
