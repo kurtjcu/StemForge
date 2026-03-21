@@ -14,7 +14,7 @@ This milestone integrates LarsNet drum sub-separation into StemForge, adding thr
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 5: LarsNet Registry and Loader Stub** — Vendor LarsNet, resolve config/checkpoint paths, register LarsNetSpec, validate loader loads 5 U-Nets from outside the LarsNet directory
+- [x] **Phase 5: LarsNet Registry and Loader Stub** — Vendor LarsNet, resolve config/checkpoint paths, register LarsNetSpec, validate loader loads 5 U-Nets from outside the LarsNet directory (completed 2026-03-20)
 - [x] **Phase 6: Onset Detection Backend** — CPU-only energy onset detection with per-class delta thresholds, fully validated on synthetic audio before any LarsNet integration (completed 2026-03-20)
 - [ ] **Phase 7: MidiModelLoader Extensions** — Loader facade methods for all three modes with correct LarsNet-evicts-before-ADTOF sequencing
 - [ ] **Phase 8: MidiPipeline Mode Dispatcher** — drum_mode field on MidiConfig, _run_drum_mode() dispatcher, regression test confirming ADTOF-only path unchanged
@@ -34,7 +34,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. `LarsNetSpec` is importable from `models/registry.py` and `list_specs()` returns the LarsNet entry with correct capabilities, cache subdir, and CC BY-NC 4.0 license metadata
   4. `scripts/download_larsnet_weights.sh` (or equivalent `gdown`-based helper) downloads all 5 checkpoint files to `~/.cache/stemforge/larsnet/` and a missing-weights import raises a clear error with download instructions rather than a silent hang
   5. `LARSNET_STEM_KEYS = ("kick", "snare", "toms", "hihat", "cymbals")` is defined as a single constant sourced from config.yaml — not derived from the ADTOF registry class_labels
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 Plans:
 - [ ] 05-01-PLAN.md — Vendor LarsNet source files, add LarsNetSpec to registry
 - [ ] 05-02-PLAN.md — LarsNetBackend load/evict, download script, gdown dependency
@@ -118,7 +118,7 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 5. LarsNet Registry and Loader Stub | 1/2 | In Progress|  |
+| 5. LarsNet Registry and Loader Stub | 2/2 | Complete   | 2026-03-20 |
 | 6. Onset Detection Backend | 1/1 | Complete   | 2026-03-20 |
 | 7. MidiModelLoader Extensions | 0/1 | Planned | - |
 | 8. MidiPipeline Mode Dispatcher | 0/? | Not started | - |

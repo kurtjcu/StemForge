@@ -64,10 +64,10 @@ Requirements for LarsNet Drum Sub-Separation milestone. Each maps to roadmap pha
 ### Infrastructure
 
 - [x] **INFRA-01**: LarsNetSpec registered in model registry with capabilities, cache subdir, license info
-- [ ] **INFRA-02**: LarsNet lazy-loaded on first use with evict() for GPU memory release
+- [x] **INFRA-02**: LarsNet lazy-loaded on first use with evict() for GPU memory release
 - [ ] **INFRA-03**: LarsNet evicted before ADTOF loads in LarsNet+ADTOF mode (VRAM safety)
 - [ ] **INFRA-04**: Sub-stems stored in dedicated path (not mixed with primary stems in session)
-- [ ] **INFRA-05**: LarsNet weight download helper script using gdown
+- [x] **INFRA-05**: LarsNet weight download helper script using gdown
 
 ## Future Requirements
 
@@ -147,10 +147,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | GUARD-02 | Phase 9 | Pending |
 | GUARD-03 | Phase 10 | Pending |
 | INFRA-01 | Phase 5 | Complete |
-| INFRA-02 | Phase 5 | Pending |
+| INFRA-02 | Phase 5 | Complete |
 | INFRA-03 | Phase 7 | Pending |
 | INFRA-04 | Phase 9 | Pending |
-| INFRA-05 | Phase 5 | Pending |
+| INFRA-05 | Phase 5 | Complete |
 
 **Coverage:**
 - v1.0 requirements: 15 total, 15 complete
