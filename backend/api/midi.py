@@ -14,7 +14,8 @@ from pydantic import BaseModel
 from backend.services.job_manager import job_manager
 from backend.services.session_store import SessionStore, TrackState, get_user_session
 from backend.services import pipeline_manager
-from models.registry import DrumMidiSpec, list_specs
+from models.registry import DrumMidiSpec, LarsNetSpec, list_specs, get_spec
+from utils.cache import get_model_cache_dir
 from utils.paths import MIDI_DIR
 
 router = APIRouter(prefix="/api/midi", tags=["midi"])
@@ -87,6 +88,10 @@ STEM_IS_DRUM: dict[str, bool] = {
     "Drums & percussion": True,
 }
 
+# Guard rail constants for LarsNet mode pre-condition checks
+_LARSNET_MODES: frozenset[str] = frozenset({"larsnet_adtof", "larsnet_onset"})
+_DRUM_STEM_LABELS_API: frozenset[str] = frozenset({"drums", "Drums & percussion"})
+
 
 def _build_adt_model_list() -> list[dict]:
     """Return a list of ADT model metadata dicts from the model registry."""
@@ -129,6 +134,7 @@ class ExtractRequest(BaseModel):
     frame_threshold: float = 0.3
     min_note_ms: float = 58.0
     adt_model: str = "adtof-drums"
+    drum_mode: str = "adtof_only"
 
 
 class RenderRequest(BaseModel):
@@ -163,11 +169,15 @@ def _run_midi_extraction(
         pipeline.load_model()
 
         pipeline.set_progress_callback(_midi_cb)
-        result = pipeline.run(stems)
+        result = pipeline.run(stems, job_id=job_id)
 
     # Store in session and auto-add mix tracks
     session.merged_midi_data = result.merged_midi_data
     session.stem_midi_data = result.stem_midi_data or {}
+
+    # Store drum sub-stems in session (INFRA-04 — separate from stem_paths)
+    if hasattr(result, 'drum_sub_stems') and result.drum_sub_stems:
+        session.drum_sub_stem_paths = result.drum_sub_stems
 
     stem_info = {}
     for label, midi_data in (result.stem_midi_data or {}).items():
@@ -205,10 +215,38 @@ def start_extraction(req: ExtractRequest, session: SessionStore = Depends(get_us
     if not stem_paths:
         raise HTTPException(400, "No stems available — run separation first")
 
+    # GUARD-01: LarsNet modes require a drum stem in session
+    if req.drum_mode in _LARSNET_MODES:
+        has_drum = any(k in _DRUM_STEM_LABELS_API for k in stem_paths)
+        if not has_drum:
+            raise HTTPException(
+                400,
+                "LarsNet mode requires a drum stem in session. "
+                "Run separation first with a model that produces a drum stem "
+                "(Demucs: 'drums', BS-Roformer: 'Drums & percussion').",
+            )
+        # GUARD-02: LarsNet weights must be present on disk
+        try:
+            larsnet_spec = get_spec("larsnet-drums")
+            cache_dir = get_model_cache_dir(larsnet_spec.cache_subdir)
+            if not cache_dir.exists() or not any(cache_dir.glob("*.pth")):
+                raise HTTPException(
+                    400,
+                    "LarsNet weights not found. Download them with: "
+                    "bash scripts/download_larsnet_weights.sh",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            # Registry or cache lookup failure — let the worker handle it
+            pass
+
     # Filter to requested stems
     stems = {k: v for k, v in stem_paths.items() if k in req.stems}
     if not stems:
         raise HTTPException(422, f"None of {req.stems} found in session stems")
+
+    session.drum_mode = req.drum_mode
 
     config_kwargs = {
         "key": req.key,
@@ -219,6 +257,7 @@ def start_extraction(req: ExtractRequest, session: SessionStore = Depends(get_us
         "onset_threshold": req.onset_threshold,
         "frame_threshold": req.frame_threshold,
         "minimum_note_length": req.min_note_ms,
+        "drum_mode": req.drum_mode,
     }
 
     job_id = job_manager.create_job("midi", user=session.user)
@@ -352,6 +391,16 @@ def get_midi_stems(session: SessionStore = Depends(get_user_session)) -> dict:
         note_count = sum(len(inst.notes) for inst in midi_data.instruments)
         stem_info[label] = {"note_count": note_count}
     return {"labels": labels, "stem_info": stem_info}
+
+
+@router.get("/sub-stems")
+def get_drum_sub_stems(session: SessionStore = Depends(get_user_session)) -> dict:
+    """Return per-instrument drum sub-stem paths from the last LarsNet extraction."""
+    sub_stems = session.drum_sub_stem_paths
+    return {
+        "sub_stems": {label: str(path) for label, path in sub_stems.items()},
+        "count": len(sub_stems),
+    }
 
 
 @router.get("/gm-programs")

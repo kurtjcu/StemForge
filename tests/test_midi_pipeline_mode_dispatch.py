@@ -251,3 +251,49 @@ def test_default_drum_mode_is_adtof_only() -> None:
     assert cfg.drum_mode == "adtof_only", (
         f"Default drum_mode must be 'adtof_only', got {cfg.drum_mode!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 7: drum_mode persisted in SessionStore
+# ---------------------------------------------------------------------------
+
+
+def test_drum_mode_persisted_in_session():
+    """drum_mode is persisted to SessionStore and survives clear/re-set cycle."""
+    from backend.services.session_store import SessionStore
+    session = SessionStore()
+
+    # Default
+    assert session.drum_mode == "adtof_only"
+
+    # Set and read back
+    session.drum_mode = "larsnet_adtof"
+    assert session.drum_mode == "larsnet_adtof"
+
+    # Verify in to_dict
+    d = session.to_dict()
+    assert d["drum_mode"] == "larsnet_adtof"
+
+    # Clear resets to default
+    session.clear()
+    assert session.drum_mode == "adtof_only"
+
+    # Set to onset mode
+    session.drum_mode = "larsnet_onset"
+    assert session.drum_mode == "larsnet_onset"
+
+
+# ---------------------------------------------------------------------------
+# Test 8: ExtractRequest accepts drum_mode field
+# ---------------------------------------------------------------------------
+
+
+def test_extract_request_accepts_drum_mode():
+    """ExtractRequest model includes drum_mode field."""
+    from backend.api.midi import ExtractRequest
+    req = ExtractRequest(stems=["drums"], drum_mode="larsnet_adtof")
+    assert req.drum_mode == "larsnet_adtof"
+
+    # Default
+    req_default = ExtractRequest(stems=["drums"])
+    assert req_default.drum_mode == "adtof_only"
