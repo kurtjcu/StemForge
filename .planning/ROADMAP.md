@@ -103,7 +103,9 @@ Plans:
   3. Toms and cymbals sub-stem cards display a quality warning tooltip citing the nSDR benchmarks (toms ~9 dB, cymbals ~4 dB) — the warning is visible before the user plays the sub-stem
   4. Sub-stem cards do not appear in the Separate tab or any other tab — they are exclusive to the MIDI panel
   5. Sub-stems are forwarded via the event bus so the Mix and Enhance tabs can receive them as available audio sources
-**Plans**: TBD
+**Plans:** 1 plan
+Plans:
+- [ ] 10-01-PLAN.md — Mode selector, sub-stem cards, quality warnings, event bus forwarding
 
 ### Phase 11: Export Sub-Stem Download
 **Goal**: Users can optionally include drum sub-stems in export zips without polluting the default export for users who only ran LarsNet for MIDI quality improvement
@@ -128,7 +130,7 @@ Phases 5 and 6 can be developed in parallel once Phase 5's vendoring setup is co
 | 7. MidiModelLoader Extensions | 1/1 | Complete   | 2026-03-21 |
 | 8. MidiPipeline Mode Dispatcher | 2/2 | Complete   | 2026-03-21 |
 | 9. Session Store and API Endpoints | 1/1 | Complete   | 2026-03-21 |
-| 10. Frontend Mode Selector and Sub-Stem Cards | 0/? | Not started | - |
+| 10. Frontend Mode Selector and Sub-Stem Cards | 0/1 | Planned | - |
 | 11. Export Sub-Stem Download | 0/? | Not started | - |
 
 ---

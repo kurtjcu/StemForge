@@ -23,6 +23,13 @@ let _lilypondAvailable = false;
 /** All active MIDI card players — for exclusive playback. */
 const midiPlayers = [];
 
+const SUBSTEM_WARNINGS = {
+  toms:    'Low separation quality: toms ~9 dB nSDR in benchmark. Bleed from other drums expected.',
+  cymbals: 'Low separation quality: cymbals ~4 dB nSDR in benchmark. Results may be unreliable.',
+};
+
+const STEM_ORDER = ['kick', 'snare', 'hihat', 'toms', 'cymbals'];
+
 function stopOtherPlayers(except) {
   for (const p of midiPlayers) {
     if (p.ws !== except && p.ws.isPlaying()) {
@@ -51,6 +58,19 @@ export function initMidi() {
     el('select', { id: 'midi-adt-model' }),
     el('p', { className: 'text-dim', style: { fontSize: '12px', margin: '4px 0 0' } },
       'Best results with acoustic drums. Electronic/programmed drums may have lower accuracy.',
+    ),
+  );
+
+  const modeGroup = el('div', { className: 'form-group', id: 'midi-mode-group' },
+    el('label', {}, 'Drum MIDI Mode'),
+    el('select', { id: 'midi-drum-mode' },
+      el('option', { value: 'adtof_only' }, 'ADTOF only'),
+      el('option', { value: 'larsnet_adtof' }, 'LarsNet + ADTOF'),
+      el('option', { value: 'larsnet_onset' }, 'LarsNet + onset'),
+    ),
+    el('p', { className: 'text-dim', style: { fontSize: '12px', margin: '4px 0 0' },
+               id: 'midi-mode-hint' },
+      'LarsNet modes require a drum stem in session.',
     ),
   );
 
@@ -113,7 +133,7 @@ export function initMidi() {
   const importInput = el('input', { type: 'file', accept: '.mid,.midi', style: { display: 'none' }, id: 'midi-import-input' });
   const importBtn = el('button', { className: 'btn btn-sm', id: 'midi-import' }, 'Import MIDI file');
 
-  left.append(stemSection, adtGroup, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn, importInput, importBtn);
+  left.append(stemSection, adtGroup, modeGroup, keyGroup, bpmGroup, tsGroup, onsetGroup, frameGroup, sf2Group, extractBtn, importInput, importBtn);
 
   // ─── Right: results ───
   const right = el('div', { className: 'col-right' });
@@ -272,6 +292,25 @@ function syncAdtGroupVisibility() {
   ).some(cb => isDrumStem(cb.value));
   const adtGroup = document.getElementById('midi-adt-group');
   if (adtGroup) adtGroup.classList.toggle('hidden', !hasDrum);
+  syncModeGroupState();
+}
+
+function syncModeGroupState() {
+  const hasDrumStem = Array.from(
+    document.querySelectorAll('#midi-stems input[type="checkbox"]')
+  ).some(cb => isDrumStem(cb.value));
+
+  const sel = document.getElementById('midi-drum-mode');
+  if (!sel) return;
+  for (const opt of sel.options) {
+    if (opt.value === 'adtof_only') continue;
+    opt.disabled = !hasDrumStem;
+    opt.title = hasDrumStem ? '' : 'Requires a drum stem \u2014 run separation first';
+  }
+  if (sel.selectedOptions[0]?.disabled) sel.value = 'adtof_only';
+
+  const hint = document.getElementById('midi-mode-hint');
+  if (hint) hint.classList.toggle('hidden', hasDrumStem);
 }
 
 async function startExtraction() {
@@ -297,6 +336,7 @@ async function startExtraction() {
         onset_threshold: parseFloat(document.getElementById('midi-onset').value),
         frame_threshold: parseFloat(document.getElementById('midi-frame').value),
         adt_model: document.getElementById('midi-adt-model')?.value || 'adtof-drums',
+        drum_mode: document.getElementById('midi-drum-mode')?.value || 'adtof_only',
       }),
     });
 
@@ -309,6 +349,13 @@ async function startExtraction() {
       onDone(result) {
         progressCard.classList.add('hidden');
         document.getElementById('midi-start').disabled = false;
+
+        // Fetch and render sub-stem cards if available (LarsNet modes)
+        api('/midi/sub-stems').then(data => {
+          const subStems = data.sub_stems || {};
+          showSubStemCards(subStems);
+        }).catch(() => { /* no sub-stems available */ });
+
         showMidiResults(result);
       },
       onError(msg) {
@@ -357,6 +404,91 @@ async function handleMidiImport() {
     importBtn.textContent = 'Import MIDI file';
     importBtn.disabled = false;
   }
+}
+
+function showSubStemCards(subStemPaths) {
+  if (Object.keys(subStemPaths).length === 0) return;
+
+  const container = document.getElementById('midi-results');
+
+  container.prepend(
+    el('div', { className: 'form-group', id: 'midi-substem-header' },
+      el('label', {}, 'Drum Sub-Stems (LarsNet)'),
+    ),
+  );
+
+  for (const stemKey of STEM_ORDER) {
+    const stemPath = subStemPaths[stemKey];
+    if (!stemPath) continue;
+    buildSubStemCard(stemKey, stemPath, container);
+  }
+
+  appState.emit('drumSubStemsReady', subStemPaths);
+}
+
+function buildSubStemCard(stemKey, stemPath, container) {
+  const warning = SUBSTEM_WARNINGS[stemKey];
+  const url = `/api/audio/stream?path=${encodeURIComponent(stemPath)}`;
+  const displayLabel = stemKey.charAt(0).toUpperCase() + stemKey.slice(1);
+  const transportLabel = `LarsNet \u2014 ${stemKey}`;
+
+  const card = el('div', { className: 'stem-card' });
+
+  const warningBadge = warning
+    ? el('span', {
+        className: 'banner banner-warn',
+        style: { padding: '2px 6px', fontSize: '11px', marginLeft: '8px' },
+        title: warning,
+      }, 'Low quality')
+    : null;
+
+  const playBtn = el('button', { className: 'btn btn-sm', disabled: true }, '\u25B6 Play');
+  const stopBtn = el('button', { className: 'btn btn-sm' }, '\u25A0 Stop');
+  const timeLabel = el('span', { className: 'stem-time' }, '0:00 / 0:00');
+
+  const headerChildren = [displayLabel];
+  if (warningBadge) headerChildren.push(warningBadge);
+
+  const header = el('div', { className: 'stem-card-header' },
+    el('span', { className: 'stem-label' }, ...headerChildren),
+    el('div', { className: 'stem-actions' }, playBtn, stopBtn, timeLabel),
+  );
+
+  const waveContainer = el('div', { className: 'stem-waveform' });
+  card.append(header, waveContainer);
+  container.appendChild(card);
+
+  const ws = createWaveform(waveContainer, { height: 50, color: 'audio' });
+
+  ws.on('timeupdate', (time) => {
+    const dur = ws.getDuration();
+    timeLabel.textContent = `${formatTime(time)} / ${formatTime(dur)}`;
+  });
+
+  ws.on('finish', () => {
+    playBtn.textContent = '\u25B6 Play';
+    transportStop();
+  });
+
+  ws.load(url);
+  ws.once('ready', () => { playBtn.disabled = false; });
+
+  playBtn.addEventListener('click', () => {
+    if (ws.isPlaying()) {
+      ws.pause();
+      playBtn.textContent = '\u25B6 Play';
+    } else {
+      ws.play();
+      playBtn.textContent = '\u23F8 Pause';
+      transportLoad(url, transportLabel, false, 'MIDI (LarsNet)');
+    }
+  });
+
+  stopBtn.addEventListener('click', () => {
+    ws.stop();
+    transportStop();
+    playBtn.textContent = '\u25B6 Play';
+  });
 }
 
 function showMidiResults(result) {
