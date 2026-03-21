@@ -33,6 +33,7 @@ import time
 from typing import Any, Callable
 
 from models.midi_loader import MidiModelLoader
+from pipelines.onset_backend import OnsetBackend
 from utils.midi_io import (
     NoteEvent, LyricEvent, MidiData,
     notes_to_midi, write_midi, merge_tracks, generate_chord_progression,
@@ -60,6 +61,35 @@ _DRUM_STEM_LABELS: frozenset[str] = frozenset({
     "drums",                  # Demucs htdemucs / mdx_extra output label
     "Drums & percussion",     # BS-Roformer jarredou-6stem / zfturbo-4stem output label
 })
+
+_VALID_DRUM_MODES: frozenset[str] = frozenset({"adtof_only", "larsnet_adtof", "larsnet_onset"})
+
+_LARSNET_STEM_TO_GM_NOTE: dict[str, int] = {
+    "kick":    35,   # GM 35 = Acoustic Bass Drum
+    "snare":   38,   # GM 38 = Acoustic Snare
+    "hihat":   42,   # GM 42 = Closed Hi-Hat
+    "toms":    47,   # GM 47 = Mid Tom
+    "cymbals": 49,   # GM 49 = Crash Cymbal 1
+}
+
+
+# ---------------------------------------------------------------------------
+# Module helpers
+# ---------------------------------------------------------------------------
+
+def _load_drum_tensor(path: pathlib.Path) -> "torch.Tensor":
+    """Load drum WAV as stereo float32 tensor at 44100 Hz."""
+    import torch
+    import torchaudio
+    waveform, sr = torchaudio.load(str(path))
+    if sr != 44100:
+        import torchaudio.functional as F
+        waveform = F.resample(waveform, orig_freq=sr, new_freq=44100)
+    if waveform.shape[0] == 1:
+        waveform = waveform.expand(2, -1)
+    elif waveform.shape[0] > 2:
+        waveform = waveform[:2]
+    return waveform
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +138,7 @@ class MidiConfig:
     frame_threshold: float
     minimum_note_length: float
     output_dir: pathlib.Path | None
+    drum_mode: str
 
     def __init__(
         self,
@@ -120,6 +151,7 @@ class MidiConfig:
         frame_threshold: float = 0.3,
         minimum_note_length: float = 58.0,
         output_dir: pathlib.Path | None = None,
+        drum_mode: str = "adtof_only",
     ) -> None:
         self.prompt = prompt.strip() if prompt else None
         self.duration_seconds = max(1.0, float(duration_seconds)) if float(duration_seconds) > 0 else 0.0
@@ -130,6 +162,12 @@ class MidiConfig:
         self.frame_threshold = float(frame_threshold)
         self.minimum_note_length = float(minimum_note_length)
         self.output_dir = pathlib.Path(output_dir) if output_dir is not None else None
+        if drum_mode not in _VALID_DRUM_MODES:
+            raise InvalidInputError(
+                f"Unknown drum_mode {drum_mode!r}. Expected one of {sorted(_VALID_DRUM_MODES)}.",
+                field="drum_mode",
+            )
+        self.drum_mode = drum_mode
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +197,7 @@ class MidiResult:
     stem_midi_data: dict[str, Any]
     note_counts: dict[str, int]
     total_notes: int
+    drum_sub_stems: dict[str, pathlib.Path]
 
     def __init__(
         self,
@@ -166,11 +205,13 @@ class MidiResult:
         stem_midi_data: dict[str, Any],
         note_counts: dict[str, int],
         total_notes: int,
+        drum_sub_stems: dict[str, pathlib.Path] | None = None,
     ) -> None:
         self.merged_midi_data = merged_midi_data
         self.stem_midi_data = dict(stem_midi_data)
         self.note_counts = dict(note_counts)
         self.total_notes = int(total_notes)
+        self.drum_sub_stems: dict[str, pathlib.Path] = dict(drum_sub_stems or {})
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +291,7 @@ class MidiPipeline:
     # Execution
     # ------------------------------------------------------------------
 
-    def run(self, stems: dict[str, pathlib.Path]) -> "MidiResult":
+    def run(self, stems: dict[str, pathlib.Path], *, job_id: str | None = None) -> "MidiResult":
         """Generate MIDI from *stems* and/or a text prompt.
 
         Parameters
@@ -286,6 +327,10 @@ class MidiPipeline:
                 pipeline_name="midi",
             )
 
+        if job_id is None:
+            import uuid
+            job_id = str(uuid.uuid4())
+
         cfg = self._config
         has_stems = bool(stems)
         has_prompt = bool(cfg.prompt)
@@ -309,6 +354,7 @@ class MidiPipeline:
         track_notes: dict[str, list[NoteEvent]] = {}
         track_lyrics: dict[str, list[LyricEvent]] = {}
         stem_midi_data: dict[str, Any] = {}
+        drum_sub_stems: dict[str, pathlib.Path] = {}
 
         if has_stems:
             total = len(stems)
@@ -329,11 +375,35 @@ class MidiPipeline:
                         track_lyrics[label] = lyrics
 
                 elif label in _DRUM_STEM_LABELS:
-                    log.info("MidiPipeline: routing '%s' to drum ADT path.", label)
+                    log.info("MidiPipeline: routing '%s' to drum path (mode=%s).", label, cfg.drum_mode)
                     self._report(base_pct + 2.0)                    # stage 1: before loading
-                    notes = self._loader.convert_drum_to_midi(
-                        path, duration=cfg.duration_seconds,
-                    )
+
+                    if cfg.drum_mode == "adtof_only":
+                        notes = self._loader.convert_drum_to_midi(
+                            path, duration=cfg.duration_seconds,
+                        )
+
+                    elif cfg.drum_mode == "larsnet_adtof":
+                        audio_tensor = _load_drum_tensor(path)
+                        sub_stems, notes = self._loader.convert_drum_to_midi_with_larsnet(
+                            audio_tensor, job_id, duration=cfg.duration_seconds,
+                        )
+                        drum_sub_stems.update(sub_stems)
+
+                    elif cfg.drum_mode == "larsnet_onset":
+                        audio_tensor = _load_drum_tensor(path)
+                        sub_stem_paths = self._loader.separate_drums(audio_tensor, job_id)
+                        drum_sub_stems.update(sub_stem_paths)
+                        self._loader.evict_larsnet()
+                        onset_backend = OnsetBackend()
+                        all_notes: list[NoteEvent] = []
+                        for stem_name, stem_path in sub_stem_paths.items():
+                            gm_note = _LARSNET_STEM_TO_GM_NOTE[stem_name]
+                            stem_events = onset_backend.detect(stem_path, gm_note)
+                            all_notes.extend(stem_events)
+                        all_notes.sort(key=lambda e: e[0])
+                        notes = all_notes
+
                     self._report(base_pct + 10.0)                   # stage 2: after loading/predict
                     self._report(base_pct + (1.0 / total) * 70.0)  # stage 3: done
 
@@ -406,6 +476,7 @@ class MidiPipeline:
             stem_midi_data=stem_midi_data,
             note_counts=note_counts,
             total_notes=total_notes,
+            drum_sub_stems=drum_sub_stems,
         )
 
     # ------------------------------------------------------------------
