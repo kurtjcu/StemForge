@@ -1,9 +1,9 @@
 """
 End-to-end smoke test for VocalMidiPipeline.
 
-Uses the ACE-Step pair:
-  /home/tsondo/OneDrive/Documents/Ace/7cb32358-09fd-51b8-68fe-f99d80af37ad.flac
-  /home/tsondo/OneDrive/Documents/Ace/7cb32358-09fd-51b8-68fe-f99d80af37ad.json
+Set ACE_TEST_DIR to the directory containing the test pair:
+  7cb32358-09fd-51b8-68fe-f99d80af37ad.flac
+  7cb32358-09fd-51b8-68fe-f99d80af37ad.json
 
 Output MIDI is written to tests/data/test_output.mid.
 
@@ -14,10 +14,11 @@ Expected runtime (CPU):
   Quantise + assemble < 1 s
 """
 
+import os
 import pathlib
 import time
 
-ACE_DIR   = pathlib.Path("/home/tsondo/OneDrive/Documents/Ace")
+ACE_DIR   = pathlib.Path(os.environ.get("ACE_TEST_DIR", pathlib.Path.home() / "OneDrive/Documents/Ace"))
 AUDIO     = ACE_DIR / "7cb32358-09fd-51b8-68fe-f99d80af37ad.flac"
 JSON      = ACE_DIR / "7cb32358-09fd-51b8-68fe-f99d80af37ad.json"
 OUT_MIDI  = pathlib.Path("tests/data/test_output.mid")
